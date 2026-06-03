@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage-outputs/ingest.schema.json",
+  "title": "Stage 1: Ingest Output",
+  "description": "Parsed CR bundle — structured internal representation of all input artifacts.",
+  "type": "object",
+  "required": ["change_id", "itsm_record", "schedule", "incidents"],
+  "properties": {
+    "change_id": { "type": "string" },
+    "itsm_record": {
+      "type": "object",
+      "description": "Raw ITSM record fields, preserved as-is from input"
+    },
+    "runbook": {
+      "type": ["object", "null"],
+      "required": ["sections", "steps"],
+      "properties": {
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "heading": { "type": "string" },
+              "content": { "type": "string" }
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["step_number", "text"],
+            "properties": {
+              "step_number": { "type": "integer" },
+              "text": { "type": "string" },
+              "service_refs": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "commands": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "rollback": {
+      "type": ["object", "null"],
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["step_number", "text"],
+            "properties": {
+              "step_number": { "type": "integer" },
+              "text": { "type": "string" }
+            }
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "duration_estimate": { "type": ["string", "null"] }
+      }
+    },
+    "cmdb": {
+      "type": ["object", "null"],
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": { "type": "array" },
+        "edges": { "type": "array" }
+      }
+    },
+    "sla": { "type": ["array", "null"] },
+    "schedule": { "type": "array" },
+    "comms": { "type": ["object", "null"] },
+    "incidents": { "type": "array" },
+    "pr_flags": { "type": ["object", "null"] }
+  },
+  "additionalProperties": false
+}

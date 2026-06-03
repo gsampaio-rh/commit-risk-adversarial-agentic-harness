@@ -1,0 +1,99 @@
+{
+  "project": "itsm-change-request-analyzer",
+  "created": "2026-06-03T20:15:00Z",
+  "schema_version": 2,
+  "vision": "A 9-stage pipeline that pre-analyzes ITSM change requests for CAB meetings, working with real-world incomplete data from day one. Treats missing artifacts as findings, not errors. Validates against BPI Challenge 2014 real ITIL change records from Rabobank.",
+  "direction": "Python 3.12+, Pydantic v2, sequential pipeline with disk checkpoints. Real-first data strategy: BPI 2014 as primary dataset, synthetic fixtures as regression tests. All stages at L1 (script-only, $0 LLM). Graceful degradation: stages skip or degrade when input artifacts are missing.",
+  "trade_offs": [
+    {
+      "decision": "Real-first with BPI 2014 instead of synthetic-first",
+      "alternative": "Build synthetic generator first (original IMPLEMENTATION-PLAN.md)",
+      "reasoning": "Real data grounds the pipeline in actual ITSM patterns. Synthetic data follows ITIL templates by construction and is too clean. Starting with real data forces graceful degradation from day one."
+    },
+    {
+      "decision": "Pipeline accepts partial CR bundles (only itsm_record required)",
+      "alternative": "Require all 7 mandatory artifacts as originally designed",
+      "reasoning": "Real-world CRs are incomplete. No public dataset has runbooks or rollback plans. Enterprise data is also often incomplete. Partial acceptance is both realistic and necessary for real-data validation."
+    },
+    {
+      "decision": "Spike on BPI 2014 before finalizing schema changes",
+      "alternative": "Finalize schemas first based on ARCHITECTURE.md design",
+      "reasoning": "Schema changes depend on understanding what fields actually exist in the real data. Designing schemas before exploring data risks rework."
+    }
+  ],
+  "open_questions": [
+    "[RESOLVED] BPI 2014: 21 cols, semicolon CSV, multi-CI per change, 18K unique changes. See .harness/spike-bpi2014.md",
+    "[RESOLVED] CAB windows: filter CAB-approval needed=Y, group by ISO week → 51 windows, 1-21 changes each",
+    "[RESOLVED] GT: 56 (CI, ChangeType) tuples with >=2 incidents → natural ground truth for Historical Pattern",
+    "How to map 240 Change Types to standard/normal/emergency? Pattern: Standard*→standard, Release*→normal, Emergency flag→emergency",
+    "CI Name vs Service Component WBS as service identifier? WBS=286 groups (service-level), CI Name=10K individual items",
+    "Co-occurrence graph for Stage 7: 25K overlaps exist but co-occurrence != dependency. Worth implementing or just skip?",
+    "[PENDING] Define MVP scope: which of the 9 stages are in-scope for MVP? BPI 2014 supports 5 well (Ingest, Normalize, Completeness, Schedule overlap, Historical Pattern). Stages 4/5/7 have no data, SLA math has 97% missing. Also: what output format for MVP (JSON only vs JSON+Markdown report)?"
+  ],
+  "tasks": [
+    {
+      "id": "spike-1",
+      "name": "Explore BPI 2014 dataset",
+      "type": "spike",
+      "status": "verified",
+      "scope": "Download BPI 2014 from 4TU.ResearchData. Document CSV structure, field names, types, cardinality. Map fields to our itsm_record schema. Identify how to derive CAB windows. Assess change-to-incident linkage quality for Historical Pattern. Produce a data exploration report.",
+      "findings": "See .harness/spike-bpi2014.md — 18K changes, 46K incidents, 374 CAB changes in 51 weeks, 56 recurring (CI,ChangeType) patterns for GT, 25K schedule overlaps, 97% missing downtime (no SLA), no prose artifacts"
+    },
+    {
+      "id": "chore-1",
+      "name": "Align docs and schemas with real-first strategy",
+      "type": "chore",
+      "status": "verified",
+      "scope": "Update DECISIONS.md, schemas (cr-bundle, ingest, normalize, schedule-sla, cab-report, cab-summary), ARCHITECTURE.md, USE-CASE.md, IMPLEMENTATION-PLAN.md, README.md to reflect real-first BPI 2014 strategy, partial CR bundles, conditional stages, and spike findings. Move skeptic audit JSON to .harness/audits/."
+    },
+    {
+      "id": "chore-2",
+      "name": "Slim down itsm-change-request/ — remove ceremony",
+      "type": "chore",
+      "status": "verified",
+      "scope": "Archive SKEPTIC-REVIEW, DECISIONS, IMPLEMENTATION-PLAN, USE-CASE to .harness/archive/docs/. Archive 12 standalone JSON schemas to .harness/archive/schemas/ (Pydantic is source of truth). Reduce fixtures to cr-001 only, archive cr-002/003/expected. Consolidate USE-CASE into README. Remove stray .venv. Result: 55 files → 12 files."
+    },
+    {
+      "id": "feat-1",
+      "name": "Project setup + Pydantic models",
+      "type": "feature",
+      "status": "pending",
+      "scope": "pyproject.toml, directory structure, .gitignore, Pydantic v2 models as source of truth (no standalone JSON schemas). Models informed by spike-1 findings and archived schemas as reference."
+    },
+    {
+      "id": "feat-2",
+      "name": "BPI 2014 adapter",
+      "type": "feature",
+      "status": "pending",
+      "scope": "CSV parser that produces CRBundle objects from BPI 2014 data. Maps fields discovered in spike-1. Includes incident linkage."
+    },
+    {
+      "id": "feat-3",
+      "name": "Core pipeline: Ingest + Normalize (tolerant)",
+      "type": "feature",
+      "status": "pending",
+      "scope": "Stage 1 Ingest and Stage 2 Normalize that accept partial CR bundles. Validated on both BPI 2014 and synthetic fixtures."
+    },
+    {
+      "id": "feat-4",
+      "name": "Completeness Check + Historical Pattern",
+      "type": "feature",
+      "status": "pending",
+      "scope": "Stage 3 Completeness (enhanced severity for missing artifacts) and Stage 8 Historical Pattern (real incident data from BPI 2014)."
+    },
+    {
+      "id": "feat-5",
+      "name": "Schedule & SLA + conditional stages",
+      "type": "feature",
+      "status": "pending",
+      "scope": "Stage 6 Schedule overlap (degraded without SLA). Stages 4, 5, 7 conditional (skip when artifacts missing). Stage 7 co-occurrence fallback TBD based on spike-1."
+    },
+    {
+      "id": "feat-6",
+      "name": "Risk Synthesis + E2E runner",
+      "type": "feature",
+      "status": "pending",
+      "scope": "Stage 9 Risk Synthesis handling skipped stages. E2E pipeline runner with conditional stage execution, disk checkpoints, status tracking."
+    }
+  ]
+}

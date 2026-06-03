@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage-outputs/rollback-assess.schema.json",
+  "title": "Stage 5: Rollback Feasibility Output",
+  "description": "Rollback plan feasibility assessment including irreversibility detection.",
+  "type": "object",
+  "required": ["change_id", "findings", "feasibility_verdict"],
+  "properties": {
+    "change_id": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "../finding.schema.json" }
+    },
+    "feasibility_verdict": {
+      "type": "string",
+      "enum": ["feasible", "conditional", "infeasible"]
+    },
+    "estimated_duration_min": {
+      "type": ["number", "null"],
+      "description": "Estimated rollback duration extracted from plan text"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,3 @@
+[
+  {"incident_id": "INC-2025-1892", "service": "notification-queue", "change_category": "config_update", "severity": "P4", "root_cause_summary": "Queue consumer lag spike after config deploy — resolved by scaling consumer group", "date": "2025-11-15"}
+]

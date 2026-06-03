@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# IDE
+.cursor/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Pipeline output
+output/
+
+# Data (large CSVs, download locally)
+data/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/

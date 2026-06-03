@@ -1,0 +1,36 @@
+{
+  "task_id": "chore-1",
+  "feature": "Align all documentation and schemas with real-first BPI 2014 strategy",
+  "problem": "All docs and schemas were written for synthetic-first, full-bundle, always-run-9-stages. The spike proved we're going real-first with partial bundles and conditional stages. Building against outdated schemas means the implementation contract is wrong from day one.",
+  "proposed_solution": "Update 14 files in priority order: DECISIONS.md (new entry), 6 schemas (partial bundles + degraded flags), ARCHITECTURE.md (dataset/GT/pipeline), USE-CASE.md + README.md + IMPLEMENTATION-PLAN.md (narrative), fixture README (relabel), move skeptic audit to .harness/. No deletions — synthetic fixtures kept as regression tests.",
+  "acceptance_criteria": [
+    "cr-bundle.schema.json: `required` array equals exactly `[\"itsm_record\"]`; properties `runbook`, `rollback_plan`, `cmdb_snapshot`, `sla_definitions`, `maintenance_schedule`, `incident_history`, and `communication_plan` each have JSON Schema type including `null` (e.g. `[\"string\", \"null\"]` or union with null object types)",
+    "ingest.schema.json: properties `runbook`, `rollback`, `cmdb`, and `sla` each allow `null`; none of those four appear in the top-level `required` array",
+    "normalize.schema.json: same null-tolerance as ingest for artifact-derived fields (runbook, rollback, cmdb, sla or equivalent property names used in that schema)",
+    "schedule-sla.schema.json: includes a required or conditionally-required field `sla_analysis_mode` with enum values including at least `full`, `overlap_only`, and `not_applicable`; when mode is `not_applicable` or `overlap_only`, `sla_impact` may be empty array",
+    "cab-report.schema.json: includes required fields `stages_skipped` (array of stage IDs or names) and `analysis_coverage` (object with integer counts for `executed`, `skipped`, and `degraded`)",
+    "cab-summary.schema.json: `aggregate_sla_impact` documents degraded mode (field, enum, or description) when SLA definitions are absent — not only full tier-breach math",
+    "DECISIONS.md: first decision entry (after header) is dated 2026-06-03 or later, title or heading contains \"Real-First\" or \"real-first\", references `.harness/spike-bpi2014.md` by path, and states BPI Challenge 2014 as primary dataset",
+    "ARCHITECTURE.md Primary Dataset table: row for BPI Challenge 2014 appears before any synthetic generator row and is labeled primary/supplementary respectively",
+    "ARCHITECTURE.md Pipeline section: stages 4 (Runbook), 5 (Rollback), and 7 (Dependency Chain) documented as skip when input artifact absent; stage 6 (Schedule & SLA) documented as degraded to overlap-only when `sla_definitions` absent (cite 97% missing downtime from spike)",
+    "IMPLEMENTATION-PLAN.md: BPI 2014 adapter appears before synthetic data generator in step order; Completeness Check and Historical Pattern called out as primary-value milestones (not deferred to post-synthetic)",
+    "USE-CASE.md constraints table: zero matches for strings `synthetic-only P0 evaluation` and `ZERO public ITSM CRs`; at least one row cites BPI Challenge 2014 as primary P0/P1 evaluation data",
+    "README.md: states BPI 2014 as primary dataset and synthetic fixtures as regression; Quick Start `check-jsonschema` example validates a full assembled bundle JSON (not `itsm_record.json` alone)",
+    "fixtures/cab-window-01/README.md: contains the phrases `full-bundle synthetic`, `secondary`, and `BPI` (case-insensitive for BPI)",
+    "File `itsm-change-request/audits/skeptic-itsm-change-request-2026-06-03.json` does not exist; file `.harness/audits/skeptic-itsm-change-request-2026-06-03.json` exists; `itsm-change-request/SKEPTIC-REVIEW.md` audit link targets `.harness/audits/skeptic-itsm-change-request-2026-06-03.json`",
+    "All 12 files matching `itsm-change-request/schemas/**/*.schema.json` pass `check-jsonschema --check-metaschema` with exit code 0"
+  ],
+  "edge_cases": [
+    "Assembled full bundle from `fixtures/cab-window-01/cr-00{1,2,3}/` (all artifact files merged into one JSON object per CR) validates against updated `cr-bundle.schema.json` with exit code 0",
+    "Minimal bundle `{\"itsm_record\": <valid itsm_record from cr-001>}` validates against updated `cr-bundle.schema.json` with exit code 0",
+    "ARCHITECTURE.md evolution levels (L0–L3) and per-stage LLM justification sections are unchanged except dataset/GT/pipeline subsections — grep shows same stage count (9) and evolution table still present",
+    "No broken markdown links: `rg 'audits/skeptic-itsm-change-request' itsm-change-request/` returns zero matches after move"
+  ],
+  "verification_method": "From repository root: `export PATH=\"$(pwd):$(pwd)/.venv/bin:$PATH\"` (or `make verify-chore-1` runs ./scripts/verify-chore-1.sh for steps 1–5). 1) `check-jsonschema --check-metaschema itsm-change-request/schemas/**/*.schema.json` (12 files, exit 0). 2) `cd itsm-change-request` — for each cr-001..003, assemble bundle JSON from directory files and run `check-jsonschema --schemafile schemas/cr-bundle.schema.json bundle.json`; validate minimal itsm_record-only bundle. 3) `rg -F 'synthetic-only P0 evaluation' itsm-change-request/USE-CASE.md` exit 1; `rg -i 'BPI' itsm-change-request/USE-CASE.md` exit 0. 4) `test ! -f itsm-change-request/audits/skeptic-itsm-change-request-2026-06-03.json && test -f .harness/audits/skeptic-itsm-change-request-2026-06-03.json`. 5) `rg 'audits/skeptic-itsm-change-request' itsm-change-request/` exit 1. 6) Read DECISIONS.md first entry, ARCHITECTURE.md Primary Dataset + Pipeline, IMPLEMENTATION-PLAN step order, README Quick Start, fixture README; confirm SKEPTIC-REVIEW.md links harness-audit-skeptic-2026-06-03.json symlink resolving to .harness/audits/skeptic-itsm-change-request-2026-06-03.json.",
+  "rubrics": ["code-quality", "organization"],
+  "rubric_mode": "warn",
+  "negotiation_rounds": 1,
+  "negotiation_notes": "Round 1: 4 criteria strengthened, 3 added (cab-summary, README, cross-ref), 4 edge cases strengthened/added. Original criterion 3 (vague mechanism) and 4 (unnamed fields) replaced with enum/field names. Fixture validation now requires explicit bundle assembly. phase=negotiated.",
+  "phase": "evaluating",
+  "verified": true
+}

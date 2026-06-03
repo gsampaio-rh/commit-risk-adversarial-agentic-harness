@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage-outputs/cab-summary.schema.json",
+  "title": "Stage 9: CAB Window Summary",
+  "description": "Aggregate summary across all CRs in a CAB window batch.",
+  "type": "object",
+  "required": [
+    "window_id",
+    "total_crs",
+    "disposition_breakdown",
+    "cross_cr_conflicts",
+    "aggregate_sla_impact",
+    "sla_analysis_mode",
+    "processing"
+  ],
+  "properties": {
+    "sla_analysis_mode": {
+      "type": "string",
+      "enum": ["full", "overlap_only", "not_applicable"],
+      "description": "Mirrors schedule-sla stage: when overlap_only or not_applicable, aggregate_sla_impact may be empty (no tier-breach math)"
+    },
+    "window_id": { "type": "string" },
+    "total_crs": { "type": "integer", "minimum": 1 },
+    "disposition_breakdown": {
+      "type": "object",
+      "required": ["approve", "conditional", "reject"],
+      "properties": {
+        "approve": { "type": "integer", "minimum": 0 },
+        "conditional": { "type": "integer", "minimum": 0 },
+        "reject": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "cross_cr_conflicts": {
+      "type": "array",
+      "description": "Scheduling conflicts and dependency ordering violations across CRs",
+      "items": {
+        "type": "object",
+        "required": ["type", "cr_pair", "description"],
+        "properties": {
+          "type": { "type": "string", "enum": ["scheduling_overlap", "dependency_inversion", "sla_breach"] },
+          "cr_pair": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "description": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "aggregate_sla_impact": {
+      "type": "array",
+      "description": "Per-tier union downtime and breach flags when sla_analysis_mode is full; empty array when degraded (overlap_only or not_applicable)",
+      "items": {
+        "type": "object",
+        "required": ["tier", "total_union_downtime_min", "budget_min", "remaining_min", "breach"],
+        "properties": {
+          "tier": { "type": "integer" },
+          "total_union_downtime_min": { "type": "number" },
+          "budget_min": { "type": "number" },
+          "remaining_min": { "type": "number" },
+          "breach": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "processing": {
+      "type": "object",
+      "required": ["wall_clock_seconds", "cost_usd"],
+      "properties": {
+        "wall_clock_seconds": { "type": "number" },
+        "cost_usd": { "type": "number" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage-outputs/normalize.schema.json",
+  "title": "Stage 2: Normalize Output",
+  "description": "Vendor-neutral CR with standardized fields and derived enrichments.",
+  "type": "object",
+  "required": [
+    "change_id",
+    "type",
+    "risk_category",
+    "title",
+    "description",
+    "affected_services",
+    "requestor",
+    "approvers",
+    "scheduled_window",
+    "expected_duration_min",
+    "is_customer_facing",
+    "affected_tier",
+    "schedule",
+    "incidents"
+  ],
+  "properties": {
+    "change_id": { "type": "string" },
+    "type": { "type": "string", "enum": ["standard", "normal", "emergency"] },
+    "risk_category": { "type": "string", "enum": ["low", "medium", "high"] },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "affected_services": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "requestor": { "type": "string" },
+    "approvers": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "scheduled_window": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" }
+      }
+    },
+    "expected_duration_min": { "type": "number", "minimum": 0 },
+    "is_customer_facing": {
+      "type": "boolean",
+      "description": "Derived from CMDB tier: tier 1-2 = true"
+    },
+    "affected_tier": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Highest (lowest number) tier among affected services"
+    },
+    "runbook": { "type": ["object", "null"], "description": "Parsed runbook from ingest; null when input runbook absent" },
+    "rollback": { "type": ["object", "null"], "description": "Parsed rollback from ingest; null when input rollback absent" },
+    "cmdb": { "type": ["object", "null"], "description": "CMDB snapshot; null when input cmdb_snapshot absent" },
+    "sla": { "type": ["array", "null"], "description": "SLA definitions; null when input sla_definitions absent" },
+    "schedule": { "type": "array", "description": "Maintenance schedule (all CRs in window)" },
+    "incidents": { "type": "array", "description": "Incident history" },
+    "comms": { "type": ["object", "null"] },
+    "pr_flags": { "type": ["object", "null"] }
+  },
+  "additionalProperties": false
+}

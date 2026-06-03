@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "finding.schema.json",
+  "title": "Per-Dimension Finding",
+  "description": "A single finding from any dimension-bearing pipeline stage (3-8). Reused via $ref in stage output schemas.",
+  "type": "object",
+  "required": ["dimension", "severity", "finding", "evidence"],
+  "properties": {
+    "dimension": {
+      "type": "string",
+      "enum": [
+        "runbook_validity",
+        "rollback_feasibility",
+        "scheduling_conflicts",
+        "communication_gaps",
+        "dependency_chain",
+        "sla_impact",
+        "completeness",
+        "historical_pattern"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["blocker", "warning", "info"]
+    },
+    "finding": {
+      "type": "string",
+      "description": "Human-readable description of the issue"
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["artifact"],
+      "properties": {
+        "artifact": {
+          "type": "string",
+          "description": "Which input artifact contains the evidence (e.g., runbook, rollback_plan, itsm_record)"
+        },
+        "location": {
+          "type": "string",
+          "description": "Specific location within the artifact (e.g., step number, field name, line)"
+        },
+        "service_ref": {
+          "type": "string",
+          "description": "Service ID referenced in the finding, if applicable"
+        },
+        "cmdb_status": {
+          "type": "string",
+          "description": "CMDB status of the referenced service, if applicable"
+        },
+        "field": {
+          "type": "string",
+          "description": "Specific field name, if applicable"
+        },
+        "step_number": {
+          "type": "integer",
+          "description": "Runbook/rollback step number, if applicable"
+        }
+      },
+      "additionalProperties": true
+    },
+    "remediation": {
+      "type": "string",
+      "description": "Suggested action to resolve the finding"
+    },
+    "finding_origin": {
+      "type": "string",
+      "description": "For cross-stage traceability — which stage produced this finding"
+    }
+  },
+  "additionalProperties": false
+}

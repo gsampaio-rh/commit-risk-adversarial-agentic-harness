@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage-outputs/cab-report.schema.json",
+  "title": "Stage 9: Per-CR CAB Report",
+  "description": "Aggregated risk assessment for a single change request with CAB recommendation.",
+  "type": "object",
+  "required": [
+    "change_id",
+    "risk_level",
+    "recommendation",
+    "findings",
+    "conditional_actions",
+    "stages_skipped",
+    "analysis_coverage"
+  ],
+  "properties": {
+    "change_id": { "type": "string" },
+    "risk_level": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "recommendation": {
+      "type": "string",
+      "enum": ["approve", "conditional", "reject"],
+      "description": "Deterministic at L1: R1 any blocker→reject; R2 ≥2 warnings across ≥2 dimensions→conditional; R3 1 warning or info-only→approve; R4 no findings→approve"
+    },
+    "findings": {
+      "type": "array",
+      "description": "All findings from stages 3-8, aggregated",
+      "items": { "$ref": "../finding.schema.json" }
+    },
+    "conditional_actions": {
+      "type": "array",
+      "description": "Required actions for conditional recommendations (empty for approve/reject)",
+      "items": { "type": "string" }
+    },
+    "stages_skipped": {
+      "type": "array",
+      "description": "Pipeline stage IDs or names not executed for this CR (missing input artifacts)",
+      "items": { "type": "string" }
+    },
+    "analysis_coverage": {
+      "type": "object",
+      "required": ["executed", "skipped", "degraded"],
+      "properties": {
+        "executed": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "degraded": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "dimension_summary": {
+      "type": "object",
+      "description": "Per-dimension finding counts by severity",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "blocker": { "type": "integer", "minimum": 0 },
+          "warning": { "type": "integer", "minimum": 0 },
+          "info": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

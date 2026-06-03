@@ -1,0 +1,17 @@
+{
+  "nodes": [
+    {"id": "payment-api", "name": "Payment API", "type": "service", "status": "active", "version": "2.8.1", "tier": 1},
+    {"id": "payment-db", "name": "Payment Database", "type": "db", "status": "active", "version": "14.2", "tier": 1},
+    {"id": "payment-db-v3", "name": "Payment Database Legacy", "type": "db", "status": "deprecated", "version": "11.4", "tier": 1},
+    {"id": "order-service", "name": "Order Processing Service", "type": "service", "status": "active", "version": "3.1.0", "tier": 2},
+    {"id": "notification-queue", "name": "Notification Queue", "type": "queue", "status": "active", "version": "1.5.0", "tier": 3},
+    {"id": "auth-gateway", "name": "Authentication Gateway", "type": "api", "status": "active", "version": "4.0.2", "tier": 2}
+  ],
+  "edges": [
+    {"source": "payment-api", "target": "payment-db", "relation": "writes-to"},
+    {"source": "payment-api", "target": "auth-gateway", "relation": "depends-on"},
+    {"source": "order-service", "target": "payment-api", "relation": "depends-on"},
+    {"source": "order-service", "target": "notification-queue", "relation": "consumes"},
+    {"source": "notification-queue", "target": "auth-gateway", "relation": "depends-on"}
+  ]
+}

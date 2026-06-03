@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cr-bundle.schema.json",
+  "title": "CR Bundle Input",
+  "description": "Change request bundle — only itsm_record is required; other artifacts may be null when absent (real-world incomplete CRs).",
+  "type": "object",
+  "required": ["itsm_record"],
+  "properties": {
+    "itsm_record": {
+      "type": "object",
+      "required": [
+        "change_id",
+        "type",
+        "risk_category",
+        "title",
+        "description",
+        "affected_services",
+        "requestor",
+        "approvers",
+        "scheduled_window"
+      ],
+      "properties": {
+        "change_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["standard", "normal", "emergency"] },
+        "risk_category": { "type": "string", "enum": ["low", "medium", "high"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "affected_services": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "requestor": { "type": "string" },
+        "approvers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "scheduled_window": {
+          "type": "object",
+          "required": ["start", "end"],
+          "properties": {
+            "start": { "type": "string", "format": "date-time" },
+            "end": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        },
+        "expected_duration_min": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "runbook": {
+      "type": ["string", "null"],
+      "description": "Markdown content — numbered procedural steps referencing services, endpoints, commands"
+    },
+    "rollback_plan": {
+      "type": ["string", "null"],
+      "description": "Markdown content — revert steps, assumptions, estimated duration"
+    },
+    "cmdb_snapshot": {
+      "type": ["object", "null"],
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "type", "status"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "type": { "type": "string", "enum": ["service", "db", "api", "queue"] },
+              "status": { "type": "string", "enum": ["active", "deprecated", "migrating"] },
+              "version": { "type": "string" },
+              "tier": { "type": "integer", "minimum": 1, "maximum": 4 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["source", "target", "relation"],
+            "properties": {
+              "source": { "type": "string" },
+              "target": { "type": "string" },
+              "relation": { "type": "string", "enum": ["depends-on", "consumes", "writes-to"] }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "sla_definitions": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["tier", "monthly_downtime_budget_min", "consumed_this_month_min"],
+        "properties": {
+          "tier": { "type": "integer", "minimum": 1, "maximum": 4 },
+          "monthly_downtime_budget_min": { "type": "number", "minimum": 0 },
+          "consumed_this_month_min": { "type": "number", "minimum": 0 },
+          "measurement_window": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "maintenance_schedule": {
+      "type": ["array", "null"],
+      "description": "All CRs in the same CAB window — needed for cross-CR stages 6-7",
+      "items": {
+        "type": "object",
+        "required": ["change_id", "scheduled_start", "scheduled_end", "affected_services", "expected_duration_min"],
+        "properties": {
+          "change_id": { "type": "string" },
+          "scheduled_start": { "type": "string", "format": "date-time" },
+          "scheduled_end": { "type": "string", "format": "date-time" },
+          "affected_services": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "expected_duration_min": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "communication_plan": {
+      "type": ["string", "null"],
+      "description": "Markdown content — customer notification, stakeholder alerts. Optional."
+    },
+    "incident_history": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "required": ["incident_id", "service", "change_category", "severity", "date"],
+        "properties": {
+          "incident_id": { "type": "string" },
+          "service": { "type": "string" },
+          "change_category": { "type": "string" },
+          "severity": { "type": "string", "enum": ["P1", "P2", "P3", "P4"] },
+          "root_cause_summary": { "type": "string" },
+          "date": { "type": "string", "format": "date" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "pr_scope_flags": {
+      "type": ["object", "null"],
+      "description": "Optional CI/CD metadata — scope signals only, no diff analysis",
+      "properties": {
+        "schema_migration": { "type": "boolean" },
+        "customer_facing_api": { "type": "boolean" },
+        "data_backfill": { "type": "boolean" },
+        "test_coverage_delta": { "type": "number" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

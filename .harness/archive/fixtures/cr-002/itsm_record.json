@@ -1,0 +1,12 @@
+{
+  "change_id": "CR-2026-0452",
+  "type": "normal",
+  "risk_category": "high",
+  "title": "Payment API — Add multi-currency support with schema migration",
+  "description": "Add currency column to payment_transactions table and update Payment API to accept ISO 4217 currency codes. Requires schema migration on payment-db. Customer-facing API endpoint /v2/payments will accept optional currency parameter.",
+  "affected_services": ["payment-api", "payment-db"],
+  "requestor": "alex.rivera",
+  "approvers": ["james.chen", "sarah.okonkwo", "priya.kumar"],
+  "scheduled_window": {"start": "2026-06-07T03:00:00Z", "end": "2026-06-07T05:30:00Z"},
+  "expected_duration_min": 120
+}

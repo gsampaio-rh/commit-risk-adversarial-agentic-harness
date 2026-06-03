@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage-outputs/historical-pattern.schema.json",
+  "title": "Stage 8: Historical Pattern Output",
+  "description": "Incident history pattern matches for a single CR.",
+  "type": "object",
+  "required": ["change_id", "findings"],
+  "properties": {
+    "change_id": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          { "$ref": "../finding.schema.json" },
+          {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "type": "object",
+                "properties": {
+                  "service": { "type": "string" },
+                  "change_category": { "type": "string" },
+                  "matching_incidents": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["incident_id", "severity", "date"],
+                      "properties": {
+                        "incident_id": { "type": "string" },
+                        "severity": { "type": "string" },
+                        "date": { "type": "string" },
+                        "root_cause_summary": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stage-outputs/completeness.schema.json",
+  "title": "Stage 3: Completeness Check Output",
+  "description": "ITIL-required artifact checklist results per change type.",
+  "type": "object",
+  "required": ["change_id", "findings", "complete"],
+  "properties": {
+    "change_id": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "../finding.schema.json" }
+    },
+    "complete": {
+      "type": "boolean",
+      "description": "True if all mandatory artifacts present for this change type"
+    }
+  },
+  "additionalProperties": false
+}
