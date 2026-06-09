@@ -78,7 +78,17 @@ To validate that the pipeline correctly predicts which changes will cause incide
 | Temporal ordering | Prevent data leakage | Yes (incident `Open Time` vs change `Planned Start`) |
 | Prose artifacts (runbooks, rollback plans) | Exercise full pipeline | No |
 
-BPI 2014 is the only public dataset that partially meets these criteria. A broad search of HuggingFace, Kaggle, UCI, Zenodo, GitHub, and ArXiv (2020-2026) found no better alternative. See [dataset-research.md](dataset-research.md) for the full investigation.
+BPI 2014 is the only public **ITSM** dataset that partially meets these criteria. v2 research ([dataset-research.md](dataset-research.md)) found adjacent-domain candidates with tiered labels (A/B/C/D):
+
+| Candidate | Positives | Label tier | ITSM fit |
+|-----------|-----------|------------|----------|
+| ApacheJIT | 28K bug-inducing commits | B | Methodology proxy (commit ≈ change) |
+| Mozilla Regressors | 12K bug-introducing sets | A | Methodology proxy |
+| Constructed release→bug | 500-3K (estimated) | D | Release ≈ change window |
+| RAN Updates | 1,931 adverse-impact | B | High semantic fit (config → degradation) |
+| BPI 2014 | 25 P1/P2, 231 total linked | A (sparse) | Only true ITSM option |
+
+For predictive validation at scale, ApacheJIT is the recommended primary path. BPI 2014 suffices for ITSM-specific proof-of-concept only.
 
 ---
 

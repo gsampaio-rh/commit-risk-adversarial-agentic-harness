@@ -1,383 +1,366 @@
 {
-  "project": "itsm-change-request-analyzer",
-  "created": "2026-06-03T20:15:00Z",
+  "project": "dataset-research-v2",
+  "created": "2026-06-09T12:00:00Z",
   "schema_version": 2,
-  "vision": "A 9-stage pipeline that pre-analyzes ITSM change requests for CAB meetings, working with real-world incomplete data from day one. Treats missing artifacts as findings, not errors. Validates against BPI Challenge 2014 real ITIL change records from Rabobank.",
-  "direction": "Python 3.12+, Pydantic v2, sequential pipeline with disk checkpoints. Real-first data strategy: BPI 2014 as primary dataset, synthetic fixtures as regression tests. MVP stages at L1 baseline + L2 ML for stages 8 (embedding similarity) and 9 (LLM narrative). Graceful degradation: stages 4/5/7 skip when artifacts missing. Output: JSON + Markdown report.",
+  "vision": "Find or construct a labeled corpus where each record is a planned intervention (change, deployment, release, commit) with structured pre-execution attributes and a verifiable post-execution failure outcome — not an 'ITSM dataset' but any domain that instantiates the abstract question: 'Given what we know before execution, will this cause a failure?' Success is a tiered shortlist (gold/silver/bronze/constructed) with honest sample sizes, label quality, and a clear mapping to which pipeline stages each dataset can validate. BPI 2014 is one candidate among many, not the default answer.",
+  "direction": "Reframe the search around an abstract Intervention→Outcome schema (intervention_id, scope, type, risk, schedule, optional prose artifacts → failure severity, timestamp, linkage quality). Run domain-parallel searches across software engineering (JIT/SZZ), process mining (all BPI + XES), DevOps/SRE (deployments, rollbacks, CFR), release engineering, and industrial change control — using domain-native vocabulary, not ITSM keywords. Apply a tiered label-quality framework (direct link → temporal+scope → proxy label → constructed join) instead of a binary deal-breaker. For each hit, score: mappable fields, positive-class n, temporal split viability, artifact richness, license. End with a synthesis that ranks options by validation goal (architecture vs predictive vs full 9-stage), explicitly challenging whether we need ITSM fidelity or can validate the risk-prediction thesis on adjacent domains and transfer learnings back.",
   "trade_offs": [
     {
-      "decision": "Real-first with BPI 2014 instead of synthetic-first",
-      "alternative": "Build synthetic generator first (original IMPLEMENTATION-PLAN.md)",
-      "reasoning": "Real data grounds the pipeline in actual ITSM patterns. Synthetic data follows ITIL templates by construction and is too clean. Starting with real data forces graceful degradation from day one."
+      "decision": "Tiered label quality (A/B/C/D) instead of binary direct-linkage deal-breaker",
+      "alternative": "Keep v1 rule: discard unless explicit change→incident field populated",
+      "reasoning": "Direct linkage is rare (<5% even in enterprise ITSM per ING/BPI). Temporal+scope linkage (incident on same service within N hours post-change) yields 10–100× more labels at the cost of false positives. Proxy labels (SZZ bug-inducing commits) have different semantics but support predictive model benchmarking at scale. We gain statistical power; we lose ITSM-specific causal certainty."
     },
     {
-      "decision": "Pipeline accepts partial CR bundles (only itsm_record required)",
-      "alternative": "Require all 7 mandatory artifacts as originally designed",
-      "reasoning": "Real-world CRs are incomplete. No public dataset has runbooks or rollback plans. Enterprise data is also often incomplete. Partial acceptance is both realistic and necessary for real-data validation."
+      "decision": "Validate predictive thesis on adjacent domains (JIT defect, deployment failure) if ITSM gold data absent",
+      "alternative": "Wait for enterprise ITSM partner before any predictive eval",
+      "reasoning": "The pipeline's core ML question — 'does historical pattern + completeness signal predict failure?' — is domain-agnostic. JIT datasets offer 10K–100K labeled interventions with rich text. We lose runbook/rollback/CAB semantics and must build domain-specific adapters, but gain defensible precision/recall metrics. Transfer back to ITSM is hypothesis, not proven."
     },
     {
-      "decision": "Spike on BPI 2014 before finalizing schema changes",
-      "alternative": "Finalize schemas first based on ARCHITECTURE.md design",
-      "reasoning": "Schema changes depend on understanding what fields actually exist in the real data. Designing schemas before exploring data risks rework."
+      "decision": "Pursue constructed datasets (GitHub deploy events + incident issues + postmortems) as first-class path",
+      "alternative": "Only accept monolithic ready-made datasets",
+      "reasoning": "No public monolith combines ITSM structure + incident outcomes + prose artifacts. Construction via temporal joins is labor-intensive but may be the only path to silver-tier ITSM-like labels at scale. Risk: join assumptions become hidden bias; must document and sensitivity-test window sizes."
     },
     {
-      "decision": "MVP includes L2 ML for stages 8 (embedding) and 9 (LLM), not L1-only",
-      "alternative": "All stages at L1 script-only for MVP",
-      "reasoning": "L1-only MVP validates architecture but not the ML thesis. Stage 8 L2 (embedding similarity) has real GT from BPI 2014 (56 tuples) enabling measurable L1-vs-L2 comparison. Stage 9 L2 (LLM narrative) validates end-to-end LLM integration within cost ceiling. Stages 4/5/7 have no real data for ML validation."
+      "decision": "Accept partial pipeline validation per dataset tier",
+      "alternative": "Require all 9 stages exercisable on one dataset",
+      "reasoning": "Prose artifacts (runbook, rollback) essentially do not exist in public real data. Synthetic fixtures already cover stages 4/5/7. Real-data eval should target stages 1–3, 6, 8–9 on structured data; treat 4/5/7 as synthetic-only until enterprise partner. Trying to find one dataset for all 9 stages guarantees failure."
+    },
+    {
+      "decision": "Exhaust non-ITSM sources before re-ranking BPI 2014",
+      "alternative": "Treat BPI 2014 as confirmed best and run PoC immediately",
+      "reasoning": "v1 search was keyword-biased toward ITSM platforms. Adjacent domains may offer better predictive validation even if adapter work is higher. BPI remains valuable as the only real ITIL event log — but its n=25 P1/P2 positives may be beatable by SZZ or deployment datasets for the ML thesis."
+    },
+    {
+      "decision": "Contact authors of private datasets (ING/Kapel) for academic access",
+      "alternative": "Skip private data entirely",
+      "reasoning": "ING paper matches our problem exactly (175K changes, 4K incident-inducing). Low probability of success but high value; costs one email. Does not block parallel public search."
     }
   ],
   "open_questions": [
-    "[RESOLVED] BPI 2014: 21 cols, semicolon CSV, multi-CI per change, 18K unique changes. See .harness/spike-bpi2014.md",
-    "[RESOLVED] CAB windows: filter CAB-approval needed=Y, group by ISO week \u2192 51 windows, 1-21 changes each",
-    "[RESOLVED] GT: 56 (CI, ChangeType) tuples with >=2 incidents \u2192 natural ground truth for Historical Pattern",
-    "How to map 240 Change Types to standard/normal/emergency? Pattern: Standard*\u2192standard, Release*\u2192normal, Emergency flag\u2192emergency",
-    "CI Name vs Service Component WBS as service identifier? WBS=286 groups (service-level), CI Name=10K individual items",
-    "[RESOLVED] Co-occurrence graph for Stage 7: skip \u2014 co-occurrence != dependency, high FP risk. Stage 7 skips gracefully in MVP.",
-    "[RESOLVED] MVP scope: 6 stages active (1-Ingest, 2-Normalize, 3-Completeness, 6-Schedule overlap-only, 8-Historical Pattern L1+L2, 9-Risk Synthesis L1+L2). Stages 4/5/7 skip gracefully. Output: JSON + Markdown. ML: Stage 8 embedding similarity (real GT: 56 tuples), Stage 9 LLM narrative for conditional/reject CRs."
+    "Validation goal priority: (A) prove pipeline architecture on real ITIL shapes, (B) prove predictive accuracy with statistical power, or (C) exercise all 9 stages including prose artifacts? These require different datasets — which is P0?",
+    "Acceptable label noise for predictive eval: what false-positive rate in silver-tier temporal linkage is tolerable (e.g., incident within 24h on same service ≠ caused by change)?",
+    "Is validating on JIT defect prediction (commit→bug) sufficient evidence for CAB risk prediction, or is that a different product claim requiring ITSM-specific eval?",
+    "Budget for dataset construction: person-days cap for GitHub/API scraping and temporal joins vs buying commercial process-mining samples?",
+    "P1/P2 severity only (ING-style) or any-severity incidents as positive class? Broader definition increases n but dilutes CAB-relevant signal.",
+    "Should we pursue Data Use Agreements with Rabobank successors, ING, or BPI challenge organizers for richer extracts beyond public BPI 2014?",
+    "If best public option remains BPI 2014, do we proceed with PoC knowing n=25, or pivot MVP claims to 'architecture validated, predictive accuracy unmeasured' until enterprise data?"
   ],
   "tasks": [
     {
-      "id": "spike-1",
-      "name": "Explore BPI 2014 dataset",
-      "type": "spike",
-      "status": "verified",
-      "scope": "Download BPI 2014 from 4TU.ResearchData. Document CSV structure, field names, types, cardinality. Map fields to our itsm_record schema. Identify how to derive CAB windows. Assess change-to-incident linkage quality for Historical Pattern. Produce a data exploration report.",
-      "findings": "See .harness/spike-bpi2014.md \u2014 18K changes, 46K incidents, 374 CAB changes in 51 weeks, 56 recurring (CI,ChangeType) patterns for GT, 25K schedule overlaps, 97% missing downtime (no SLA), no prose artifacts"
-    },
-    {
-      "id": "chore-1",
-      "name": "Align docs and schemas with real-first strategy",
-      "type": "chore",
-      "status": "verified",
-      "scope": "Update DECISIONS.md, schemas (cr-bundle, ingest, normalize, schedule-sla, cab-report, cab-summary), ARCHITECTURE.md, USE-CASE.md, IMPLEMENTATION-PLAN.md, README.md to reflect real-first BPI 2014 strategy, partial CR bundles, conditional stages, and spike findings. Move skeptic audit JSON to .harness/audits/."
-    },
-    {
-      "id": "chore-2",
-      "name": "Slim down itsm-change-request/ \u2014 remove ceremony",
-      "type": "chore",
-      "status": "verified",
-      "scope": "Archive SKEPTIC-REVIEW, DECISIONS, IMPLEMENTATION-PLAN, USE-CASE to .harness/archive/docs/. Archive 12 standalone JSON schemas to .harness/archive/schemas/ (Pydantic is source of truth). Reduce fixtures to cr-001 only, archive cr-002/003/expected. Consolidate USE-CASE into README. Remove stray .venv. Result: 55 files \u2192 12 files."
-    },
-    {
-      "id": "feat-1",
-      "name": "Project setup + Pydantic models",
-      "type": "feature",
-      "status": "verified",
-      "depends_on": [],
-      "scope": "pyproject.toml (pydantic>=2, pytest, optional 'ml' group with sentence-transformers), directory layout (src/cr_analyzer/{models,stages,adapters,pipeline}/), Pydantic v2 models as single source of truth. Models: CRBundle, Finding, enums, all stage outputs (ingest, normalize, completeness, schedule-sla, historical-pattern, cab-report, cab-summary). Validate against cr-001 fixture.",
-      "acceptance_criteria": [
-        "pyproject.toml at root: name=cr-analyzer, python>=3.12, pydantic>=2.0, pytest in dev deps, optional 'ml' group with sentence-transformers",
-        "Package importable: `python -c 'import cr_analyzer'` exits 0",
-        "Directory layout: src/cr_analyzer/{models,stages,adapters,pipeline}/ each with __init__.py",
-        "CRBundle model: itsm_record required, runbook/rollback_plan/cmdb_snapshot/sla_definitions/maintenance_schedule/communication_plan/incident_history/pr_scope_flags all Optional[...]=None",
-        "IstmRecord model: required fields change_id, type, risk_category, title, description, affected_services, requestor, approvers, scheduled_window; optional expected_duration_min",
-        "Finding model: dimension (FindingDimension enum, 8 values), severity (Severity enum), finding (str), evidence (structured obj with artifact required), optional remediation",
-        "Stage output models exist: IngestOutput, NormalizeOutput, CompletenessOutput, ScheduleSlaOutput, HistoricalPatternOutput, CabReport, CabSummary",
-        "Enums: ChangeType(standard/normal/emergency), RiskCategory(low/medium/high), Severity(blocker/warning/info), Recommendation(approve/conditional/reject), SlaAnalysisMode(full/overlap_only/not_applicable), FindingDimension(8 values matching archived finding.schema.json)",
-        "CRBundle.model_validate(cr_001_fixture_data) succeeds \u2014 full fixture roundtrips",
-        "CRBundle.model_validate({'itsm_record': minimal_record}) succeeds \u2014 minimal bundle",
-        "All models use Pydantic v2 syntax (model_config, Field with description)",
-        "pytest tests/ passes with >=1 test file covering fixture roundtrip + minimal bundle + invalid enum rejection",
-        "No JSON schema files under src/ \u2014 Pydantic is source of truth",
-        "CabReport includes stages_skipped: list[str] and analysis_coverage with executed/skipped/degraded counts",
-        "HistoricalPatternOutput findings evidence includes service, change_category, matching_incidents per archived schema"
-      ],
-      "definition_of_done": "`pip install -e '.[dev]' && pytest tests/ -v` passes. All models importable via `from cr_analyzer.models import CRBundle, Finding, CabReport`. Zero JSON schemas in src/.",
-      "metrics": {
-        "test_pass_rate": "100%",
-        "import_success": "all models importable without error",
-        "lint_errors": 0
-      }
-    },
-    {
-      "id": "feat-2",
-      "name": "BPI 2014 adapter",
-      "type": "feature",
-      "status": "verified",
-      "depends_on": [
-        "feat-1"
-      ],
-      "scope": "CSV parser that produces CRBundle objects from BPI 2014 Detail_Change.csv + Detail_Incident.csv. Maps fields per spike-1 (semicolon delimiter, multi-CI grouping, risk mapping, type derivation). Builds incident linkage index. Derives CAB windows (CAB-approval needed=Y, group by ISO week).",
-      "acceptance_criteria": [
-        "Adapter at src/cr_analyzer/adapters/bpi2014.py importable",
-        "Parses Detail_Change.csv (semicolon delimiter, 21 cols) \u2192 groups multi-CI rows by Change ID into single CRBundle each",
-        "Risk mapping: Minor\u2192low, Business\u2192medium, Major Business\u2192high (3 enum values)",
-        "Type derivation: Emergency Change=Y\u2192emergency; 'Standard *'\u2192standard; 'Release *'\u2192normal; default\u2192normal",
-        "affected_services populated from grouped CI Name values per change (list[str])",
-        "Parses Detail_Incident.csv and builds incident linkage index: maps (CI Name, Change Type) \u2192 list of incidents",
-        "CAB window derivation: filters CAB-approval needed=Y, groups by ISO week of Planned Start \u2192 returns dict[str, list[CRBundle]]",
-        "Adapter produces >=17,000 unique CRBundle objects from full Detail_Change.csv",
-        "374 CAB-approval changes identified across 51 weekly windows",
-        "incident_history field populated on CRBundles that have linked incidents (>=231 changes with incidents)",
-        "Handles missing/empty fields gracefully: empty title/description \u2192 empty string, missing requestor/approvers \u2192 placeholder values",
-        "pytest tests for adapter: parses sample rows, validates CRBundle output, tests edge cases (multi-CI, missing fields)"
-      ],
-      "definition_of_done": "Adapter parses both BPI 2014 CSVs into valid CRBundle objects. `pytest tests/test_bpi2014_adapter.py -v` passes. Smoke test on full CSV: >=17K bundles, 374 CAB changes, 51 windows.",
-      "metrics": {
-        "changes_parsed": ">=17,000 unique",
-        "cab_changes": 374,
-        "cab_windows": 51,
-        "incidents_linked": ">=231 changes with incidents",
-        "gt_tuples": "56 (CI, ChangeType) tuples with >=2 incidents recoverable",
-        "parse_errors": "0 on valid rows"
-      }
-    },
-    {
-      "id": "feat-3",
-      "name": "Ingest + Normalize (L1)",
-      "type": "feature",
-      "status": "verified",
-      "depends_on": [
-        "feat-1"
-      ],
-      "scope": "Stage 1 Ingest (JSON/MD parser) and Stage 2 Normalize (field mapping, enum standardization, derived fields: is_customer_facing, affected_tier). Accept partial CR bundles \u2014 nullable artifacts pass through as None. Validated on both BPI 2014 (via adapter) and cr-001 fixture.",
-      "acceptance_criteria": [
-        "Stage 1 Ingest at src/cr_analyzer/stages/ingest.py: accepts CRBundle \u2192 returns IngestOutput",
-        "Ingest parses JSON artifacts as-is, extracts Markdown structure from runbook/rollback (sections, steps, service_refs, commands)",
-        "Ingest handles null artifacts: runbook=None \u2192 IngestOutput.runbook=None (no crash)",
-        "Stage 2 Normalize at src/cr_analyzer/stages/normalize.py: accepts IngestOutput \u2192 returns NormalizeOutput",
-        "Normalize standardizes change type to ChangeType enum, risk_category to RiskCategory enum",
-        "Normalize derives is_customer_facing from CMDB tier (tier 1-2 = True; no CMDB \u2192 False)",
-        "Normalize derives affected_tier as min tier across affected services in CMDB (no CMDB \u2192 4)",
-        "Normalize timestamps to ISO-8601 format",
-        "Both stages produce valid Pydantic model outputs (model_validate on output succeeds)",
-        "Works on cr-001 full fixture: all fields preserved through ingest\u2192normalize",
-        "Works on BPI 2014 partial bundle: nullable fields remain None, no crashes",
-        "Stage outputs serializable to JSON via model_dump_json() for disk checkpoints",
-        "pytest tests: cr-001 roundtrip, minimal bundle, BPI-shaped bundle (no runbook/rollback/cmdb)"
-      ],
-      "definition_of_done": "`pytest tests/test_ingest.py tests/test_normalize.py -v` passes. Both stages handle full and partial bundles. Outputs validate as Pydantic models and serialize to JSON.",
-      "metrics": {
-        "field_presence_required": ">=99% on required NormalizeOutput fields",
-        "task_completion": "100% \u2014 no crash on any valid CRBundle input",
-        "latency": "<1s per CR (both stages combined)"
-      }
-    },
-    {
-      "id": "feat-4",
-      "name": "Completeness Check (L1)",
-      "type": "feature",
-      "status": "verified",
-      "depends_on": [
-        "feat-3"
-      ],
-      "scope": "Stage 3 Completeness Check \u2014 ITIL-required artifact checklist per change type. Rule engine: normal requires runbook+rollback+risk; emergency requires rollback+exec approval; customer-facing requires comms plan. Enhanced severity for BPI 2014: flags missing title, description, runbook, rollback, comms as findings.",
-      "acceptance_criteria": [
-        "Stage at src/cr_analyzer/stages/completeness.py: accepts NormalizeOutput \u2192 returns CompletenessOutput",
-        "Rule engine per change type: normal requires runbook+rollback+risk_category; emergency requires rollback+executive approver; all types require change_id+title+description+affected_services+scheduled_window",
-        "Customer-facing scope (is_customer_facing=True) requires communication_plan \u2014 missing = warning finding",
-        "Missing mandatory artifact (rollback for normal/emergency) = blocker finding",
-        "Missing optional artifact (runbook for standard) = info finding",
-        "Each finding has dimension='completeness', correct severity, evidence.artifact pointing to missing artifact, remediation text",
-        "CompletenessOutput.complete = True only when zero blocker/warning findings",
-        "cr-001 fixture (full bundle, normal type): complete=True, 0 blocker/warning findings",
-        "BPI 2014 bundle (no runbook, no rollback, no comms, empty title): complete=False, >=3 findings for missing artifacts",
-        "pytest tests: complete CR, incomplete CR, emergency type rules, customer-facing rules"
-      ],
-      "definition_of_done": "`pytest tests/test_completeness.py -v` passes. Stage correctly flags all missing artifacts per ITIL rules. Zero false positives on complete cr-001 fixture.",
-      "metrics": {
-        "completeness_recall": "100% on deterministic rules (missing artifact = always flagged)",
-        "completeness_precision": "100% on cr-001 (no false positives on complete bundle)",
-        "latency": "<0.5s per CR"
-      }
-    },
-    {
-      "id": "feat-5",
-      "name": "Schedule overlap (L1) + conditional skips",
-      "type": "feature",
-      "status": "verified",
-      "depends_on": [
-        "feat-3"
-      ],
-      "scope": "Stage 6 Schedule & SLA in overlap_only mode (interval overlap detection on shared affected_services, no SLA budget math). Conditional skip infrastructure for stages 4/5/7: record in stages_skipped, log as info finding. Cross-CR stage: consumes all CRs in CAB window.",
-      "acceptance_criteria": [
-        "Stage at src/cr_analyzer/stages/schedule_sla.py: accepts list[NormalizeOutput] \u2192 returns ScheduleSlaOutput",
-        "Detects interval overlaps: for each CR pair, checks if [start,end] windows overlap AND they share >=1 affected_service",
-        "Output includes scheduling_conflicts array with cr_pair, shared_services, overlap_window (start/end), severity",
-        "sla_analysis_mode = 'overlap_only' when sla_definitions absent (BPI 2014 path)",
-        "sla_impact array empty when in overlap_only mode",
-        "Overlap severity: exact window match on shared infra = blocker; partial overlap = warning; adjacent windows = info",
-        "Conditional skip function at src/cr_analyzer/pipeline/skip.py: given NormalizeOutput, returns list of stage names to skip",
-        "Skip rules: runbook=None \u2192 skip 'runbook_validation'; rollback=None \u2192 skip 'rollback_feasibility'; cmdb=None \u2192 skip 'dependency_chain'",
-        "Skip results recorded as info findings with dimension='completeness' and evidence noting which artifact was absent",
-        "Cross-CR: processes all CRs in a CAB window batch (not per-CR)",
-        "pytest tests: 2 overlapping CRs on shared service, 2 non-overlapping CRs, skip logic for partial bundles"
-      ],
-      "definition_of_done": "`pytest tests/test_schedule_sla.py tests/test_skip.py -v` passes. Overlap detection works on synthetic fixture. Skip logic correctly identifies stages to skip for BPI 2014-shaped bundles.",
-      "metrics": {
-        "scheduling_conflict_recall": "100% on synthetic overlaps (deterministic interval math)",
-        "false_positive_rate": "0% \u2014 no overlap reported when windows don't actually overlap",
-        "latency": "<2s per CAB window (50 CRs)",
-        "bpi2014_overlaps_detected": "subset of 25K known overlaps (smoke test on real data)"
-      }
-    },
-    {
-      "id": "feat-6",
-      "name": "Historical Pattern L1 (exact tuple match)",
-      "type": "feature",
-      "status": "verified",
-      "depends_on": [
-        "feat-3",
-        "feat-2"
-      ],
-      "scope": "Stage 8 Historical Pattern at L1: exact (service, change_category) tuple match against incident history. Alert when >=2 past incidents with severity P1/P2. Include incident count, most recent date, root_cause_summary in finding evidence.",
-      "acceptance_criteria": [
-        "Stage at src/cr_analyzer/stages/historical_pattern.py: accepts NormalizeOutput \u2192 returns HistoricalPatternOutput",
-        "L1 implementation: exact string match on (service, change_category) tuples against incident_history",
-        "Alert threshold: >=2 past incidents with severity P1 or P2 for same tuple \u2192 warning finding",
-        "Alert threshold: >=5 past incidents OR any P1 for same tuple \u2192 blocker finding",
-        "Finding evidence includes: service, change_category, matching_incidents array [{incident_id, severity, date, root_cause_summary}]",
-        "Finding dimension = 'historical_pattern'",
-        "No incidents or <2 matching \u2192 no finding (empty findings array)",
-        "method_used field on output = 'exact_match' (prepares for L2 dual-path)",
-        "Handles empty incident_history gracefully (incidents=[] or None \u2192 no findings)",
-        "pytest tests: CR with 3 matching P2 incidents \u2192 warning; CR with 0 matches \u2192 empty; CR with P1 \u2192 blocker"
-      ],
-      "definition_of_done": "`pytest tests/test_historical_pattern.py -v` passes. On BPI 2014 data: stage identifies matches from the 56 GT tuples. L1 recall/precision measured and recorded as baseline.",
-      "metrics": {
-        "l1_recall_on_bpi_gt": "measured (baseline \u2014 exact value recorded for L2 comparison)",
-        "l1_precision_on_bpi_gt": "measured (baseline)",
-        "target_recall_synthetic": ">=80% on injected pattern matches (per ARCHITECTURE.md)",
-        "target_precision_synthetic": ">=75% on clean CRs",
-        "latency": "<1s per CR"
-      }
-    },
-    {
-      "id": "feat-7",
-      "name": "Risk Synthesis L1 + E2E runner",
-      "type": "feature",
+      "id": "research-0",
+      "title": "Reframe problem + tiered acceptance criteria",
+      "scope": "Define the abstract Intervention→Outcome schema, map each pipeline stage to minimum data requirements, and replace v1 binary deal-breakers with Tier A/B/C/D label quality levels. Produce a one-page rubric used by all subsequent search tasks. Does NOT search yet — sets the lens.",
       "status": "pending",
-      "depends_on": [
-        "feat-4",
-        "feat-5",
-        "feat-6"
-      ],
-      "scope": "Stage 9 Risk Synthesis at L1: deterministic severity rollup (R1-R4 rules), template-based CAB report, stages_skipped + analysis_coverage tracking. E2E pipeline runner with conditional stage execution, disk checkpoints, JSON + Markdown output.",
       "acceptance_criteria": [
-        "Risk Synthesis at src/cr_analyzer/stages/risk_synthesis.py: accepts all stage outputs \u2192 returns CabReport",
-        "R1: any blocker finding \u2192 recommendation=reject",
-        "R2: >=2 warning findings across >=2 different dimensions \u2192 recommendation=conditional",
-        "R3: 1 warning OR only info findings \u2192 recommendation=approve",
-        "R4: no findings \u2192 recommendation=approve",
-        "risk_level derived: reject\u2192critical, conditional\u2192high, approve with warnings\u2192medium, approve clean\u2192low",
-        "conditional_actions populated for conditional recommendations (template-derived from finding type)",
-        "stages_skipped lists names of skipped stages; analysis_coverage counts executed/skipped/degraded",
-        "Template Markdown report generated: per-dimension sections, severity badges, evidence citations, CAB recommendation",
-        "CAB summary across window: CabSummary with disposition breakdown (approve/conditional/reject counts), cross_cr_conflicts from schedule stage, processing time",
-        "E2E runner at src/cr_analyzer/pipeline/runner.py: executes stages 1\u21922\u21923\u21926\u21928\u21929 sequentially, skips 4/5/7 conditionally",
-        "Disk checkpoints: each stage writes {stage_name}.json to output directory before next stage starts",
-        "JSON outputs: cab-report.json (per CR) + cab-summary.json (per window)",
-        "Markdown outputs: change-risk-assessment.md (per CR) + cab-summary.md (per window)",
-        "E2E passes on cr-001 fixture: ingest\u2192normalize\u2192completeness\u2192schedule\u2192historical\u2192synthesis, produces all outputs",
-        "E2E passes on BPI 2014 CAB window (1 week): handles partial bundles, skipped stages, produces summary",
-        "pytest tests: R1-R4 rules, template generation, E2E on cr-001"
+        "Abstract schema documented: intervention fields, outcome fields, linkage types, temporal split rules",
+        "Tier A/B/C/D definitions with examples from ITSM, JIT, and DevOps domains",
+        "Per-stage minimum data matrix: which stages need which artifacts (1–9)",
+        "Three validation modes defined: architecture-only, predictive, full-pipeline",
+        "Explicit list of what v1 got wrong (keyword bias, binary deal-breaker, BPI anchoring)"
       ],
-      "definition_of_done": "`pytest tests/test_risk_synthesis.py tests/test_runner.py -v` passes. E2E on cr-001 produces valid JSON + Markdown outputs. E2E on BPI 2014 window completes without crash. All output files validate against Pydantic models.",
-      "metrics": {
-        "task_completion": "100% \u2014 no crash on valid input",
-        "schema_compliance": ">=99% \u2014 outputs validate against Pydantic models",
-        "template_coverage": ">=90% \u2014 all finding dimensions have report sections",
-        "cab_rollup_consistency": "100% on deterministic R1-R4 rules (L1 is deterministic)",
-        "wall_clock_per_batch": "<5 min for 50-CR window at L1",
-        "cost_per_batch": "$0 (L1 is all script)"
+      "search_strategy": {
+        "platforms": ["internal docs (ARCHITECTURE.md, docs/dataset-research.md v1)"],
+        "terms": [],
+        "hit_criteria": "Rubric artifact ready for downstream tasks — no external search"
       }
     },
     {
-      "id": "feat-8",
-      "name": "Historical Pattern L2 (embedding similarity)",
-      "type": "feature",
-      "status": "verified",
-      "depends_on": [
-        "feat-6"
-      ],
-      "scope": "Stage 8 L2: sentence-transformer encoding of CR description + incident descriptions. Cosine similarity matching for fuzzy pattern detection. Dual-path with L1.",
+      "id": "research-1",
+      "title": "JIT defect prediction + SZZ labeled commit corpora",
+      "scope": "Search software-engineering datasets where code changes (commits/PRs) are labeled bug-inducing vs clean. Largest public corpora for predictive validation at scale. Assess adapter feasibility to CRBundle (commit message ≈ description, files ≈ affected_services, author metrics ≈ team features).",
+      "status": "pending",
       "acceptance_criteria": [
-        "L2 implementation in historical_pattern.py alongside L1 (strategy pattern or config flag)",
-        "Uses sentence-transformers to encode: CR (change_type + affected_services + description) and incident (root_cause_summary + severity)",
-        "Cosine similarity > configurable threshold \u2192 alert, even if exact (service, change_category) tuple doesn't match",
-        "Output includes method_used='embedding_similarity' for L2 findings, 'exact_match' for L1",
-        "Dual-path mode: runs both L1 and L2, merges findings (deduplicates if both match same incident)",
-        "L2 catches semantically similar but differently categorized patterns (e.g. 'config change' vs 'configuration update')",
-        "Similarity threshold tunable via config (default 0.75, range 0.5-0.95)",
-        "Graceful fallback: if sentence-transformers not installed (no 'ml' extras), falls back to L1 only with warning log",
-        "pytest tests: synthetic case where L1 misses and L2 catches (different category names, same semantic meaning)",
-        "Benchmark test: measure L1 vs L2 recall/precision on BPI 2014 56 GT tuples, output comparison table"
+        "≥5 datasets catalogued with size, label method (SZZ/manual), positive-class n, license",
+        "Top 2 candidates scored against tier rubric and pipeline stage coverage",
+        "Honest assessment: does bug-inducing ≡ incident-causing for our thesis?",
+        "Adapter sketch: which CRBundle fields map, which stages activate/skip"
       ],
-      "definition_of_done": "`pytest tests/test_historical_pattern_l2.py -v` passes. L2 recall >= L1 recall on BPI 2014 GT tuples. Comparison metrics (L1 recall, L2 recall, delta) recorded in test output.",
-      "metrics": {
-        "l2_recall_on_bpi_gt": "measured \u2014 must be >= L1 recall (feat-6 baseline)",
-        "l2_precision_on_bpi_gt": "measured \u2014 documented even if lower than L1 (precision/recall tradeoff)",
-        "recall_delta_l2_vs_l1": "measured and positive (L2 improvement quantified)",
-        "latency": "<5s per CR with embedding",
-        "fallback_works": "L1-only mode works when sentence-transformers absent"
+      "search_strategy": {
+        "platforms": [
+          "Papers With Code",
+          "GitHub",
+          "Zenodo",
+          "figshare",
+          "UCI ML Repository",
+          "MSR Data Showcase",
+          "Harvard Dataverse"
+        ],
+        "terms": [
+          "just-in-time defect prediction",
+          "JIT defect prediction dataset",
+          "bug-inducing commit",
+          "bug inducing change",
+          "SZZ algorithm dataset",
+          "commit-level defect prediction",
+          "risky commit prediction",
+          "change-level defect",
+          "defect prediction git dataset",
+          "Kamei dataset",
+          "JIRA defect commit linkage"
+        ],
+        "hit_criteria": "Labeled commits or PRs (≥1K positive class) with pre-change features (diff stats, author, timestamp, message) and binary/multiclass defect outcome. Manual labels preferred over pure SZZ; document label noise if SZZ-only."
       }
     },
     {
-      "id": "feat-9",
-      "name": "Risk Synthesis L2 (LLM narrative)",
-      "type": "feature",
-      "status": "verified",
-      "depends_on": [
-        "feat-7"
-      ],
-      "scope": "Stage 9 L2: LLM generates cross-dimension CAB narrative for conditional/reject CRs. Template (L1) for approve CRs. Selective routing within cost ceiling.",
+      "id": "research-2",
+      "title": "DevOps / SRE deployment and rollback failure datasets",
+      "scope": "Search for deployment/release records linked to failures, rollbacks, or incidents. Closer semantic match to ITSM changes than commits — planned execution with scope and schedule.",
+      "status": "pending",
       "acceptance_criteria": [
-        "L2 implementation in risk_synthesis.py alongside L1 (strategy pattern or config flag)",
-        "Selective routing: LLM narrative only for recommendation=conditional or reject; template (L1) for approve",
-        "LLM input = structured findings JSON (not raw artifacts) \u2014 minimal token usage",
-        "LLM output = cross-dimension narrative explaining WHY findings matter together, specific conditional-approval actions",
-        "Markdown report enhanced for L2 CRs: cross-dimension reasoning section, specific remediation language",
-        "Cost tracking: tokens used per CR, estimated cost per CR, cumulative batch cost",
-        "Cost ceiling enforced: if cumulative batch cost approaches $2 for 50-CR window, remaining CRs fall back to L1 template",
-        "method_used field on CabReport = 'template' for L1, 'llm_narrative' for L2",
-        "Graceful fallback: if LLM API unavailable/errored, falls back to L1 template with warning log (no crash)",
-        "LLM provider configurable (env var or config): supports OpenAI-compatible API",
-        "pytest tests: mock LLM response, verify selective routing, verify cost tracking, verify fallback"
+        "≥5 candidates from CI/CD, cloud outage, and DORA research corpora",
+        "Each assessed: deployment fields, failure definition, linkage method, n",
+        "Flag any dataset with rollback events as proxy for 'change caused failure'",
+        "Note GitHub deployment API + issues as construction path if no monolith found"
       ],
-      "definition_of_done": "`pytest tests/test_risk_synthesis_l2.py -v` passes. Selective routing correct (LLM only for conditional/reject). Cost tracking reports tokens and estimated cost. Fallback to L1 works when LLM unavailable.",
-      "metrics": {
-        "cost_per_batch": "<$2 for 50-CR window (ARCHITECTURE.md ceiling)",
-        "selective_routing_accuracy": "100% \u2014 approve CRs never hit LLM",
-        "fallback_reliability": "100% \u2014 LLM failure \u2192 L1 template, no crash",
-        "cross_run_consistency": ">=85% \u2014 LLM outputs similar narrative across 3 runs (sampling variance)",
-        "latency": "<10s per CR for L2 narrative"
+      "search_strategy": {
+        "platforms": [
+          "GitHub",
+          "Kaggle",
+          "HuggingFace",
+          "Zenodo",
+          "IEEE DataPort",
+          "Google Cloud Outages catalog",
+          "CNCF project repos"
+        ],
+        "terms": [
+          "deployment failure dataset",
+          "rollback prediction",
+          "change failure rate dataset",
+          "DORA metrics dataset",
+          "CI/CD failure prediction",
+          "release failure prediction",
+          "incident deployment correlation",
+          "continuous delivery failure",
+          "canary deployment failure",
+          "post-deploy incident",
+          "SRE incident dataset",
+          "production outage deployment"
+        ],
+        "hit_criteria": "Deployment/release record with timestamp, target service/repo, outcome (success/failure/rollback) OR linked incident within documented window. Tier B acceptable if same-service temporal join is explicit."
       }
     },
     {
-      "id": "feat-10",
-      "name": "Evaluation: L1 vs L2 on BPI 2014 GT",
-      "type": "eval",
-      "status": "verified",
-      "depends_on": [
-        "feat-8",
-        "feat-9"
-      ],
-      "scope": "Evaluation harness: run full pipeline on BPI 2014 CAB windows. Measure per-stage metrics. L1 vs L2 comparison. Validates MVP thesis.",
+      "id": "research-3",
+      "title": "Process mining event logs — all BPI challenges + XES repository",
+      "scope": "Systematic crawl of ALL BPI Challenge years (2012–2022) and the IEEE/XES process mining archive — not just 2014. Many years include incident/problem/change subprocesses under non-ITSM names.",
+      "status": "pending",
       "acceptance_criteria": [
-        "Eval script at src/cr_analyzer/eval/evaluate.py: runs pipeline on BPI 2014 data, collects metrics",
-        "Runs full pipeline (L1 and L2) on all 51 BPI 2014 CAB windows (374 changes)",
-        "Historical Pattern metrics: L1 recall, L1 precision, L2 recall, L2 precision, delta \u2014 measured against 56 GT tuples",
-        "Schedule overlap metrics: number of overlaps detected, cross-validated against spike-1 count (25K pairs)",
-        "Completeness metrics: % of BPI changes flagged as incomplete (expected: ~100% due to missing artifacts)",
-        "Risk Synthesis metrics: disposition breakdown (approve/conditional/reject distribution), template_coverage, schema_compliance",
-        "E2E metrics: task_completion_rate (target 100%), wall_clock total, cost total (L2 only)",
-        "Cross-run consistency: run pipeline 3x on same input, measure output variance (L1 target 100%, L2 target >=85%)",
-        "Output: eval-report.json with all metrics + eval-report.md human-readable summary",
-        "Report includes P0 banner: 'Evaluated on BPI 2014 real data + synthetic fixtures. Metrics validate architecture, not production performance.'",
-        "Comparison table in Markdown: L1 vs L2 side-by-side for Historical Pattern recall/precision",
-        "pytest test: eval script runs on small subset (1 CAB window) without crash"
+        "Inventory table: every BPI year, domain, log objects, case counts, ITIL relevance score",
+        "Non-BPI XES logs with incident/change/problem lifecycle identified (≥10 inspected)",
+        "Any log with both change-like and incident-like events scored for Tier A/B linkage",
+        "BPI 2014 re-assessed with tier framework — not assumed rank #1"
       ],
-      "definition_of_done": "Eval script completes on full BPI 2014 dataset. eval-report.json + eval-report.md produced with all metrics. L2 vs L1 comparison quantified. MVP thesis answered: does embedding improve recall over exact match?",
-      "metrics": {
-        "task_completion": "100% \u2014 pipeline processes all 374 CAB changes",
-        "schema_compliance": ">=99%",
-        "historical_pattern_l1_recall": "measured baseline",
-        "historical_pattern_l2_recall": "measured \u2014 target >= L1",
-        "historical_pattern_recall_delta": "quantified improvement (or not)",
-        "cost_total_l2": "measured \u2014 must be < $2 \u00d7 (51 windows / 50 CRs per window)",
-        "wall_clock_total": "measured \u2014 target < 30min for largest window",
-        "cross_run_consistency_l1": "100% (deterministic)",
-        "cross_run_consistency_l2": ">=85%"
+      "search_strategy": {
+        "platforms": [
+          "4TU.ResearchData",
+          "BPI Challenge archive (bpi-challenge.org)",
+          "IEEE Task Force on Process Mining (xes-standard.org)",
+          "pm4py bundled logs",
+          "Celonis Academic Alliance",
+          "Zenodo tag:process-mining"
+        ],
+        "terms": [
+          "BPI challenge incident",
+          "BPI challenge change",
+          "ITIL event log",
+          "incident management event log",
+          "problem management log",
+          "release management process mining",
+          "service desk event log",
+          "xes incident",
+          "helpdesk event log",
+          "Volksbank BPI",
+          "Rabobank event log"
+        ],
+        "hit_criteria": "Event log with ≥2 activity types mappable to intervention (change/deploy/release) and outcome (incident/failure/ticket escalation), ideally same case ID or documented cross-case join key. Minimum 500 intervention cases."
+      }
+    },
+    {
+      "id": "research-4",
+      "title": "Release engineering + configuration change failure corpora",
+      "scope": "Search release-tracking and config-change domains: failed releases, hotfix-after-release, infrastructure-as-code apply failures, feature-flag rollouts with rollback.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "≥3 candidates with release/change record + post-release failure label",
+        "IaC/terraform failure datasets assessed (apply failure ≠ incident but may proxy)",
+        "Distinction documented: release failure vs production incident — which fits CAB thesis?"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "GitHub",
+          "Zenodo",
+          "ArXiv supplementary data",
+          "Kaggle",
+          "OpenML"
+        ],
+        "terms": [
+          "release failure prediction dataset",
+          "failed release dataset",
+          "hotfix prediction",
+          "post-release bug dataset",
+          "configuration change failure",
+          "terraform apply failure dataset",
+          "infrastructure change incident",
+          "feature flag rollback dataset",
+          "dark launch failure",
+          "continuous experimentation rollback"
+        ],
+        "hit_criteria": "Versioned release or config change with structured metadata and binary failure outcome (failed release, hotfix within 7d, or incident linked). ≥200 positive class preferred."
+      }
+    },
+    {
+      "id": "research-5",
+      "title": "Industrial / safety-critical change control datasets",
+      "scope": "Search aviation, NASA, manufacturing, energy — where formal change control exists and failures are recorded. Long shot but validates 'change control' is universal, not ITSM-specific.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "≥3 sources investigated (NASA PRACA, NTSB maintenance-related, aviation MRO)",
+        "Honest feasibility note: likely too sparse or too domain-specific for CRBundle adapter",
+        "If nothing usable, document why in ≤1 paragraph (don't over-invest)"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "NASA Open Data",
+          "NTSB database",
+          "FAA Service Difficulty Reports",
+          "Zenodo",
+          "Harvard Dataverse",
+          "UK HSE incident datasets"
+        ],
+        "terms": [
+          "change control failure dataset",
+          "planned maintenance incident",
+          "engineering change order failure",
+          "modification incident aviation",
+          "MRO failure dataset",
+          "process safety change management",
+          "management of change incident"
+        ],
+        "hit_criteria": "Formal change/maintenance record paired with failure/incident outcome. Tier A/B. Expect low hit rate — task succeeds by documenting negative result quickly."
+      }
+    },
+    {
+      "id": "research-6",
+      "title": "Academic paper data availability audit (cross-domain)",
+      "scope": "Search papers that train on change→failure prediction across SE, ITSM, DevOps, process mining. Extract: private vs public, sample sizes, label method, whether authors share data on request.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "≥15 papers catalogued (not just ArXiv ITSM 2023–2026)",
+        "Columns: authors, domain, n changes, n positives, label type, data URL, contact",
+        "ING/Kapel papers flagged for outreach",
+        "Papers claiming AUC >0.8 on private data listed as 'reference only' unless data found"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "Google Scholar",
+          "Semantic Scholar",
+          "ArXiv",
+          "ACM DL",
+          "IEEE Xplore",
+          "Springer Process Mining proceedings"
+        ],
+        "terms": [
+          "incident-inducing change prediction",
+          "change risk prediction ITSM",
+          "defect prediction change request",
+          "failure prediction deployment",
+          "change advisory board machine learning",
+          "predictive change management",
+          "risky change prediction",
+          "change-induced incident",
+          "RFC failure prediction",
+          "ITIL change prediction"
+        ],
+        "hit_criteria": "Paper explicitly predicts intervention failure with reported dataset size. Public supplementary data = immediate candidate. Private = reference + contact candidate."
+      }
+    },
+    {
+      "id": "research-7",
+      "title": "Constructed dataset feasibility — multi-source temporal joins",
+      "scope": "Evaluate whether we can BUILD a silver-tier dataset by joining public sources: GitHub (deployments, releases, merge commits) + incident issues + public postmortem corpora (postmortem.xyz, danlu/post-mortems) + status page archives.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "Architecture doc for construction: sources, join keys, time windows, expected label noise",
+        "Pilot scope defined: 1–2 repos (e.g., Kubernetes, HashiCorp) with rich incident history",
+        "Estimate: achievable n, person-days, API rate limits, license constraints",
+        "Sensitivity plan: window sizes (6h/24h/72h) and impact on positive-class count",
+        "Go/no-go recommendation with explicit failure modes"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "GitHub API (deployments, releases, issues)",
+          "postmortem.xyz",
+          "GitHub danluu/post-mortems",
+          "Google SRE book example data",
+          "OpenTelemetry demo",
+          "Statuspage public incidents",
+          "HuggingFace postmortem collections"
+        ],
+        "terms": [
+          "postmortem dataset",
+          "incident report corpus",
+          "outage postmortem github",
+          "deployment incident join",
+          "release incident timeline",
+          "public incident database",
+          "SRE postmortem collection"
+        ],
+        "hit_criteria": "Demonstrated join path yielding ≥100 silver-tier labeled interventions from public APIs/archives. Construction counts as hit even if no pre-packaged dataset exists."
+      }
+    },
+    {
+      "id": "research-8",
+      "title": "Platform-wide keyword sweep (unbiased second pass)",
+      "scope": "Re-run HuggingFace, Kaggle, GitHub, Zenodo with DOMAIN-NEUTRAL terms — deliberately excluding itsm/servicenow/change-management. Catch datasets v1 missed because labels use different vocabulary.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "Same platforms as v1 searched with new term lists — zero ITSM-specific keywords",
+        "≥20 datasets inspected (title + description), ≥3 new candidates not in v1 report",
+        "Deduped against research-1 through research-7 findings",
+        "Explicit confirmation: v1 ITSM-keyword search was subset of this broader search"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "HuggingFace Datasets",
+          "Kaggle",
+          "GitHub",
+          "Zenodo",
+          "UCI ML Repository"
+        ],
+        "terms": [
+          "failure prediction",
+          "incident prediction labeled",
+          "risk prediction operational",
+          "rollback labeled",
+          "outage prediction dataset",
+          "production incident labeled",
+          "change risk",
+          "intervention outcome",
+          "causal failure dataset",
+          "pre-deploy risk",
+          "operational event log labeled",
+          "ticket escalation prediction"
+        ],
+        "hit_criteria": "Any dataset with structured pre-action records + post-action failure labels passing Tier B or better. Semantic review required — reject agent benchmarks and pure incident-only logs."
+      }
+    },
+    {
+      "id": "research-9",
+      "title": "Synthesis — tiered shortlist and validation roadmap",
+      "scope": "Merge all task findings into docs/dataset-research-v2.md. Rank candidates WITHOUT defaulting to BPI 2014. Recommend validation strategy per project goal (architecture / predictive / full pipeline).",
+      "status": "pending",
+      "acceptance_criteria": [
+        "Ranked shortlist with tier, n, stages covered, adapter effort, label quality",
+        "BPI 2014 position justified by evidence — not by incumbency",
+        "Recommended primary dataset per validation goal (may be different datasets for different goals)",
+        "Explicit 'will not work' section with structural reasons",
+        "Decision tree for user open questions",
+        "Updates docs/datasets.md and docs/evaluation.md cross-links"
+      ],
+      "search_strategy": {
+        "platforms": ["outputs of research-0 through research-8"],
+        "terms": [],
+        "hit_criteria": "Final deliverable: actionable recommendation the team can decide on in one review meeting"
       }
     }
   ]

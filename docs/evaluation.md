@@ -117,9 +117,16 @@ For aspirational P0/P2 success gates and projected metric evolution across level
 
 ### What's blocking
 
-Predictive validation requires a dataset with both change features (input) and incident outcomes (labels). We searched HuggingFace, Kaggle, UCI, Zenodo, GitHub, and ArXiv (2020-2026). No public dataset passes the deal-breaker criteria: change records + direct incident linkage + sufficient sample size. See [dataset-research.md](dataset-research.md) for full findings.
+Predictive validation requires a dataset with both change features (input) and failure outcomes (labels). v2 research ([dataset-research.md](dataset-research.md)) replaced v1's binary deal-breaker with tiered label quality (A/B/C/D) and searched 8 domains (~140 sources).
 
-**BPI 2014** is the only partial candidate: 231 changes with linked incidents (25 with P1/P2). This is enough for a proof-of-concept but not for statistically robust conclusions.
+**No public ITSM dataset** has sufficient change→incident labels for robust stats. **BPI 2014** remains the only ITSM option (231 linked changes, 25 P1/P2).
+
+**Adjacent-domain candidates** for predictive validation (not yet integrated):
+- **ApacheJIT** — 28K bug-inducing commits (Tier B), recommended primary path
+- **Constructed GitHub release→bug** — 500-3K estimated positives (Tier D), pilot on 5 CNCF repos
+- **RAN Updates** — 1.9K telecom config changes with measured degradation (Tier B)
+
+These validate ML methodology (pre-execution attributes → post-execution failure), not ITSM CAB semantics. See semantic gap analysis in [dataset-research.md](dataset-research.md#jit-defect-prediction-research-1).
 
 ### What "good" looks like
 
@@ -131,6 +138,8 @@ A dataset where we can:
 
 ### Next steps
 
-1. Run a proof-of-concept predictive evaluation on BPI 2014 using `Related Change` as outcome labels (n=25 positive, ~17K negative). Accept small-sample limitation.
-2. Fix adapter to use temporal split (only past incidents as input, post-change incidents as labels).
-3. For production-quality validation, enterprise partner data is required.
+1. **Primary:** Build ApacheJIT adapter and run predictive evaluation (28K positives, temporal split). Document semantic gap vs ITSM.
+2. **Secondary:** Constructed GitHub release→bug pilot on 5 CNCF repos (3-4 days). Gate on 5-20% positive rate after filtering.
+3. **ITSM PoC:** Run BPI 2014 evaluation using `Related Change` as outcome labels (n=25 P1/P2 positive). Accept small-sample limitation.
+4. Fix BPI adapter temporal split (only past incidents as input, post-change incidents as labels).
+5. For production-quality ITSM validation, enterprise partner data is required (contact ING authors as low-probability/high-value option).
