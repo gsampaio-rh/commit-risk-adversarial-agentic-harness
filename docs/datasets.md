@@ -33,6 +33,24 @@
 
 **Adapter:** `src/cr_analyzer/adapters/bpi2014.py` — parses `Detail_Change.csv` (semicolon-delimited) and `Detail_Incident.csv`. Multi-CI rows grouped by Change ID. Download: `scripts/download_bpi2014.sh`. Data: `data/bpi2014/` (gitignored).
 
+### ApacheJIT (Software engineering — predictive validation)
+
+[ApacheJIT](https://zenodo.org/records/5907847) — large just-in-time defect prediction corpus from Apache projects. Open access (CC BY 4.0) via Zenodo. Zenodo publishes `apachejit_dataset_replication.zip`; the download script extracts three split CSVs into a flat directory.
+
+| Metric | Value |
+|--------|-------|
+| Total commits | ~106K |
+| Bug-inducing positives | ~28K |
+| Splits | `apachejit_train.csv` (2003–2016, balanced); `apachejit_test_large.csv` (2017+, unbalanced); `apachejit_test_small.csv` (subset of test_large) |
+| Label method | SZZ + JIRA + GumTree |
+| Tier | B |
+
+**What it covers:** Predictive validation at statistical scale (28K positives). Temporal train/test splits for honest evaluation. Structured commit metrics (LA, LD, NF, ND, NS, entropy) map to `pr_scope_flags`. Prior buggy commits on same files support `incident_history` construction.
+
+**What it lacks:** Bug-inducing commit labels, not ITSM incident-causing changes (semantic gap — see Domain Details). No runbooks, rollback plans, or communication plans (stages 4/5 skip). No CMDB snapshot or schedule overlap (stages 6/7 skip). Zenodo ships a zip archive, not direct CSV URLs.
+
+**Download:** `scripts/download_apachejit.sh` — extracts `apachejit_train.csv`, `apachejit_test_large.csv`, `apachejit_test_small.csv`. Data: `data/apachejit/` (gitignored).
+
 ### Synthetic Fixtures (regression tests)
 
 `fixtures/cab-window-01/` — 3 CR bundles for smoke testing:

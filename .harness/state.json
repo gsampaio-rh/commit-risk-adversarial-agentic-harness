@@ -88,7 +88,7 @@
       "id": "feat-1",
       "name": "ApacheJIT data acquisition",
       "type": "feature",
-      "status": "pending",
+      "status": "verified",
       "scope": "Add scripts/download_apachejit.sh mirroring download_bpi2014.sh pattern. Download apachejit_train.csv, apachejit_test_large.csv, apachejit_test_small.csv from Zenodo 5907847. Store under data/apachejit/ (gitignored). Document in docs/datasets.md Active Data Sources section. Does NOT implement adapter logic.",
       "depends_on": ["chore-0"],
       "acceptance_criteria": [
