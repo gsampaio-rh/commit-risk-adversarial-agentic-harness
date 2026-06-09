@@ -16,7 +16,9 @@ A sequential pipeline that pre-analyzes IT change requests before the Change Adv
 
 ```mermaid
 flowchart LR
-    I[Ingest] --> N[Normalize]
+    DS["Data Source"] --> AD["Adapter"]
+    AD -->|CRBundle| I[Ingest]
+    I --> N[Normalize]
     N --> CC[Completeness]
     CC --> HP["Historical Pattern"]
     HP --> SS["Schedule & SLA (cross-CR)"]
@@ -24,7 +26,7 @@ flowchart LR
     RS --> CAB["CAB Report + Summary"]
 ```
 
-Per-CR path runs Ingest → Normalize → Completeness → Historical Pattern → Synthesis. Schedule & SLA runs once per CAB window batch across all CRs, then findings are injected into per-CR reports. Stages 4, 5, 7 are not wired into the runner.
+Adapters convert vendor-specific data into `CRBundle` objects (the pipeline's input interface). The pipeline itself is generic — it processes any valid `CRBundle` regardless of origin. Per-CR path runs Ingest → Normalize → Completeness → Historical Pattern → Synthesis. Schedule & SLA runs once per CAB window batch across all CRs, then findings are injected into per-CR reports. Stages 4, 5, 7 are not wired into the runner.
 
 | # | Stage | Purpose | Status |
 |---|-------|---------|--------|
@@ -101,6 +103,45 @@ Finding schema: `{dimension, severity [blocker|warning|info], finding, evidence:
 ### Disk Checkpoints
 
 Each stage writes JSON to the output directory before the next stage starts. Per-CR: `ingest.json`, `normalize.json`, `completeness.json`, `historical-pattern.json`, `cab-report.json`. Per-window: `schedule-sla.json`, `cab-summary.json`, `cab-summary.md`.
+
+---
+
+## Adapter Layer
+
+Adapters sit outside the pipeline. They convert vendor-specific data formats into `CRBundle` objects — the pipeline's input interface. The pipeline never sees the raw data source; it only consumes `CRBundle`.
+
+```
+  ┌──────────────────────────────────────────────────┐
+  │                 Adapter Layer                     │
+  │  ┌──────────────┐  ┌────────────┐  ┌──────────┐ │
+  │  │ BPI 2014 CSV │  │ ServiceNow │  │ Fixtures │ │
+  │  │ (implemented)│  │  (future)  │  │  (JSON)  │ │
+  │  └──────┬───────┘  └──────┬─────┘  └────┬─────┘ │
+  └─────────┼─────────────────┼──────────────┼───────┘
+            └─────────┬───────┘──────────────┘
+                      │ CRBundle (port)
+                      ▼
+               Pipeline (stages 1-9)
+```
+
+**Pattern:** Ports & Adapters. `CRBundle` is the port (interface defined in `src/cr_analyzer/models/bundle.py`). Each adapter is an implementation that knows how to produce `CRBundle` from a specific source.
+
+### Existing: BPI 2014 (`src/cr_analyzer/adapters/bpi2014.py`)
+
+Converts BPI Challenge 2014 CSV exports into `CRBundle` objects:
+
+1. **`load_changes()`** — parses `Detail_Change.csv` (semicolon-delimited). Groups multi-CI rows by Change ID into a single bundle. Maps risk (`Minor Change` → low) and type (`Emergency Change=Y` → emergency).
+2. **`load_incident_index()`** — parses `Detail_Incident.csv` into a CI-keyed index of past incidents.
+3. **`enrich_bundles_with_incidents()`** — attaches incident history to bundles by matching affected services.
+4. **`derive_cab_windows()`** — filters `CAB-approval needed=Y`, groups by ISO week → `dict[week_label, list[CRBundle]]`.
+
+### End-to-end flow
+
+See [docs/pipeline-flow.md](docs/pipeline-flow.md) for a full visual walkthrough of every stage, from raw data through adapter into the pipeline and final CAB report, with BPI 2014 as the concrete example.
+
+### Adding a new data source
+
+Write a new adapter in `src/cr_analyzer/adapters/` that produces `CRBundle` objects. The adapter handles all vendor-specific concerns (field naming, date formats, risk/type mapping, multi-record grouping). The pipeline stays unchanged.
 
 ---
 
@@ -246,4 +287,4 @@ For resolved unknowns and aspirational content, see [.harness/archive/docs/ARCHI
 
 ---
 
-**Related docs:** [Datasets](docs/datasets.md) | [Evaluation](docs/evaluation.md) | [Archived aspirational content](.harness/archive/docs/ARCHITECTURE-aspirational.md)
+**Related docs:** [Pipeline Flow](docs/pipeline-flow.md) | [Glossary](docs/glossary.md) | [Datasets](docs/datasets.md) | [Evaluation](docs/evaluation.md) | [Archived aspirational content](.harness/archive/docs/ARCHITECTURE-aspirational.md)

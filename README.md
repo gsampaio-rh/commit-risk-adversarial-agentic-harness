@@ -59,6 +59,8 @@ Full evaluation details: [docs/evaluation.md](docs/evaluation.md)
 ├── README.md              # This file
 ├── ARCHITECTURE.md        # Pipeline design, stage details, design decisions
 ├── docs/
+│   ├── pipeline-flow.md   # End-to-end visual walkthrough of every stage
+│   ├── glossary.md        # Glossary of ITSM, pipeline, and data terms
 │   ├── datasets.md        # BPI 2014 details, fixtures, data strategy
 │   └── evaluation.md      # Eval results, L1 vs L2, test suite
 ├── fixtures/
