@@ -1,0 +1,35 @@
+{
+  "task_id": "research-9",
+  "feature": "Dataset research v2 — cross-domain predictive validation dataset search",
+  "problem": "v1 search was ITSM-keyword biased and missed adjacent domains. Need unbiased, comprehensive research to find or construct datasets for predictive validation of the change risk pipeline.",
+  "proposed_solution": "Broadened search across 8 domains (ITSM, JIT defect prediction, DevOps/CI-CD, process mining, release engineering, industrial, academic papers, constructed feasibility) with tiered label quality framework (A/B/C/D) instead of binary deal-breaker.",
+  "acceptance_criteria": [
+    "AC-1: Document reframes the search beyond ITSM keywords — abstract Intervention→Outcome schema defined with domain-agnostic fields",
+    "AC-2: Tiered label quality framework (A/B/C/D) replaces v1 binary deal-breaker, with concrete examples per tier",
+    "AC-3: ≥6 distinct domains searched (not just ITSM platforms with ITSM keywords)",
+    "AC-4: ≥100 datasets/sources inspected total (documented with counts per domain)",
+    "AC-5: v1 ITSM-keyword search confirmed as strict subset of v2 — explicit statement that broader search subsumes v1",
+    "AC-6: Each Tier 1 candidate has: verified URL, size (total + positives), label method, label tier, adapter effort estimate, semantic fit assessment",
+    "AC-7: Semantic gap between adjacent-domain datasets and ITSM change→incident is honestly documented (not hand-waved)",
+    "AC-8: At least one candidate with ≥1000 positive-class labels identified and assessed for CRBundle adapter mapping",
+    "AC-9: BPI 2014 re-ranked by evidence (not incumbency) — position justified relative to new candidates",
+    "AC-10: All BPI Challenge years (2011-2023) systematically checked and documented (not just 2014)",
+    "AC-11: Constructed dataset feasibility assessed with at least 3 construction paths, each with: data availability, join quality, expected yield, effort estimate, go/no-go",
+    "AC-12: Academic paper audit includes ≥10 papers with data availability status (public/private/on-request) and contact info for private datasets",
+    "AC-13: Negative results documented with structural reasons (not just 'nothing found')",
+    "AC-14: Actionable recommendations with decision tree — reader can decide next step without re-reading the whole document",
+    "AC-15: Document is self-contained — does not require reading subagent transcripts to understand findings"
+  ],
+  "edge_cases": [
+    "EC-1: Are there datasets that v2 claims to have found but whose URLs are broken or access-restricted?",
+    "EC-2: Does the semantic gap analysis honestly address whether JIT/CI-CD/clinical datasets actually validate the ITSM CAB thesis, or does it conflate 'similar structure' with 'validates the same claim'?",
+    "EC-3: Are the 'surprising finds' (ClinicalRisk, INSPIRE, IBI Escalation, RAN Updates) genuinely actionable for this project or padding to make v2 look broader?",
+    "EC-4: Does the constructed dataset feasibility section honestly assess label noise and false positive rates, or does it assume temporal joins are clean?"
+  ],
+  "verification_method": "Evaluator reads docs/dataset-research.md and verifies each AC against the document content. For AC-6, spot-check 3 URLs. For EC-2, assess whether semantic gap analysis is honest vs hand-wavy. Check internal consistency (numbers match between sections, tier assignments are consistent). Cross-reference with ARCHITECTURE.md and docs/evaluation.md for alignment.",
+  "rubrics": ["code-quality"],
+  "rubric_mode": "warn",
+  "negotiation_rounds": 0,
+  "phase": "verified",
+  "verified": true
+}

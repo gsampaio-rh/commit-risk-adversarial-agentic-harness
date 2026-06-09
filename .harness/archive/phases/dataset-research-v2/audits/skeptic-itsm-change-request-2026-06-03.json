@@ -1,0 +1,282 @@
+{
+  "domain": "architecture-skeptic",
+  "experiment": "itsm-change-request",
+  "timestamp": "2026-06-03T20:30:00Z",
+  "architecture_file": "experiments/itsm-change-request/ARCHITECTURE.md",
+  "summary": "MVP discipline is strong: 7/9 stages are script-only at L1, ~$0 per 50-CR batch, and only three stages ever admit LLM (Runbook/Rollback L3 ceilings, Risk Synthesis L2 SOTA). Three blockers undermine P0 gates as written: SLA impact arithmetic double-counts overlapping maintenance, the <$2 batch budget is incompatible with Risk Synthesis L2 at target scale, and synthetic eval is structurally tautological for L1 (explicit service names + definitional injections) while USE-CASE claims agent irreplaceability. Five concerns cover synthetic realism for overnight-agent eval, weak LLM justification for Runbook L3 and CAB narrative, P0 metric overclaiming (Prior Auth #3 parallel), Schedule+SLA merge blind spots, and untrusted optional PR scope flags.",
+  "orientation": {
+    "stages_total": 9,
+    "mvp_l1_component_counts": { "script": 9, "template": 0, "encoder": 0, "embedding": 0, "llm": 0 },
+    "target_sota_component_counts": { "script": 5, "encoder": 2, "embedding": 1, "llm": 1, "llm_optional_ceiling": 2 },
+    "llm_touchpoints": [
+      { "stage": "Runbook Validation", "level": "L3", "role": "optional ceiling after L2 trigger" },
+      { "stage": "Rollback Feasibility", "level": "L3", "role": "optional ceiling after L2 trigger" },
+      { "stage": "Risk Synthesis & CAB Report", "level": "L2", "role": "SOTA narrative generation" }
+    ],
+    "cost_estimate_usd_per_50_cr_batch": {
+      "l1_mvp": { "low": 0, "high": 0, "notes": "All script/template; wall-clock <5 min per doc" },
+      "l2_target_sota_no_l3": {
+        "low": 0.65,
+        "high": 4.15,
+        "breakdown": "Runbook+Rollback encoder ~$0.50; Historical embedding ~$0.15; Risk L2 LLM ~$1.00–$4.00 ($0.02–$0.08/CR × 50)",
+        "notes": "Upper bound exceeds stated <$2 batch gate if Risk L2 runs on every CR"
+      },
+      "l3_worst_case_high_risk_subset": {
+        "low": 1.5,
+        "high": 8.0,
+        "notes": "Budget rule caps one of Runbook/Rollback L3 per CR unless tier-1+high; still conflicts with full-batch Risk L2"
+      }
+    }
+  },
+  "total_findings": { "blocker": 3, "concern": 8, "nit": 4 },
+  "findings": [
+    {
+      "id": "skeptic-itsm-1",
+      "dimension": "failure-points",
+      "severity": "blocker",
+      "stage": "Schedule & SLA Analysis",
+      "title": "SLA arithmetic sums full durations — double-counts overlapping windows",
+      "observation": "Stage 6 sums `expected_duration_min` per service tier and compares to remaining monthly budget. Scheduling conflict detection uses interval overlap on shared services, but SLA math does not use overlap geometry or concurrent maintenance modeling.",
+      "challenge": "If CR-A and CR-B overlap 60 minutes on `payment-service`, wall-clock customer impact is ~60 minutes, not 120. Summing both durations will false-flag SLA breach (#4) and corrupt aggregate SLA dashboard in Stage 9.",
+      "recommendation": "Define SLA downtime as interval-union per (service, tier) across the CAB window: merge overlapping [start,end] intervals, sum merged lengths, then compare to budget. Keep scheduling-pair recall on pairwise overlap; decouple SLA metric to union-based arithmetic. Add injected GT cases where overlap exists but sum-of-durations would breach while union would not.",
+      "evidence": "Schedule & SLA L1: 'sum expected_duration_min per service tier'; overlap detection is separate 'interval overlap on shared affected_services'"
+    },
+    {
+      "id": "skeptic-itsm-2",
+      "dimension": "efficiency",
+      "severity": "blocker",
+      "stage": "pipeline-wide",
+      "title": "Pipeline budget gate contradicts Risk Synthesis L2 SOTA at 50-CR scale",
+      "observation": "USE-CASE and Pipeline Budget Gate require <$2 per 50-CR batch. Risk Synthesis L2 is SOTA at ~$0.02–$0.08/CR (~$1–$4 per batch). L2 encoder costs add ~$0.10–$0.30. Architecture states Risk L2 runs as last stage with bounded output tokens but does not cap CR count or make L2 optional at P0.",
+      "challenge": "Target architecture cannot simultaneously be 'SOTA = L2 narrative on every CR' and '<$2 for 50 CRs' without selective routing. Teams will either blow budget or silently stay on L1 while claiming SOTA.",
+      "recommendation": "Split budgets: P0 MVP gate = L1-only <$0.05; Target gate = Risk L2 on flagged CRs only (conditional/reject path, or tier-1/high-risk) with measured token cap. Document expected % of CRs receiving L2. Alternatively raise batch budget to $5 with explicit per-CR ceiling.",
+      "evidence": "Pipeline Budget Gate: '< $2 for a 50-CR CAB window'; Risk Synthesis L2: '~$0.02-0.08/CR'; E2E metric #6 cost < $2"
+    },
+    {
+      "id": "skeptic-itsm-3",
+      "dimension": "quality-gates",
+      "severity": "blocker",
+      "stage": "pipeline-wide",
+      "title": "P0 synthetic+L1 eval is tautological for core agent claims",
+      "observation": "Generator injects failures with explicit CMDB service names in runbooks (L1 string match). Historical Pattern L1 exact tuple match hits injected #7 by construction. CAB recommendation GT is derived from the same deterministic rollup rules implemented in Stage 9. Architecture admits synthetic is an upper bound but P0 gates (≥80% recall, ≥75% CAB accuracy) do not require noise/messiness tiers before pass.",
+      "challenge": "Passing P0 does not falsify the USE-CASE claim that cross-artifact semantic reasoning is agent-irreplaceable — it mostly proves the injection script and rule engine mirror each other. Overnight-agent eval value is unproven until messiness knobs are gated.",
+      "recommendation": "Add mandatory P0 sub-gates: (1) recall on medium+ noise injection ≥70% before build complete; (2) report per-dimension recall on prose-embedded failure subset only; (3) rename 'CAB recommendation accuracy' to 'rollup rule self-consistency' until P2. Block commercial/STRONGEST narrative on synthetic-only pass.",
+      "evidence": "Runbook L1 starting level: 'ITIL-template runbooks... name services explicitly'; P0 CAB accuracy vs 'deterministic severity rollup rules'; Synthetic Concentration Risk table; realism knobs 'deferred to skeptic review'"
+    },
+    {
+      "id": "skeptic-itsm-4",
+      "dimension": "quality-gates",
+      "severity": "concern",
+      "stage": "pipeline-wide",
+      "title": "P0 eval overclaiming parallels Prior Auth #3 (Real Data 2/5)",
+      "observation": "USE-CASE rates Real Data 2/5, Eval Readiness ★★★, verdict STRONGEST, Agent Score 23/25. Architecture documents P0/P2 split but E2E and USE-CASE success tables still list CAB accuracy and clean-CR FP as headline targets without synthetic-only qualifier in the metric row.",
+      "challenge": "Stakeholders will read ≥75% CAB accuracy and ≤15% FP as production-calibrated. Known Unknown #3 states FP and expert alignment are unmeasurable until P2 — yet no harness rubric downgrades Agent Score or blocks 'STRONGEST' labeling on synthetic pass.",
+      "recommendation": "Publish two scorecards in USE-CASE and ARCHITECTURE eval section: P0-Architecture (injection recall, schema, cost, wall-clock) vs P2-Production (real FP, expert alignment, actionability). Require explicit 'synthetic-only — not deployment evidence' banner on all P0 metrics in reports.",
+      "evidence": "USE-CASE Real Data 2/5; 'Parallels healthcare Prior Auth #3'; P0 does NOT prove list vs Success Metrics table"
+    },
+    {
+      "id": "skeptic-itsm-5",
+      "dimension": "failure-points",
+      "severity": "concern",
+      "stage": "pipeline-wide",
+      "title": "Synthetic ITIL templates unlikely to stress overnight-agent cross-artifact reasoning",
+      "observation": "Templates are ServiceNow-shaped, ITIL-best-practice, uniform formatting. Realism knobs (prose messiness, CMDB staleness, boilerplate) are listed but not in generator acceptance criteria or P0 gates. Multi-CR windows (30+) exist but overlap/dependency failures use idealized graphs.",
+      "challenge": "Overnight batch processing is justified by heterogeneous reasoning burden — if L1 rules + template generator solve 90%+ without messiness, the experiment validates a rules engine batch job, not a long-running agent pattern.",
+      "recommendation": "Before feat build: lock generator v1 requirements — ≥5 runbook prose variants, ≥20% implicit service references, ≥15% CMDB alias drift, ≥10% optional-field omission on clean CRs. Gate P0 on recall delta between clean-template vs medium-noise subsets (trigger already in Known Unknown #1: >15% variance).",
+      "evidence": "Generator Design artifact templates; Realism knobs 'deferred to skeptic review'; Synthetic Concentration Risk mitigations P0 noise injection"
+    },
+    {
+      "id": "skeptic-itsm-6",
+      "dimension": "llm-necessity",
+      "severity": "concern",
+      "stage": "Runbook Validation",
+      "title": "Runbook L3 LLM not proven necessary vs alias graph + encoder",
+      "observation": "L3 justified for implicit references ('payment gateway') and intent staleness ('SSH to bastion' vs VPN). L2 already does NER + semantic CMDB match. No benchmark separates entity-miss from true semantic-staleness failures.",
+      "challenge": "Bastion/VPN is a CMDB node `type`/`status` migration rule. Implicit gateway references are embedding + service alias table problems. L3 trigger requires L2 recall <70% AND residual errors be prose-embedded — but synthetic set won't exercise L2, so L3 may never fire or will fire on unmeasured data.",
+      "recommendation": "Add L2.5 Script: CMDB alias table + infrastructure-type rules (bastion, VPN endpoint, deprecated load balancer names). Require labeled holdout set of ≥50 prose-embedded stale refs before L3 approval. Demote L3 to experimental, not SOTA ceiling, until A/B shows >5% lift over L2.5.",
+      "evidence": "LLM Justification Runbook L3; Runbook L2 'NER... semantic similarity'; L1 note on template-clean synthetic"
+    },
+    {
+      "id": "skeptic-itsm-7",
+      "dimension": "llm-necessity",
+      "severity": "concern",
+      "stage": "Risk Synthesis & CAB Report",
+      "title": "Cross-dimension CAB narrative achievable with rule graph + templates",
+      "observation": "L2 LLM generates cross-dimension 'so what' and conditional wording. L1 already has deterministic rollup (R1–R4) and template remediation from finding types. Findings JSON includes dimension, severity, evidence, remediation per stage.",
+      "challenge": "Why is generation required? Example in LLM table ('staleness concerning BECAUSE rollback depends on same deprecated service') is a join on `evidence.service_ref` across dimensions — a 10-line rule, not language understanding.",
+      "recommendation": "Implement Risk L1.5: cross-dimension rule graph (shared service IDs, tier-1 + SLA breach + overlap triplets) emitting structured `conditional_actions[]`. Measure CAB chair actionability on same rubric; promote to L2 LLM only if L1.5 <60% actionability on ≥20 flagged CRs.",
+      "evidence": "Risk Synthesis L2 justification; CAB rules R1-R4; conditional triggers 'template-derived from finding type' at L1"
+    },
+    {
+      "id": "skeptic-itsm-8",
+      "dimension": "failure-points",
+      "severity": "concern",
+      "stage": "Schedule & SLA Analysis",
+      "title": "Merged stage misses infra-level overlap and timezone failure modes",
+      "observation": "Overlap only when CR pairs share exact `affected_services` entries. Normalize validates ISO-8601 but stage 6 does not document UTC normalization for overlap. No model for shared infrastructure (same K8s cluster, DB host) when service lists differ.",
+      "challenge": "Injected #3 will be detected on synthetic shared-service IDs; real misses happen when teams list different service names for same blast radius. Merge hides whether regression is schedule vs SLA sub-metric.",
+      "recommendation": "Add optional `shared_infra_tags[]` on CR normalize output for P1; P0 document limitation in eval report. Enforce UTC on window comparison. Emit sub-stage timings and separate `scheduling_conflicts` vs `sla_impact` failure codes in pipeline abort messages.",
+      "evidence": "Schedule overlap 'shared affected_services'; DECISIONS merge rationale; inter-stage Window calendar check"
+    },
+    {
+      "id": "skeptic-itsm-9",
+      "dimension": "failure-points",
+      "severity": "concern",
+      "stage": "Rollback Feasibility",
+      "title": "Optional PR scope flags without provenance — rollback rules fail open",
+      "observation": "pr_scope_flags optional. L1 rule `schema_migration: true` + 'restore backup' → infeasible. DECISIONS accept flags from CI/CD metadata with no diff analysis. No validation that flags match change description.",
+      "challenge": "In production, missing or wrong flags → keyword-only rollback check misses #2 or false-negatives clean CRs. Synthetic #2 may always set flags while real CRs omit them.",
+      "recommendation": "P0 generator must include cases with flags absent but prose indicates migration (test keyword path). Add `scope_flags_source` and warn when flags missing on normal/emergency CRs. Inter-stage check: if description contains migration keywords and flags null, emit info finding 'scope unverified'.",
+      "evidence": "pr_scope_flags optional; Rollback L1 structural rules; DECISIONS PR Diff scope flags only"
+    },
+    {
+      "id": "skeptic-itsm-10",
+      "dimension": "failure-points",
+      "severity": "concern",
+      "stage": "Risk Synthesis & CAB Report",
+      "title": "LLM narrative can contradict deterministic CAB recommendation",
+      "observation": "L2 keeps L1 rollup for approve/conditional/reject but LLM writes narrative and conditional language. No inter-stage validator that narrative sentiment matches recommendation class.",
+      "challenge": "Silent degradation: JSON says approve while Markdown argues reject; CAB chair trust collapses. Cross-run consistency target drops to 85-95% at L2 but no check on recommendation↔narrative alignment.",
+      "recommendation": "Post-generation script gate: extract recommendation from rollup JSON; scan narrative for reject/conditional lexicon; fail or strip narrative on mismatch. Prefer L1.5 template narrative tied to rollup hash for auditability.",
+      "evidence": "Risk L2 'L1 severity rollup + LLM generates cross-dimension narrative'; cross-run consistency 85-95% at L2+"
+    },
+    {
+      "id": "skeptic-itsm-11",
+      "dimension": "evolution-levels",
+      "severity": "concern",
+      "stage": "Historical Pattern",
+      "title": "Injection spec vs alert threshold mismatch; L2 trigger unreachable on synthetic",
+      "observation": "Failure #7 injected as ≥3 past P1 incidents; L1 alerts at ≥2 P1/P2. L2 trigger needs recall <70% on semantic category mismatch — generator uses exact categories for injections.",
+      "challenge": "Eval may pass with wrong severity semantics (alert on 2 vs injected 3). L2 advancement path never fires on primary dataset, creating dead evolution level for P0/P1.",
+      "recommendation": "Align generator and stage threshold (≥3 P1 or document why 2 is CAB-relevant). Add ≥30 injection cases with category synonym drift for L2 trigger measurement.",
+      "evidence": "Injection taxonomy #7; Historical Pattern L1 '≥2 past incidents'; L2 trigger recall <70% semantic mismatch"
+    },
+    {
+      "id": "skeptic-itsm-12",
+      "dimension": "llm-necessity",
+      "severity": "concern",
+      "stage": "Rollback Feasibility",
+      "title": "Temporal rollback infeasibility is script-parseable before LLM L3",
+      "observation": "L3 example: revert Tuesday backup when change runs Thursday-Saturday. L2 extracts temporal references.",
+      "challenge": "This is date parsing + window comparison + backup retention policy table — deterministic. LLM L3 trigger duplicates Runbook pattern: won't fire on synthetic, expensive on edge cases.",
+      "recommendation": "L2.5 Script: parse backup timestamps from rollback prose, compare to `scheduled_window` from normalize.json, flag if backup age > window start − SLA RPO. Reserve L3 for <5% residual after L2.5 on held-out prose set.",
+      "evidence": "Rollback L3 temporal reasoning example; Rollback L2 'Extract temporal references'"
+    },
+    {
+      "id": "skeptic-itsm-13",
+      "dimension": "missing-connections",
+      "severity": "nit",
+      "stage": "pipeline-wide",
+      "title": "Stages 3–5 independent but forced sequential — latency headroom unused",
+      "observation": "Pattern Rationale admits 3–5 could fan-out; rejects due P0 scale <30 min.",
+      "challenge": "At 200-CR scale (Known Unknown #7), sequential multiply dominates; no evolution trigger for parallelism.",
+      "recommendation": "Document fan-out trigger: wall-clock >25 min at 100 CRs on L1 → parallelize 3–5 with merged checkpoint `pre-cross-cr.json`.",
+      "evidence": "Pattern Rationale vs fan-out; Known Unknown #7 wall-clock trigger"
+    },
+    {
+      "id": "skeptic-itsm-14",
+      "dimension": "quality-gates",
+      "severity": "nit",
+      "stage": "Risk Synthesis & CAB Report",
+      "title": "CAB narrative actionability gate undefined for P0",
+      "observation": "L1→L2 trigger: actionability <60% human spot-check. No rater count, rubric, or sample size in Evaluation Metrics.",
+      "challenge": "Subjective gate cannot fire measurably during P0 build.",
+      "recommendation": "Add frozen 15-CR rubric (approve/conditional/reject + 'would you defer to engineer?') with 2 raters minimum; store in `.harness/evals/`.",
+      "evidence": "Risk L1 trigger 'human spot-check'; no corresponding Evaluation Metrics row"
+    },
+    {
+      "id": "skeptic-itsm-15",
+      "dimension": "failure-points",
+      "severity": "nit",
+      "stage": "Completeness Check",
+      "title": "Missing comms is warning — may under-represent customer-facing risk in rollup",
+      "observation": "Failure #6 missing comms; Completeness flags customer-facing without comms as warning. R2 needs ≥2 warnings across dimensions for conditional.",
+      "challenge": "Single comms warning on otherwise clean CR → approve (R3), understating regulatory/customer notification risk.",
+      "recommendation": "Elevate customer-facing + no comms to blocker for normal/emergency types, or auto-conditional (R2b) — align with enterprise CAB practice.",
+      "evidence": "Completeness L1 'no comms for customer-facing = warning'; CAB R2/R3 rules"
+    },
+    {
+      "id": "skeptic-itsm-16",
+      "dimension": "missing-connections",
+      "severity": "nit",
+      "stage": "Ingest / Normalize",
+      "title": "No direct GT — bottleneck attribution is post-hoc only",
+      "observation": "GT Coverage: Ingest and Normalize have no GT; evaluate via downstream failure.",
+      "challenge": "Parser regressions on P1 format variants look like Runbook/Completeness failures.",
+      "recommendation": "Golden-file tests: ≥20 ingest fixtures with expected normalize.json hash per variant.",
+      "evidence": "Ground Truth Coverage by Stage table Ingest/Normalize 'No GT'"
+    }
+  ],
+  "per_stage_verdicts": [
+    {
+      "stage": "Ingest",
+      "starting_level_justified": true,
+      "trigger_measurable": true,
+      "deterministic_alternative_exists": true,
+      "notes": "L1 script correct for defined JSON+MD bundle. Risk is parser fragility on non-generator prose (P1), not missing LLM."
+    },
+    {
+      "stage": "Normalize",
+      "starting_level_justified": true,
+      "trigger_measurable": true,
+      "deterministic_alternative_exists": true,
+      "notes": "Finite schema mapping. >99% field presence is measurable proxy; add golden-file hashes."
+    },
+    {
+      "stage": "Completeness Check",
+      "starting_level_justified": true,
+      "trigger_measurable": true,
+      "deterministic_alternative_exists": true,
+      "notes": "Pure ITIL predicates. Concern: comms gap severity vs CAB rollup alignment."
+    },
+    {
+      "stage": "Runbook Validation",
+      "starting_level_justified": true,
+      "trigger_measurable": true,
+      "deterministic_alternative_exists": true,
+      "notes": "L1 right for baseline but synthetic will not validate L2/L3 triggers. L3 LLM not justified without L2.5 alias/rules. Encoder L2 SOTA plausible for prose refs."
+    },
+    {
+      "stage": "Rollback Feasibility",
+      "starting_level_justified": true,
+      "trigger_measurable": true,
+      "deterministic_alternative_exists": true,
+      "notes": "L1+flags cover synthetic #2. Temporal cases need L2.5 date logic before L3 LLM. Optional flags need provenance warnings."
+    },
+    {
+      "stage": "Schedule & SLA Analysis",
+      "starting_level_justified": true,
+      "trigger_measurable": true,
+      "deterministic_alternative_exists": true,
+      "notes": "L1 appropriate IF SLA uses interval-union math — current sum model is wrong (blocker). Overlap detection OK for explicit shared services."
+    },
+    {
+      "stage": "Dependency Chain",
+      "starting_level_justified": true,
+      "trigger_measurable": true,
+      "deterministic_alternative_exists": true,
+      "notes": "Graph algorithms correct SOTA. CMDB noise FP risk acknowledged; needs noisy-graph eval slice."
+    },
+    {
+      "stage": "Historical Pattern",
+      "starting_level_justified": true,
+      "trigger_measurable": false,
+      "deterministic_alternative_exists": true,
+      "notes": "L1 tuple match tautological on synthetic. L2 embedding trigger won't fire without synonym injections. Align ≥3 vs ≥2 thresholds."
+    },
+    {
+      "stage": "Risk Synthesis & CAB Report",
+      "starting_level_justified": true,
+      "trigger_measurable": false,
+      "deterministic_alternative_exists": true,
+      "notes": "L1 correct P0 start. L2 LLM SOTA conflicts with budget; cross-dimension copy is rule-graph feasible. CAB accuracy metric circular."
+    }
+  ],
+  "debate_questions": [
+    "Should P0 'done' require medium-noise generator recall within 15% of clean-template recall, or is injection-only pass sufficient for harness feat-5?",
+    "Is Risk Synthesis L2 LLM in scope for P0 at all, given <$2/50-CR gate — or should P0 ship L1 template + L1.5 rule-graph narrative only?",
+    "For SLA impact, is the correct model interval-union downtime, max-single-CR duration, or sum-of-durations (current) — and which matches enterprise SLA contracts?",
+    "Who is the trust boundary for `pr_scope_flags` in production, and should missing flags block rollback feasibility conclusions?",
+    "Should Schedule and SLA split if union-based SLA math diverges from pairwise scheduling logic, or stay merged with strictly separated sub-metrics and failure codes?"
+  ]
+}

@@ -1,0 +1,97 @@
+{
+  "task_id": "chore-0",
+  "evaluator": "adversarial",
+  "timestamp": "2026-06-09T21:29:15Z",
+  "retest_of": "2026-06-09T21:27:12Z",
+  "criteria_results": [
+    {
+      "id": "AC-1",
+      "result": "PASS",
+      "evidence": ".harness/archive/phases/dataset-research-v2/state.json exists; valid JSON; project='dataset-research-v2', tasks=10."
+    },
+    {
+      "id": "AC-2",
+      "result": "PASS",
+      "evidence": "contract-research-9.json exists and parses as valid JSON; task_id='research-9'."
+    },
+    {
+      "id": "AC-3",
+      "result": "PASS",
+      "evidence": "archive/phases/dataset-research-v2/evals/ contains exactly eval-feat-1.json, eval-feat-3.json, eval-research-9.json."
+    },
+    {
+      "id": "AC-4",
+      "result": "PASS",
+      "evidence": "archive/phases/dataset-research-v2/audits/ contains skeptic-itsm-change-request-2026-06-03.json."
+    },
+    {
+      "id": "AC-5",
+      "result": "PASS",
+      "evidence": "pipeline-build/state.json exists; valid JSON with project, vision, direction, tasks."
+    },
+    {
+      "id": "AC-6",
+      "result": "PASS",
+      "evidence": "breadcrumbs-pipeline-and-research-v2.jsonl has 64 lines (>=60). All 64 lines pass line-wise json.loads. Chronologically sorted; prior split-line corruption on lines 14-15 repaired."
+    },
+    {
+      "id": "AC-7",
+      "result": "PASS",
+      "evidence": "wc -l .harness/breadcrumbs.jsonl => 2 lines: phase_handoff + chore-0 build completion."
+    },
+    {
+      "id": "AC-8",
+      "result": "PASS",
+      "evidence": "First line type='phase_handoff'."
+    },
+    {
+      "id": "AC-9",
+      "result": "PASS",
+      "evidence": ".harness/contract.json exists at root."
+    },
+    {
+      "id": "AC-10",
+      "result": "PASS",
+      "evidence": "state.json project='apachejit-predictive-eval'."
+    },
+    {
+      "id": "AC-11",
+      "result": "PASS",
+      "evidence": "tasks[id=chore-0].status='verified'."
+    },
+    {
+      "id": "AC-12",
+      "result": "PASS",
+      "evidence": "No .harness/evals/ directory at root at time of check (verified before writing this report)."
+    },
+    {
+      "id": "AC-13",
+      "result": "PASS",
+      "evidence": "git diff --name-only -- src/ tests/ empty."
+    },
+    {
+      "id": "AC-14",
+      "result": "PASS",
+      "evidence": "Legacy archive intact: docs=6, fixtures=28, schemas=12 (46 total)."
+    }
+  ],
+  "edge_case_results": [
+    {
+      "id": "EC-1",
+      "result": "PASS",
+      "evidence": "Archived pipeline-build/state.json byte-identical to git show e4b7ec4:.harness/state.json. project='itsm-change-request-analyzer', 13 tasks, feat-1..feat-6 and feat-8..feat-10 verified."
+    },
+    {
+      "id": "EC-2",
+      "result": "PASS",
+      "evidence": "Archived dataset-research-v2/state.json byte-identical to git show 9545d19:.harness/state.json. project='dataset-research-v2', 10 research tasks."
+    }
+  ],
+  "overall": "PASS",
+  "summary": "Retest after builder fixes: all 14 acceptance criteria and both edge cases pass. Prior failures (wrong pipeline-build git commit, corrupted breadcrumbs JSONL, root evals/) are resolved. Harness is clean for apachejit-predictive-eval phase; feat-1 is next.",
+  "issues": [],
+  "recommendations": [
+    "Proceed to feat-1 (ApacheJIT data acquisition); write fresh contract.json for feat-1",
+    "Optional: remove duplicate .harness/audits/ at root now that copy exists under archive/phases/dataset-research-v2/audits/"
+  ]
+}

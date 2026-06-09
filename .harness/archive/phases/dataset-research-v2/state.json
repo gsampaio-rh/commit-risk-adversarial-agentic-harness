@@ -1,0 +1,367 @@
+{
+  "project": "dataset-research-v2",
+  "created": "2026-06-09T12:00:00Z",
+  "schema_version": 2,
+  "vision": "Find or construct a labeled corpus where each record is a planned intervention (change, deployment, release, commit) with structured pre-execution attributes and a verifiable post-execution failure outcome — not an 'ITSM dataset' but any domain that instantiates the abstract question: 'Given what we know before execution, will this cause a failure?' Success is a tiered shortlist (gold/silver/bronze/constructed) with honest sample sizes, label quality, and a clear mapping to which pipeline stages each dataset can validate. BPI 2014 is one candidate among many, not the default answer.",
+  "direction": "Reframe the search around an abstract Intervention→Outcome schema (intervention_id, scope, type, risk, schedule, optional prose artifacts → failure severity, timestamp, linkage quality). Run domain-parallel searches across software engineering (JIT/SZZ), process mining (all BPI + XES), DevOps/SRE (deployments, rollbacks, CFR), release engineering, and industrial change control — using domain-native vocabulary, not ITSM keywords. Apply a tiered label-quality framework (direct link → temporal+scope → proxy label → constructed join) instead of a binary deal-breaker. For each hit, score: mappable fields, positive-class n, temporal split viability, artifact richness, license. End with a synthesis that ranks options by validation goal (architecture vs predictive vs full 9-stage), explicitly challenging whether we need ITSM fidelity or can validate the risk-prediction thesis on adjacent domains and transfer learnings back.",
+  "trade_offs": [
+    {
+      "decision": "Tiered label quality (A/B/C/D) instead of binary direct-linkage deal-breaker",
+      "alternative": "Keep v1 rule: discard unless explicit change→incident field populated",
+      "reasoning": "Direct linkage is rare (<5% even in enterprise ITSM per ING/BPI). Temporal+scope linkage (incident on same service within N hours post-change) yields 10–100× more labels at the cost of false positives. Proxy labels (SZZ bug-inducing commits) have different semantics but support predictive model benchmarking at scale. We gain statistical power; we lose ITSM-specific causal certainty."
+    },
+    {
+      "decision": "Validate predictive thesis on adjacent domains (JIT defect, deployment failure) if ITSM gold data absent",
+      "alternative": "Wait for enterprise ITSM partner before any predictive eval",
+      "reasoning": "The pipeline's core ML question — 'does historical pattern + completeness signal predict failure?' — is domain-agnostic. JIT datasets offer 10K–100K labeled interventions with rich text. We lose runbook/rollback/CAB semantics and must build domain-specific adapters, but gain defensible precision/recall metrics. Transfer back to ITSM is hypothesis, not proven."
+    },
+    {
+      "decision": "Pursue constructed datasets (GitHub deploy events + incident issues + postmortems) as first-class path",
+      "alternative": "Only accept monolithic ready-made datasets",
+      "reasoning": "No public monolith combines ITSM structure + incident outcomes + prose artifacts. Construction via temporal joins is labor-intensive but may be the only path to silver-tier ITSM-like labels at scale. Risk: join assumptions become hidden bias; must document and sensitivity-test window sizes."
+    },
+    {
+      "decision": "Accept partial pipeline validation per dataset tier",
+      "alternative": "Require all 9 stages exercisable on one dataset",
+      "reasoning": "Prose artifacts (runbook, rollback) essentially do not exist in public real data. Synthetic fixtures already cover stages 4/5/7. Real-data eval should target stages 1–3, 6, 8–9 on structured data; treat 4/5/7 as synthetic-only until enterprise partner. Trying to find one dataset for all 9 stages guarantees failure."
+    },
+    {
+      "decision": "Exhaust non-ITSM sources before re-ranking BPI 2014",
+      "alternative": "Treat BPI 2014 as confirmed best and run PoC immediately",
+      "reasoning": "v1 search was keyword-biased toward ITSM platforms. Adjacent domains may offer better predictive validation even if adapter work is higher. BPI remains valuable as the only real ITIL event log — but its n=25 P1/P2 positives may be beatable by SZZ or deployment datasets for the ML thesis."
+    },
+    {
+      "decision": "Contact authors of private datasets (ING/Kapel) for academic access",
+      "alternative": "Skip private data entirely",
+      "reasoning": "ING paper matches our problem exactly (175K changes, 4K incident-inducing). Low probability of success but high value; costs one email. Does not block parallel public search."
+    }
+  ],
+  "open_questions": [
+    "Validation goal priority: (A) prove pipeline architecture on real ITIL shapes, (B) prove predictive accuracy with statistical power, or (C) exercise all 9 stages including prose artifacts? These require different datasets — which is P0?",
+    "Acceptable label noise for predictive eval: what false-positive rate in silver-tier temporal linkage is tolerable (e.g., incident within 24h on same service ≠ caused by change)?",
+    "Is validating on JIT defect prediction (commit→bug) sufficient evidence for CAB risk prediction, or is that a different product claim requiring ITSM-specific eval?",
+    "Budget for dataset construction: person-days cap for GitHub/API scraping and temporal joins vs buying commercial process-mining samples?",
+    "P1/P2 severity only (ING-style) or any-severity incidents as positive class? Broader definition increases n but dilutes CAB-relevant signal.",
+    "Should we pursue Data Use Agreements with Rabobank successors, ING, or BPI challenge organizers for richer extracts beyond public BPI 2014?",
+    "If best public option remains BPI 2014, do we proceed with PoC knowing n=25, or pivot MVP claims to 'architecture validated, predictive accuracy unmeasured' until enterprise data?"
+  ],
+  "tasks": [
+    {
+      "id": "research-0",
+      "title": "Reframe problem + tiered acceptance criteria",
+      "scope": "Define the abstract Intervention→Outcome schema, map each pipeline stage to minimum data requirements, and replace v1 binary deal-breakers with Tier A/B/C/D label quality levels. Produce a one-page rubric used by all subsequent search tasks. Does NOT search yet — sets the lens.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "Abstract schema documented: intervention fields, outcome fields, linkage types, temporal split rules",
+        "Tier A/B/C/D definitions with examples from ITSM, JIT, and DevOps domains",
+        "Per-stage minimum data matrix: which stages need which artifacts (1–9)",
+        "Three validation modes defined: architecture-only, predictive, full-pipeline",
+        "Explicit list of what v1 got wrong (keyword bias, binary deal-breaker, BPI anchoring)"
+      ],
+      "search_strategy": {
+        "platforms": ["internal docs (ARCHITECTURE.md, docs/dataset-research.md v1)"],
+        "terms": [],
+        "hit_criteria": "Rubric artifact ready for downstream tasks — no external search"
+      }
+    },
+    {
+      "id": "research-1",
+      "title": "JIT defect prediction + SZZ labeled commit corpora",
+      "scope": "Search software-engineering datasets where code changes (commits/PRs) are labeled bug-inducing vs clean. Largest public corpora for predictive validation at scale. Assess adapter feasibility to CRBundle (commit message ≈ description, files ≈ affected_services, author metrics ≈ team features).",
+      "status": "pending",
+      "acceptance_criteria": [
+        "≥5 datasets catalogued with size, label method (SZZ/manual), positive-class n, license",
+        "Top 2 candidates scored against tier rubric and pipeline stage coverage",
+        "Honest assessment: does bug-inducing ≡ incident-causing for our thesis?",
+        "Adapter sketch: which CRBundle fields map, which stages activate/skip"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "Papers With Code",
+          "GitHub",
+          "Zenodo",
+          "figshare",
+          "UCI ML Repository",
+          "MSR Data Showcase",
+          "Harvard Dataverse"
+        ],
+        "terms": [
+          "just-in-time defect prediction",
+          "JIT defect prediction dataset",
+          "bug-inducing commit",
+          "bug inducing change",
+          "SZZ algorithm dataset",
+          "commit-level defect prediction",
+          "risky commit prediction",
+          "change-level defect",
+          "defect prediction git dataset",
+          "Kamei dataset",
+          "JIRA defect commit linkage"
+        ],
+        "hit_criteria": "Labeled commits or PRs (≥1K positive class) with pre-change features (diff stats, author, timestamp, message) and binary/multiclass defect outcome. Manual labels preferred over pure SZZ; document label noise if SZZ-only."
+      }
+    },
+    {
+      "id": "research-2",
+      "title": "DevOps / SRE deployment and rollback failure datasets",
+      "scope": "Search for deployment/release records linked to failures, rollbacks, or incidents. Closer semantic match to ITSM changes than commits — planned execution with scope and schedule.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "≥5 candidates from CI/CD, cloud outage, and DORA research corpora",
+        "Each assessed: deployment fields, failure definition, linkage method, n",
+        "Flag any dataset with rollback events as proxy for 'change caused failure'",
+        "Note GitHub deployment API + issues as construction path if no monolith found"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "GitHub",
+          "Kaggle",
+          "HuggingFace",
+          "Zenodo",
+          "IEEE DataPort",
+          "Google Cloud Outages catalog",
+          "CNCF project repos"
+        ],
+        "terms": [
+          "deployment failure dataset",
+          "rollback prediction",
+          "change failure rate dataset",
+          "DORA metrics dataset",
+          "CI/CD failure prediction",
+          "release failure prediction",
+          "incident deployment correlation",
+          "continuous delivery failure",
+          "canary deployment failure",
+          "post-deploy incident",
+          "SRE incident dataset",
+          "production outage deployment"
+        ],
+        "hit_criteria": "Deployment/release record with timestamp, target service/repo, outcome (success/failure/rollback) OR linked incident within documented window. Tier B acceptable if same-service temporal join is explicit."
+      }
+    },
+    {
+      "id": "research-3",
+      "title": "Process mining event logs — all BPI challenges + XES repository",
+      "scope": "Systematic crawl of ALL BPI Challenge years (2012–2022) and the IEEE/XES process mining archive — not just 2014. Many years include incident/problem/change subprocesses under non-ITSM names.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "Inventory table: every BPI year, domain, log objects, case counts, ITIL relevance score",
+        "Non-BPI XES logs with incident/change/problem lifecycle identified (≥10 inspected)",
+        "Any log with both change-like and incident-like events scored for Tier A/B linkage",
+        "BPI 2014 re-assessed with tier framework — not assumed rank #1"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "4TU.ResearchData",
+          "BPI Challenge archive (bpi-challenge.org)",
+          "IEEE Task Force on Process Mining (xes-standard.org)",
+          "pm4py bundled logs",
+          "Celonis Academic Alliance",
+          "Zenodo tag:process-mining"
+        ],
+        "terms": [
+          "BPI challenge incident",
+          "BPI challenge change",
+          "ITIL event log",
+          "incident management event log",
+          "problem management log",
+          "release management process mining",
+          "service desk event log",
+          "xes incident",
+          "helpdesk event log",
+          "Volksbank BPI",
+          "Rabobank event log"
+        ],
+        "hit_criteria": "Event log with ≥2 activity types mappable to intervention (change/deploy/release) and outcome (incident/failure/ticket escalation), ideally same case ID or documented cross-case join key. Minimum 500 intervention cases."
+      }
+    },
+    {
+      "id": "research-4",
+      "title": "Release engineering + configuration change failure corpora",
+      "scope": "Search release-tracking and config-change domains: failed releases, hotfix-after-release, infrastructure-as-code apply failures, feature-flag rollouts with rollback.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "≥3 candidates with release/change record + post-release failure label",
+        "IaC/terraform failure datasets assessed (apply failure ≠ incident but may proxy)",
+        "Distinction documented: release failure vs production incident — which fits CAB thesis?"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "GitHub",
+          "Zenodo",
+          "ArXiv supplementary data",
+          "Kaggle",
+          "OpenML"
+        ],
+        "terms": [
+          "release failure prediction dataset",
+          "failed release dataset",
+          "hotfix prediction",
+          "post-release bug dataset",
+          "configuration change failure",
+          "terraform apply failure dataset",
+          "infrastructure change incident",
+          "feature flag rollback dataset",
+          "dark launch failure",
+          "continuous experimentation rollback"
+        ],
+        "hit_criteria": "Versioned release or config change with structured metadata and binary failure outcome (failed release, hotfix within 7d, or incident linked). ≥200 positive class preferred."
+      }
+    },
+    {
+      "id": "research-5",
+      "title": "Industrial / safety-critical change control datasets",
+      "scope": "Search aviation, NASA, manufacturing, energy — where formal change control exists and failures are recorded. Long shot but validates 'change control' is universal, not ITSM-specific.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "≥3 sources investigated (NASA PRACA, NTSB maintenance-related, aviation MRO)",
+        "Honest feasibility note: likely too sparse or too domain-specific for CRBundle adapter",
+        "If nothing usable, document why in ≤1 paragraph (don't over-invest)"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "NASA Open Data",
+          "NTSB database",
+          "FAA Service Difficulty Reports",
+          "Zenodo",
+          "Harvard Dataverse",
+          "UK HSE incident datasets"
+        ],
+        "terms": [
+          "change control failure dataset",
+          "planned maintenance incident",
+          "engineering change order failure",
+          "modification incident aviation",
+          "MRO failure dataset",
+          "process safety change management",
+          "management of change incident"
+        ],
+        "hit_criteria": "Formal change/maintenance record paired with failure/incident outcome. Tier A/B. Expect low hit rate — task succeeds by documenting negative result quickly."
+      }
+    },
+    {
+      "id": "research-6",
+      "title": "Academic paper data availability audit (cross-domain)",
+      "scope": "Search papers that train on change→failure prediction across SE, ITSM, DevOps, process mining. Extract: private vs public, sample sizes, label method, whether authors share data on request.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "≥15 papers catalogued (not just ArXiv ITSM 2023–2026)",
+        "Columns: authors, domain, n changes, n positives, label type, data URL, contact",
+        "ING/Kapel papers flagged for outreach",
+        "Papers claiming AUC >0.8 on private data listed as 'reference only' unless data found"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "Google Scholar",
+          "Semantic Scholar",
+          "ArXiv",
+          "ACM DL",
+          "IEEE Xplore",
+          "Springer Process Mining proceedings"
+        ],
+        "terms": [
+          "incident-inducing change prediction",
+          "change risk prediction ITSM",
+          "defect prediction change request",
+          "failure prediction deployment",
+          "change advisory board machine learning",
+          "predictive change management",
+          "risky change prediction",
+          "change-induced incident",
+          "RFC failure prediction",
+          "ITIL change prediction"
+        ],
+        "hit_criteria": "Paper explicitly predicts intervention failure with reported dataset size. Public supplementary data = immediate candidate. Private = reference + contact candidate."
+      }
+    },
+    {
+      "id": "research-7",
+      "title": "Constructed dataset feasibility — multi-source temporal joins",
+      "scope": "Evaluate whether we can BUILD a silver-tier dataset by joining public sources: GitHub (deployments, releases, merge commits) + incident issues + public postmortem corpora (postmortem.xyz, danlu/post-mortems) + status page archives.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "Architecture doc for construction: sources, join keys, time windows, expected label noise",
+        "Pilot scope defined: 1–2 repos (e.g., Kubernetes, HashiCorp) with rich incident history",
+        "Estimate: achievable n, person-days, API rate limits, license constraints",
+        "Sensitivity plan: window sizes (6h/24h/72h) and impact on positive-class count",
+        "Go/no-go recommendation with explicit failure modes"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "GitHub API (deployments, releases, issues)",
+          "postmortem.xyz",
+          "GitHub danluu/post-mortems",
+          "Google SRE book example data",
+          "OpenTelemetry demo",
+          "Statuspage public incidents",
+          "HuggingFace postmortem collections"
+        ],
+        "terms": [
+          "postmortem dataset",
+          "incident report corpus",
+          "outage postmortem github",
+          "deployment incident join",
+          "release incident timeline",
+          "public incident database",
+          "SRE postmortem collection"
+        ],
+        "hit_criteria": "Demonstrated join path yielding ≥100 silver-tier labeled interventions from public APIs/archives. Construction counts as hit even if no pre-packaged dataset exists."
+      }
+    },
+    {
+      "id": "research-8",
+      "title": "Platform-wide keyword sweep (unbiased second pass)",
+      "scope": "Re-run HuggingFace, Kaggle, GitHub, Zenodo with DOMAIN-NEUTRAL terms — deliberately excluding itsm/servicenow/change-management. Catch datasets v1 missed because labels use different vocabulary.",
+      "status": "pending",
+      "acceptance_criteria": [
+        "Same platforms as v1 searched with new term lists — zero ITSM-specific keywords",
+        "≥20 datasets inspected (title + description), ≥3 new candidates not in v1 report",
+        "Deduped against research-1 through research-7 findings",
+        "Explicit confirmation: v1 ITSM-keyword search was subset of this broader search"
+      ],
+      "search_strategy": {
+        "platforms": [
+          "HuggingFace Datasets",
+          "Kaggle",
+          "GitHub",
+          "Zenodo",
+          "UCI ML Repository"
+        ],
+        "terms": [
+          "failure prediction",
+          "incident prediction labeled",
+          "risk prediction operational",
+          "rollback labeled",
+          "outage prediction dataset",
+          "production incident labeled",
+          "change risk",
+          "intervention outcome",
+          "causal failure dataset",
+          "pre-deploy risk",
+          "operational event log labeled",
+          "ticket escalation prediction"
+        ],
+        "hit_criteria": "Any dataset with structured pre-action records + post-action failure labels passing Tier B or better. Semantic review required — reject agent benchmarks and pure incident-only logs."
+      }
+    },
+    {
+      "id": "research-9",
+      "title": "Synthesis — tiered shortlist and validation roadmap",
+      "scope": "Merge all task findings into docs/dataset-research-v2.md. Rank candidates WITHOUT defaulting to BPI 2014. Recommend validation strategy per project goal (architecture / predictive / full pipeline).",
+      "status": "pending",
+      "acceptance_criteria": [
+        "Ranked shortlist with tier, n, stages covered, adapter effort, label quality",
+        "BPI 2014 position justified by evidence — not by incumbency",
+        "Recommended primary dataset per validation goal (may be different datasets for different goals)",
+        "Explicit 'will not work' section with structural reasons",
+        "Decision tree for user open questions",
+        "Updates docs/datasets.md and docs/evaluation.md cross-links"
+      ],
+      "search_strategy": {
+        "platforms": ["outputs of research-0 through research-8"],
+        "terms": [],
+        "hit_criteria": "Final deliverable: actionable recommendation the team can decide on in one review meeting"
+      }
+    }
+  ]
+}
