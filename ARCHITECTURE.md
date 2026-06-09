@@ -269,6 +269,20 @@ If both experiments mature, a shared "CAB window context" schema bridges them. `
 
 ---
 
+## Experiment Context
+
+This pipeline is **experiment #19b** in a long-running agent research program. The experiment validates whether harness engineering — checkpoints, stage gates, evolution levels, adversarial verification — produces reliable overnight agents for enterprise operations.
+
+**Agent fit:** 23/25 (H=5, O=5, E=5, N=4, C=4). 8 heterogeneous artifact types requiring cross-source reasoning. Overnight exhaustive coverage of 20-50 CRs per CAB window.
+
+**Validation status:** P0 (architecture) done via BPI 2014. P1 (predictive) in progress via ApacheJIT. P2 (full pipeline with prose artifacts) requires enterprise partner.
+
+**Minimum capable component** governs evolution: each stage starts at the cheapest level that works (script), advancing to encoder or LLM only when measured recall drops below threshold. 7 of 9 stages have script or encoder as SOTA.
+
+Full research lineage, H/O/E/N/C scoring rationale, harness component mapping, and validation phase details: [docs/experiment-context.md](docs/experiment-context.md). P0 success gates and evolution advancement protocol: [archived aspirational content](.harness/archive/docs/ARCHITECTURE-aspirational.md).
+
+---
+
 ## Constraints
 
 | Constraint | Detail |
@@ -289,4 +303,4 @@ For resolved unknowns and aspirational content, see [.harness/archive/docs/ARCHI
 
 ---
 
-**Related docs:** [Pipeline Flow](docs/pipeline-flow.md) | [Glossary](docs/glossary.md) | [Datasets](docs/datasets.md) | [Evaluation](docs/evaluation.md) | [Archived aspirational content](.harness/archive/docs/ARCHITECTURE-aspirational.md)
+**Related docs:** [Experiment Context](docs/experiment-context.md) | [Pipeline Flow](docs/pipeline-flow.md) | [Glossary](docs/glossary.md) | [Datasets](docs/datasets.md) | [Evaluation](docs/evaluation.md) | [Archived aspirational content](.harness/archive/docs/ARCHITECTURE-aspirational.md)

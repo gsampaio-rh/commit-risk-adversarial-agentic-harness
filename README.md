@@ -1,5 +1,7 @@
 # ITSM Change Request Analyzer
 
+> **Experiment #19b** in a [long-running agent research program](docs/experiment-context.md). This repo validates whether harness engineering — wrapping models in a control plane with checkpoints, stage gates, evolution levels, and adversarial verification — produces reliable multi-hour autonomous agents for enterprise operations. The pipeline below is the artifact under test; the methodology, agent scoring (23/25), and validation phases (P0/P1/P2) are documented in [experiment context](docs/experiment-context.md).
+
 A 9-stage pipeline that pre-analyzes IT change requests for the Change Advisory Board (CAB). Cross-references ITSM records, runbooks, rollback plans, CMDB state, SLA definitions, scheduling data, and incident history to produce risk assessments with approve/conditional/reject recommendations.
 
 ## Problem
@@ -59,10 +61,11 @@ Full evaluation details: [docs/evaluation.md](docs/evaluation.md)
 ├── README.md              # This file
 ├── ARCHITECTURE.md        # Pipeline design, stage details, design decisions
 ├── docs/
-│   ├── pipeline-flow.md   # End-to-end visual walkthrough of every stage
-│   ├── glossary.md        # Glossary of ITSM, pipeline, and data terms
-│   ├── datasets.md        # BPI 2014 details, fixtures, data strategy
-│   └── evaluation.md      # Eval results, L1 vs L2, test suite
+│   ├── experiment-context.md  # Research lineage, agent scoring, validation phases
+│   ├── pipeline-flow.md       # End-to-end visual walkthrough of every stage
+│   ├── glossary.md            # Glossary of ITSM, pipeline, and data terms
+│   ├── datasets.md            # BPI 2014, ApacheJIT, fixtures, data strategy
+│   └── evaluation.md          # Eval results, L1 vs L2, test suite
 ├── fixtures/
 │   └── cab-window-01/
 │       ├── cr-001/        # Full-bundle smoke test CR

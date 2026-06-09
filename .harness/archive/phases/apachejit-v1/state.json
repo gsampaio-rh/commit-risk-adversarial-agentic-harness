@@ -1,0 +1,195 @@
+{
+  "project": "apachejit-predictive-eval",
+  "created": "2026-06-09T22:00:00Z",
+  "schema_version": 2,
+  "vision": "Measure whether the existing CR Analyzer pipeline's risk signals predict real post-execution failures at statistical scale, using ApacheJIT (28K bug-inducing commits, Tier B labels) as the primary corpus. Deliver an adapter, temporal train/test evaluation harness, and honest documentation of what this proves vs what ITSM CAB validation still requires. Pipeline stages remain unchanged; only adapters, eval code, docs, and tests are added.",
+  "direction": "Extend the adapter pattern established by BPI 2014 (`src/cr_analyzer/adapters/bpi2014.py`) with a new ApacheJIT adapter that maps Zenodo CSV rows to CRBundle objects plus external ground-truth labels. Use the dataset's built-in temporal splits (`apachejit_train.csv` for 2003–2016, `apachejit_test_large.csv` for 2017+). Build incident_history chronologically per project from prior buggy commits (no future leakage). Add a separate predictive eval module under `src/cr_analyzer/eval/` (distinct from architecture eval in `evaluate.py`) that runs the unchanged pipeline on the test split, derives risk scores from CabReport outputs, and reports precision/recall/F1/AUC/confusion matrix. Document the semantic gap between bug-inducing commits and ITSM incident-causing changes. All 147 existing tests plus BPI adapter must keep passing.",
+  "cleanup": {
+    "when": "Before chore-0 / feat-1 — builder executes once at phase start",
+    "archive_to": ".harness/archive/phases/",
+    "actions": [
+      "Create `.harness/archive/phases/pipeline-build/` and `.harness/archive/phases/dataset-research-v2/` if missing",
+      "Move current `state.json` → `archive/phases/dataset-research-v2/state.json`",
+      "Move current `contract.json` → `archive/phases/dataset-research-v2/contract-research-9.json`",
+      "Move `evals/*.json` → `archive/phases/dataset-research-v2/evals/`",
+      "Copy (do not move) `breadcrumbs.jsonl` → `archive/phases/breadcrumbs-pipeline-and-research-v2.jsonl` (full 64-line history preserved)",
+      "Truncate `breadcrumbs.jsonl` to empty file, then append the session-handoff breadcrumb (see breadcrumbs_handoff below)",
+      "Delete `contract.json` from `.harness/` root (fresh contract written when feat-1 starts)",
+      "Keep `.harness/archive/` (46 legacy files) untouched — already archived from initial setup",
+      "Keep `.harness/audits/` as historical reference (optional: copy to `archive/phases/dataset-research-v2/audits/`)",
+      "Do NOT delete eval results, breadcrumbs archive, or git-tracked project code"
+    ],
+    "keep_at_root": [
+      "state.json (this file — replaced by builder with post-cleanup copy)",
+      "breadcrumbs.jsonl (fresh trail for apachejit-predictive-eval phase)",
+      "archive/ (all subdirs)"
+    ],
+    "delete": [
+      "contract.json (after archiving — regenerated per task)"
+    ],
+    "breadcrumbs_policy": "Archive full history to archive/phases/, then start a fresh append-only trail. Rationale: 64 lines span two completed phases; a clean trail makes session resume unambiguous. Historical trace lives in the archived copy."
+  },
+  "trade_offs": [
+    {
+      "decision": "ApacheJIT as primary predictive corpus (not BPI 2014 outcome linkage)",
+      "alternative": "Extend BPI adapter for Related Change → incident ground truth (n=25 P1/P2)",
+      "reasoning": "BPI 2014 validates architecture (done) but lacks statistical power for precision/recall. ApacheJIT offers 28K positives with built-in temporal splits. We accept Tier B (SZZ+JIRA) label noise and domain shift from ITSM."
+    },
+    {
+      "decision": "No pipeline code changes — eval-side scoring only",
+      "alternative": "Add completeness bypass flag for partial bundles",
+      "reasoning": "User constraint: pipeline unchanged. ApacheJIT bundles lack runbook/rollback/comms, so completeness will emit blocker findings and full-pipeline recommendation will skew reject-heavy. Eval harness reports BOTH full-pipeline metrics (baseline, expected degenerate) AND completeness-excluded risk scores for meaningful AUC/threshold analysis."
+    },
+    {
+      "decision": "Project-level incident_history from prior buggy commits (not file-level)",
+      "alternative": "Re-fetch GitHub diffs for file overlap with historical buggy commits",
+      "reasoning": "Zenodo CSV has metrics (LA/LD/NF/ND/NS/ENT) but not file paths or commit messages. Project-scoped chronological buggy-commit history activates Historical Pattern stage with honest data available. File-level history would require GitHub API enrichment — defer to open question."
+    },
+    {
+      "decision": "Synthetic description when commit message absent from CSV",
+      "alternative": "Mandatory GitHub API fetch for every commit message",
+      "reasoning": "Standard ApacheJIT CSV columns are commit_id, project, buggy, fix, year, author_date, and change metrics — no message column. Adapter uses structured placeholder (project + commit_id + key metrics) so pipeline runs without network dependency. Optional enrichment path documented, not required for P0."
+    },
+    {
+      "decision": "L1-only pipeline for predictive eval (deterministic, $0)",
+      "alternative": "L2 LLM/embedding path for eval",
+      "reasoning": "Predictive benchmarking requires reproducibility and cost control. L1 is deterministic and matches architecture eval baseline. L2 comparison can be a follow-up task after L1 numbers exist."
+    },
+    {
+      "decision": "Separate eval module (`predictive_eval.py`) from architecture eval (`evaluate.py`)",
+      "alternative": "Extend evaluate.py with ApacheJIT mode",
+      "reasoning": "Architecture eval (BPI CAB windows, L1 vs L2, disposition breakdown) and predictive eval (ground truth, confusion matrix, AUC) serve different questions. Separation keeps each harness focused and avoids regressing BPI eval tests."
+    }
+  ],
+  "open_questions": [
+    "Commit message enrichment: fetch from GitHub by commit_id for richer description/Historical Pattern L2, or stay CSV-only for P0?",
+    "Eval scale: run full test_large (~30K commits, hours) or default to test_small (~3K) with full run documented as manual step?",
+    "Primary score for AUC threshold sweep: completeness-excluded weighted finding score, recommendation ordinal, or historical-pattern-only findings?",
+    "Should train split be used only for history context (chronological prior) or also for pipeline calibration — noting pipeline has no trainable weights today?",
+    "Report negative result honestly if completeness-excluded scores show no signal — is that an adapter problem or expected domain gap?"
+  ],
+  "tasks": [
+    {
+      "id": "chore-0",
+      "name": "Harness cleanup for new phase",
+      "type": "chore",
+      "status": "verified",
+      "scope": "Execute cleanup.actions above. Reset harness artifacts for apachejit-predictive-eval. Write session-handoff breadcrumb. Does NOT touch src/ or tests/.",
+      "depends_on": [],
+      "acceptance_criteria": [
+        "Prior state.json, contract.json, and evals/ archived under .harness/archive/phases/",
+        "breadcrumbs.jsonl archived and reset with handoff entry as first line",
+        "contract.json absent from .harness/ root",
+        "This state.json is the active plan at .harness/state.json",
+        "No source code changes"
+      ]
+    },
+    {
+      "id": "feat-1",
+      "name": "ApacheJIT data acquisition",
+      "type": "feature",
+      "status": "verified",
+      "scope": "Add scripts/download_apachejit.sh mirroring download_bpi2014.sh pattern. Download apachejit_train.csv, apachejit_test_large.csv, apachejit_test_small.csv from Zenodo 5907847. Store under data/apachejit/ (gitignored). Document in docs/datasets.md Active Data Sources section. Does NOT implement adapter logic.",
+      "depends_on": ["chore-0"],
+      "acceptance_criteria": [
+        "scripts/download_apachejit.sh downloads all three split CSVs idempotently",
+        "data/apachejit/ listed in .gitignore",
+        "docs/datasets.md has ApacheJIT active source entry with download instructions",
+        "Script exits 0 when files already present (skip re-download)"
+      ]
+    },
+    {
+      "id": "feat-2",
+      "name": "ApacheJIT adapter + temporal splits",
+      "type": "feature",
+      "status": "pending",
+      "scope": "Implement src/cr_analyzer/adapters/apachejit.py. Parse CSV rows into CRBundle + ground-truth label (buggy bool). Map: project→affected_services, author_date→scheduled_window, LA/LD/NF/ND/NS/ENT→pr_scope_flags (extra fields allowed), commit_id→change_id, synthetic description if no message column. Build incident_history per row from chronologically prior buggy commits in same project (train rows precede test rows temporally — no leakage). Expose load_apachejit(data_dir, split='train'|'test_large'|'test_small') returning list[tuple[CRBundle, bool]]. Export from adapters/__init__.py. Does NOT modify pipeline stages.",
+      "depends_on": ["feat-1"],
+      "acceptance_criteria": [
+        "Adapter parses Zenodo CSV columns without error on real downloaded files",
+        "Every emitted CRBundle passes pydantic validation",
+        "buggy=True/False preserved as parallel ground truth, not embedded in bundle schema",
+        "incident_history populated from prior buggy commits only (strict author_date ordering)",
+        "test_large commits never see future commits in their incident_history",
+        "pr_scope_flags carries LA, LD, NF, ND, NS, entropy (and other CSV metrics as extra fields)",
+        "Stages 4–7 artifacts remain None (expected skips)",
+        "BPI 2014 adapter unchanged and still importable"
+      ]
+    },
+    {
+      "id": "feat-3",
+      "name": "Predictive evaluation harness",
+      "type": "feature",
+      "status": "pending",
+      "scope": "Add src/cr_analyzer/eval/predictive_eval.py. Run L1 pipeline path (ingest→normalize→skip→completeness→historical_pattern→risk_synthesis) on ApacheJIT test split. For each CR: capture recommendation, risk_level, findings. Compare against buggy ground truth. Compute precision, recall, F1, confusion matrix at default threshold. Compute AUC via threshold sweep on a continuous risk_score derived in eval code (completeness-excluded weighted finding score — NOT pipeline change). Emit predictive-report.json + predictive-report.md. CLI entry or documented invocation. Default to test_small for CI-friendly runtime; support test_large via flag. Does NOT modify evaluate.py or pipeline stages.",
+      "depends_on": ["feat-2"],
+      "acceptance_criteria": [
+        "Harness runs end-to-end on ApacheJIT test_small without crash",
+        "Report includes: n evaluated, positive/negative class counts, precision, recall, F1, confusion matrix",
+        "Report includes AUC (or PR-AUC) with documented threshold sweep on risk_score",
+        "Full-pipeline recommendation metrics included as baseline with note on completeness dominance",
+        "Completeness-excluded risk_score documented in report methodology section",
+        "Existing test_evaluate.py and BPI architecture eval unchanged",
+        "L1 only — no LLM API calls during eval"
+      ]
+    },
+    {
+      "id": "feat-4",
+      "name": "Semantic gap documentation",
+      "type": "feature",
+      "status": "pending",
+      "scope": "Add docs/predictive-validation.md (or dedicated section in docs/evaluation.md) documenting: what ApacheJIT eval proves (pre-execution attributes correlate with post-hoc failure labels at scale), what it does NOT prove (ITSM CAB incident causation, prose artifact validation, P1/P2 severity), completeness dominance effect on full-pipeline recommendation, label tier B caveats (SZZ noise), and recommended language for external claims. Cross-link from docs/datasets.md and ARCHITECTURE.md. Does NOT duplicate full dataset research content.",
+      "depends_on": ["feat-2"],
+      "acceptance_criteria": [
+        "Document lists ≥5 provable claims and ≥5 non-provable claims explicitly",
+        "Completeness blocker dominance on partial bundles explained",
+        "CRBundle field mapping table matches adapter implementation",
+        "ARCHITECTURE.md and docs/evaluation.md link to the semantic gap doc",
+        "Recommended external wording provided (what to say / what not to say)"
+      ]
+    },
+    {
+      "id": "feat-5",
+      "name": "Adapter and predictive eval tests",
+      "type": "feature",
+      "status": "pending",
+      "scope": "Add tests/test_apachejit_adapter.py with inline CSV fixtures (no full dataset required for CI). Cover: field mapping, ground truth pairing, incident_history ordering/no-leakage, split loading, pydantic validity. Add tests/test_predictive_eval.py with tiny synthetic bundle+label set verifying metric computation and report structure. Mark full-dataset integration tests @pytest.mark.skipif when data/apachejit/ absent (same pattern as test_bpi2014_adapter.py). All 147 existing tests must still pass.",
+      "depends_on": ["feat-2", "feat-3"],
+      "acceptance_criteria": [
+        "Adapter tests pass with fixture CSV only (no download required for CI)",
+        "At least one test verifies incident_history excludes future buggy commits",
+        "At least one test verifies pr_scope_flags metric mapping",
+        "Predictive eval tests verify confusion matrix and F1 on known tiny input",
+        "Full test suite passes: pytest with 147+ tests green",
+        "Optional integration tests skip gracefully when data/apachejit/ missing"
+      ]
+    },
+    {
+      "id": "chore-1",
+      "name": "First predictive eval run + results doc",
+      "type": "chore",
+      "status": "pending",
+      "scope": "Run predictive harness on test_small (and test_large if runtime acceptable). Record results in docs/evaluation.md Predictive Validation section. Update status from 'Not done' to measured with actual numbers. Does NOT change pipeline or adapter logic unless eval reveals bugs.",
+      "depends_on": ["feat-3", "feat-4", "feat-5"],
+      "acceptance_criteria": [
+        "predictive-report.json generated from real ApacheJIT data",
+        "docs/evaluation.md updated with measured precision/recall/F1/AUC (test_small minimum)",
+        "Results interpreted alongside semantic gap doc (not over-claimed)",
+        "If metrics are degenerate, document why (completeness dominance) rather than hiding"
+      ]
+    }
+  ],
+  "session_handoff": {
+    "for_new_chat": "Read .harness/state.json. Phase: apachejit-predictive-eval. Prior phases (pipeline build + dataset research v2) complete and committed. Start with chore-0 (harness cleanup), then feat-1. Do NOT modify pipeline stages. 147 tests must stay green. ApacheJIT recommended corpus: 28K positives, Zenodo 5907847.",
+    "prior_phases_completed": [
+      "itsm-change-request-analyzer pipeline (feat-1–feat-10, chore-1–2) — 147 tests, BPI 2014 architecture eval done",
+      "dataset-research-v2 (research-0–research-9) — ApacheJIT ranked #1 for predictive validation"
+    ],
+    "key_docs": [
+      "docs/datasets.md — ApacheJIT mapping and tier framework",
+      "docs/evaluation.md — architecture results; predictive section stub",
+      "src/cr_analyzer/adapters/bpi2014.py — adapter pattern reference",
+      "src/cr_analyzer/eval/evaluate.py — architecture eval (do not conflate)"
+    ]
+  }
+}
