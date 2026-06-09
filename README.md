@@ -18,22 +18,22 @@ A CR is a bundle of heterogeneous artifacts (ticket + runbook + rollback plan + 
 
 | Source | Role | What it covers |
 |--------|------|----------------|
-| [BPI Challenge 2014](https://data.4tu.nl/datasets/e9c00fe9-c87a-450e-8bd6-d5e06a6b309a) (Rabobank) | **Primary** | 18K real ITIL change records. Partial bundles (no runbooks/rollback). Validates Ingest, Normalize, Completeness, Schedule overlap, Historical Pattern. See `.harness/spike-bpi2014.md` |
-| `fixtures/cab-window-01/` | **Regression** | 1 full-bundle synthetic CR for smoke testing prose-artifact stages |
+| [BPI Challenge 2014](https://data.4tu.nl/datasets/e9c00fe9-c87a-450e-8bd6-d5e06a6b309a) (Rabobank) | **Primary** | 18K real ITIL change records. See [docs/datasets.md](docs/datasets.md) |
+| `fixtures/cab-window-01/` | **Regression** | 3 synthetic CRs for smoke testing and integration |
 
-## Pipeline (9 stages, all L1 script-only)
+## Pipeline
 
-| # | Stage | Conditional? |
-|---|-------|-------------|
-| 1 | Ingest | always |
-| 2 | Normalize | always |
-| 3 | Completeness Check | always |
-| 4 | Runbook Validation | **skips** when `runbook` is null |
-| 5 | Rollback Feasibility | **skips** when `rollback_plan` is null |
-| 6 | Schedule & SLA | **degrades** to overlap-only when `sla_definitions` absent |
-| 7 | Dependency Chain | **skips** when `cmdb_snapshot` is null |
-| 8 | Historical Pattern | always (uses incident linkage) |
-| 9 | Risk Synthesis & CAB Report | always |
+| # | Stage | Status |
+|---|-------|--------|
+| 1 | Ingest | L1 implemented |
+| 2 | Normalize | L1 implemented |
+| 3 | Completeness Check | L1 implemented |
+| 4 | Runbook Validation | Not implemented — skip recorded |
+| 5 | Rollback Feasibility | Not implemented — skip recorded |
+| 6 | Schedule & SLA | L1 implemented, **degrades** to overlap-only when SLA absent |
+| 7 | Dependency Chain | Not implemented — skip recorded |
+| 8 | Historical Pattern | L1 + L2 (embedding) implemented |
+| 9 | Risk Synthesis | L1 + L2 (LLM narrative) implemented |
 
 ## Tech Stack
 
@@ -41,28 +41,40 @@ A CR is a bundle of heterogeneous artifacts (ticket + runbook + rollback plan + 
 - **pytest** for stage-level and E2E tests
 - Sequential runner with disk checkpoints per stage
 
-## Success Metrics
+## Results (BPI 2014 Evaluation)
 
-| Metric | Target |
-|--------|--------|
-| Per-dimension recall | >= 80% on injected failures |
-| False positive rate | <= 15% on clean CRs |
-| Cost per 50-CR batch | < $2 (L1 = ~$0) |
-| Wall-clock per batch | < 30 min |
-| Cross-run consistency | >= 95% (L1 is deterministic) |
+| Metric | Target | Result |
+|--------|--------|--------|
+| Task completion | 100% | 100% (373/373 CRs) |
+| Schema compliance | >= 99% | 100% |
+| Cost per 50-CR batch | < $2 | $0 (L1) |
+| Wall-clock | < 30 min/window | 11.6s total (373 CRs, 50 windows) |
+| Cross-run consistency | >= 95% | 100% (deterministic) |
+
+Full evaluation details: [docs/evaluation.md](docs/evaluation.md)
 
 ## Directory Structure
 
 ```
 ├── README.md              # This file
-├── ARCHITECTURE.md        # 9-stage design, evolution levels, evaluation
+├── ARCHITECTURE.md        # Pipeline design, stage details, design decisions
+├── docs/
+│   ├── datasets.md        # BPI 2014 details, fixtures, data strategy
+│   └── evaluation.md      # Eval results, L1 vs L2, test suite
 ├── fixtures/
 │   └── cab-window-01/
-│       └── cr-001/        # Full-bundle smoke test CR
+│       ├── cr-001/        # Full-bundle smoke test CR
+│       ├── cr-002/        # Incomplete bundle
+│       └── cr-003/        # Schedule overlap test
 ├── data/
-│   └── bpi2014/           # BPI Challenge 2014 CSVs (primary dataset)
-├── src/                   # Pipeline code (Pydantic models, stages, runner)
-└── tests/                 # Stage-level and E2E tests
+│   └── bpi2014/           # BPI Challenge 2014 CSVs (gitignored)
+├── src/cr_analyzer/       # Pipeline code
+│   ├── models/            # Pydantic v2 models (source of truth)
+│   ├── stages/            # Stage implementations
+│   ├── pipeline/          # Runner + skip logic
+│   ├── adapters/          # BPI 2014 CSV adapter
+│   └── eval/              # Evaluation harness
+└── tests/                 # 147 tests across 13 files
 ```
 
-Design history, decisions, and skeptic reviews are archived in `.harness/archive/docs/`.
+Design history, decisions, and aspirational content archived in `.harness/archive/docs/`.
