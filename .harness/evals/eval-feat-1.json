@@ -1,0 +1,137 @@
+{
+  "task_id": "feat-1",
+  "evaluated_at": "2026-06-03T21:30:00Z",
+  "overall": "PASS",
+  "criteria": [
+    {
+      "id": "AC-1",
+      "description": "pyproject.toml at root: name=cr-analyzer, python>=3.12, pydantic>=2.0, pytest+mypy in dev deps, optional 'ml' group with sentence-transformers",
+      "result": "PASS",
+      "notes": "pyproject.toml verified; pip install -e '.[dev]' succeeded."
+    },
+    {
+      "id": "AC-2",
+      "description": "Package importable: python -c 'import cr_analyzer' exits 0",
+      "result": "PASS",
+      "notes": "import cr_analyzer exited 0."
+    },
+    {
+      "id": "AC-3",
+      "description": "Directory layout: src/cr_analyzer/{models,stages,adapters,pipeline}/ each with __init__.py",
+      "result": "PASS",
+      "notes": "All four subpackages present with __init__.py."
+    },
+    {
+      "id": "AC-4",
+      "description": "CRBundle model: itsm_record required, 8 other artifacts Optional[...]=None",
+      "result": "PASS",
+      "notes": "8 optional artifact fields default to None in bundle.py."
+    },
+    {
+      "id": "AC-5",
+      "description": "ItsmRecord model: required fields change_id, type, risk_category, title, description, affected_services, requestor, approvers, scheduled_window; optional expected_duration_min",
+      "result": "PASS",
+      "notes": "All required fields present; expected_duration_min optional."
+    },
+    {
+      "id": "AC-6",
+      "description": "Finding model: dimension (FindingDimension enum), severity (Severity enum), finding (str), evidence (structured obj with artifact required), optional remediation",
+      "result": "PASS",
+      "notes": "Finding and FindingEvidence match contract in findings.py."
+    },
+    {
+      "id": "AC-7",
+      "description": "Stage output models exist: IngestOutput, NormalizeOutput, CompletenessOutput, ScheduleSlaOutput, HistoricalPatternOutput, CabReport, CabSummary",
+      "result": "PASS",
+      "notes": "All 7 models defined in outputs.py and exported."
+    },
+    {
+      "id": "AC-8",
+      "description": "Enums: ChangeType(3), RiskCategory(3), Severity(3), Recommendation(3), SlaAnalysisMode(3), FindingDimension(8)",
+      "result": "PASS",
+      "notes": "6 enums with correct member counts in enums.py."
+    },
+    {
+      "id": "AC-9",
+      "description": "CRBundle.model_validate(cr_001_fixture) succeeds — full fixture roundtrips",
+      "result": "PASS",
+      "notes": "test_cr_001_full_roundtrip PASSED."
+    },
+    {
+      "id": "AC-10",
+      "description": "CRBundle.model_validate({'itsm_record': minimal_record}) succeeds — minimal bundle",
+      "result": "PASS",
+      "notes": "test_minimal_bundle PASSED."
+    },
+    {
+      "id": "AC-11",
+      "description": "All models use Pydantic v2 syntax (model_config, Field with description)",
+      "result": "PASS",
+      "notes": "No v1 Config/validator usage; key models use ConfigDict and Field(description=...)."
+    },
+    {
+      "id": "AC-12",
+      "description": "pytest tests/ passes with >=1 test file covering fixture roundtrip + minimal bundle + invalid enum rejection",
+      "result": "PASS",
+      "notes": "27/27 tests passed in tests/test_models.py."
+    },
+    {
+      "id": "AC-13",
+      "description": "No JSON schema files under src/",
+      "result": "PASS",
+      "notes": "find src/ -name '*.json' returned empty."
+    },
+    {
+      "id": "AC-14",
+      "description": "CabReport includes stages_skipped: list[str] and analysis_coverage with executed/skipped/degraded counts",
+      "result": "PASS",
+      "notes": "CabReport has stages_skipped and AnalysisCoverage with executed/skipped/degraded."
+    },
+    {
+      "id": "AC-15",
+      "description": "HistoricalPatternOutput findings evidence includes service, change_category, matching_incidents per archived expected output",
+      "result": "PASS",
+      "notes": "Archived historical-pattern-cr-002.json validates; evidence preserves service, change_category, matching_incidents."
+    },
+    {
+      "id": "AC-16",
+      "description": "cr-002/ and cr-003/ restored from .harness/archive/fixtures/ to fixtures/cab-window-01/",
+      "result": "PASS",
+      "notes": "fixtures/cab-window-01/ contains cr-001, cr-002, cr-003; roundtrip tests pass."
+    },
+    {
+      "id": "AC-17",
+      "description": "tests/conftest.py provides shared pytest fixtures: load_cr_bundle helper, minimal_bundle, bpi_shaped_bundle",
+      "result": "PASS",
+      "notes": "conftest.py provides load_cr_bundle_data(), minimal_bundle_data, bpi_shaped_bundle_data (names use _data suffix)."
+    }
+  ],
+  "edge_cases": [
+    {
+      "id": "EC-1",
+      "description": "CRBundle with all nullable artifacts as None (BPI 2014 path) validates successfully",
+      "result": "PASS",
+      "notes": "itsm_record-only bundle validates; test_bpi_shaped_bundle PASSED."
+    },
+    {
+      "id": "EC-2",
+      "description": "Invalid enum value (e.g. type='urgent') raises ValidationError",
+      "result": "PASS",
+      "notes": "test_invalid_change_type PASSED."
+    },
+    {
+      "id": "EC-3",
+      "description": "Finding evidence with extra dimension-specific fields (service, matching_incidents) is preserved via extra='allow'",
+      "result": "PASS",
+      "notes": "FindingEvidence extra='allow'; test_historical_pattern_evidence PASSED."
+    }
+  ],
+  "verification_commands": {
+    "pip_install": "PASS",
+    "import_cr_analyzer": "PASS",
+    "import_models": "PASS",
+    "pytest": "PASS (27/27)"
+  },
+  "recommendation": "checkpoint",
+  "summary": "feat-1 passes all 17 acceptance criteria and 3 edge cases; ready for checkpoint."
+}

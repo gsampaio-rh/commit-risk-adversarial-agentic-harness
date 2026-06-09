@@ -1,0 +1,106 @@
+{
+  "task_id": "feat-3",
+  "evaluated_at": "2026-06-03T22:15:00Z",
+  "overall": "PASS",
+  "criteria": [
+    {
+      "id": "AC-1",
+      "description": "Stage 1 Ingest at src/cr_analyzer/stages/ingest.py: accepts CRBundle → returns IngestOutput",
+      "result": "PASS",
+      "notes": "run_ingest(bundle: CRBundle) -> IngestOutput in ingest.py; test_change_id_preserved PASSED."
+    },
+    {
+      "id": "AC-2",
+      "description": "Ingest parses JSON artifacts as-is (cmdb, sla, schedule, incidents, pr_flags pass through)",
+      "result": "PASS",
+      "notes": "ingest.py assigns bundle.cmdb_snapshot, sla_definitions, maintenance_schedule, incident_history, pr_scope_flags directly; test_json_artifacts_passthrough PASSED."
+    },
+    {
+      "id": "AC-3",
+      "description": "Ingest extracts Markdown structure from runbook/rollback: sections (headings), steps (numbered items), service_refs (backtick names), commands (code blocks)",
+      "result": "PASS",
+      "notes": "_parse_markdown uses _HEADING_RE, _STEP_RE, _BACKTICK_REF_RE, _CODE_BLOCK_RE; test_runbook_parsed and test_rollback_parsed PASSED."
+    },
+    {
+      "id": "AC-4",
+      "description": "Ingest handles null artifacts: runbook=None → IngestOutput.runbook=None (no crash)",
+      "result": "PASS",
+      "notes": "Conditional parse only when bundle.runbook is not None; test_minimal_bundle and manual verify confirm runbook=None, rollback=None."
+    },
+    {
+      "id": "AC-5",
+      "description": "Stage 2 Normalize at src/cr_analyzer/stages/normalize.py: accepts IngestOutput → returns NormalizeOutput",
+      "result": "PASS",
+      "notes": "run_normalize(ingest: IngestOutput) -> NormalizeOutput in normalize.py; test_change_id_preserved PASSED."
+    },
+    {
+      "id": "AC-6",
+      "description": "Normalize standardizes change type to ChangeType enum, risk_category to RiskCategory enum",
+      "result": "PASS",
+      "notes": "ChangeType(rec['type']) and RiskCategory(rec['risk_category']); test_enums_standardized and test_bpi_shaped_bundle PASSED."
+    },
+    {
+      "id": "AC-7",
+      "description": "Normalize derives is_customer_facing from CMDB tier (tier 1-2 = True; no CMDB → False)",
+      "result": "PASS",
+      "notes": "_derive_customer_facing checks affected nodes with tier <= 2; test_customer_facing_from_cmdb, test_no_cmdb_not_customer_facing, test_tier_1_customer_facing PASSED."
+    },
+    {
+      "id": "AC-8",
+      "description": "Normalize derives affected_tier as min tier across affected services in CMDB (no CMDB → 4)",
+      "result": "PASS",
+      "notes": "_derive_affected_tier returns min(tiers) or 4; test_affected_tier_from_cmdb, test_no_cmdb_tier_defaults_to_4 PASSED."
+    },
+    {
+      "id": "AC-9",
+      "description": "Both stages produce valid Pydantic model outputs (model_validate on output succeeds)",
+      "result": "PASS",
+      "notes": "IngestOutput.model_validate(ing.model_dump()) and NormalizeOutput.model_validate(norm.model_dump()) succeed on cr-001."
+    },
+    {
+      "id": "AC-10",
+      "description": "Works on cr-001 full fixture: all fields preserved through ingest→normalize",
+      "result": "PASS",
+      "notes": "TestNormalizeFullBundle covers change_id, enums, derived fields, artifacts, ITSM fields; ingest+normalize roundtrip on cr-001 PASSED."
+    },
+    {
+      "id": "AC-11",
+      "description": "Works on minimal/BPI-shaped partial bundle: nullable fields remain None, no crashes",
+      "result": "PASS",
+      "notes": "test_minimal_bundle, test_bpi_shaped_bundle (ingest and normalize) PASSED."
+    },
+    {
+      "id": "AC-12",
+      "description": "Stage outputs serializable to JSON via model_dump_json() for disk checkpoints",
+      "result": "PASS",
+      "notes": "test_output_serializable in both test files; normalize also roundtrips model_validate_json."
+    },
+    {
+      "id": "AC-13",
+      "description": "pytest tests: cr-001 roundtrip, minimal bundle, BPI-shaped bundle",
+      "result": "PASS",
+      "notes": "pytest tests/test_ingest.py tests/test_normalize.py -v: 22/22 PASSED."
+    }
+  ],
+  "edge_cases": [
+    {
+      "id": "EC-1",
+      "description": "CRBundle with empty string runbook (not None but '') produces ParsedMarkdown with empty lists",
+      "result": "PASS",
+      "notes": "test_empty_runbook_string PASSED; service_refs also empty (manual verify)."
+    },
+    {
+      "id": "EC-2",
+      "description": "CRBundle with no CMDB → is_customer_facing=False, affected_tier=4",
+      "result": "PASS",
+      "notes": "test_no_cmdb_not_customer_facing and test_no_cmdb_tier_defaults_to_4 PASSED."
+    }
+  ],
+  "verification_commands": {
+    "pytest": "PASS (22/22)",
+    "model_validate_smoke": "PASS",
+    "source_review_ingest": "PASS",
+    "source_review_normalize": "PASS"
+  },
+  "summary": "feat-3 passes all 13 acceptance criteria and 2 edge cases; Ingest and Normalize L1 stages verified."
+}

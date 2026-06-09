@@ -1,0 +1,31 @@
+{
+  "task_id": "feat-3",
+  "feature": "Ingest + Normalize L1 stages",
+  "problem": "No pipeline stages exist. Need Stage 1 (Ingest: parse CRBundle artifacts into structured IngestOutput) and Stage 2 (Normalize: field mapping, enum standardization, derived fields is_customer_facing and affected_tier). Must handle partial bundles (null artifacts pass through as None).",
+  "proposed_solution": "Stage 1 at src/cr_analyzer/stages/ingest.py: accepts CRBundle, parses JSON as-is, extracts Markdown structure (sections, steps, service_refs, commands), produces IngestOutput. Stage 2 at src/cr_analyzer/stages/normalize.py: accepts IngestOutput, standardizes enums, derives is_customer_facing from CMDB tier, derives affected_tier, produces NormalizeOutput. Both handle null artifacts gracefully.",
+  "acceptance_criteria": [
+    "Stage 1 Ingest at src/cr_analyzer/stages/ingest.py: accepts CRBundle → returns IngestOutput",
+    "Ingest parses JSON artifacts as-is (cmdb, sla, schedule, incidents, pr_flags pass through)",
+    "Ingest extracts Markdown structure from runbook/rollback: sections (headings), steps (numbered items), service_refs (backtick names), commands (code blocks)",
+    "Ingest handles null artifacts: runbook=None → IngestOutput.runbook=None (no crash)",
+    "Stage 2 Normalize at src/cr_analyzer/stages/normalize.py: accepts IngestOutput → returns NormalizeOutput",
+    "Normalize standardizes change type to ChangeType enum, risk_category to RiskCategory enum",
+    "Normalize derives is_customer_facing from CMDB tier (tier 1-2 = True; no CMDB → False)",
+    "Normalize derives affected_tier as min tier across affected services in CMDB (no CMDB → 4)",
+    "Both stages produce valid Pydantic model outputs (model_validate on output succeeds)",
+    "Works on cr-001 full fixture: all fields preserved through ingest→normalize",
+    "Works on minimal/BPI-shaped partial bundle: nullable fields remain None, no crashes",
+    "Stage outputs serializable to JSON via model_dump_json() for disk checkpoints",
+    "pytest tests: cr-001 roundtrip, minimal bundle, BPI-shaped bundle"
+  ],
+  "edge_cases": [
+    "CRBundle with empty string runbook (not None but '') produces ParsedMarkdown with empty lists",
+    "CRBundle with no CMDB → is_customer_facing=False, affected_tier=4"
+  ],
+  "verification_method": "pytest tests/test_ingest.py tests/test_normalize.py -v",
+  "rubrics": ["code-quality"],
+  "rubric_mode": "warn",
+  "negotiation_rounds": 0,
+  "phase": "verified",
+  "verified": true
+}

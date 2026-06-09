@@ -28,11 +28,11 @@
   ],
   "open_questions": [
     "[RESOLVED] BPI 2014: 21 cols, semicolon CSV, multi-CI per change, 18K unique changes. See .harness/spike-bpi2014.md",
-    "[RESOLVED] CAB windows: filter CAB-approval needed=Y, group by ISO week → 51 windows, 1-21 changes each",
-    "[RESOLVED] GT: 56 (CI, ChangeType) tuples with >=2 incidents → natural ground truth for Historical Pattern",
-    "How to map 240 Change Types to standard/normal/emergency? Pattern: Standard*→standard, Release*→normal, Emergency flag→emergency",
+    "[RESOLVED] CAB windows: filter CAB-approval needed=Y, group by ISO week \u2192 51 windows, 1-21 changes each",
+    "[RESOLVED] GT: 56 (CI, ChangeType) tuples with >=2 incidents \u2192 natural ground truth for Historical Pattern",
+    "How to map 240 Change Types to standard/normal/emergency? Pattern: Standard*\u2192standard, Release*\u2192normal, Emergency flag\u2192emergency",
     "CI Name vs Service Component WBS as service identifier? WBS=286 groups (service-level), CI Name=10K individual items",
-    "[RESOLVED] Co-occurrence graph for Stage 7: skip — co-occurrence != dependency, high FP risk. Stage 7 skips gracefully in MVP.",
+    "[RESOLVED] Co-occurrence graph for Stage 7: skip \u2014 co-occurrence != dependency, high FP risk. Stage 7 skips gracefully in MVP.",
     "[RESOLVED] MVP scope: 6 stages active (1-Ingest, 2-Normalize, 3-Completeness, 6-Schedule overlap-only, 8-Historical Pattern L1+L2, 9-Risk Synthesis L1+L2). Stages 4/5/7 skip gracefully. Output: JSON + Markdown. ML: Stage 8 embedding similarity (real GT: 56 tuples), Stage 9 LLM narrative for conditional/reject CRs."
   ],
   "tasks": [
@@ -42,7 +42,7 @@
       "type": "spike",
       "status": "verified",
       "scope": "Download BPI 2014 from 4TU.ResearchData. Document CSV structure, field names, types, cardinality. Map fields to our itsm_record schema. Identify how to derive CAB windows. Assess change-to-incident linkage quality for Historical Pattern. Produce a data exploration report.",
-      "findings": "See .harness/spike-bpi2014.md — 18K changes, 46K incidents, 374 CAB changes in 51 weeks, 56 recurring (CI,ChangeType) patterns for GT, 25K schedule overlaps, 97% missing downtime (no SLA), no prose artifacts"
+      "findings": "See .harness/spike-bpi2014.md \u2014 18K changes, 46K incidents, 374 CAB changes in 51 weeks, 56 recurring (CI,ChangeType) patterns for GT, 25K schedule overlaps, 97% missing downtime (no SLA), no prose artifacts"
     },
     {
       "id": "chore-1",
@@ -53,16 +53,16 @@
     },
     {
       "id": "chore-2",
-      "name": "Slim down itsm-change-request/ — remove ceremony",
+      "name": "Slim down itsm-change-request/ \u2014 remove ceremony",
       "type": "chore",
       "status": "verified",
-      "scope": "Archive SKEPTIC-REVIEW, DECISIONS, IMPLEMENTATION-PLAN, USE-CASE to .harness/archive/docs/. Archive 12 standalone JSON schemas to .harness/archive/schemas/ (Pydantic is source of truth). Reduce fixtures to cr-001 only, archive cr-002/003/expected. Consolidate USE-CASE into README. Remove stray .venv. Result: 55 files → 12 files."
+      "scope": "Archive SKEPTIC-REVIEW, DECISIONS, IMPLEMENTATION-PLAN, USE-CASE to .harness/archive/docs/. Archive 12 standalone JSON schemas to .harness/archive/schemas/ (Pydantic is source of truth). Reduce fixtures to cr-001 only, archive cr-002/003/expected. Consolidate USE-CASE into README. Remove stray .venv. Result: 55 files \u2192 12 files."
     },
     {
       "id": "feat-1",
       "name": "Project setup + Pydantic models",
       "type": "feature",
-      "status": "pending",
+      "status": "verified",
       "depends_on": [],
       "scope": "pyproject.toml (pydantic>=2, pytest, optional 'ml' group with sentence-transformers), directory layout (src/cr_analyzer/{models,stages,adapters,pipeline}/), Pydantic v2 models as single source of truth. Models: CRBundle, Finding, enums, all stage outputs (ingest, normalize, completeness, schedule-sla, historical-pattern, cab-report, cab-summary). Validate against cr-001 fixture.",
       "acceptance_criteria": [
@@ -74,11 +74,11 @@
         "Finding model: dimension (FindingDimension enum, 8 values), severity (Severity enum), finding (str), evidence (structured obj with artifact required), optional remediation",
         "Stage output models exist: IngestOutput, NormalizeOutput, CompletenessOutput, ScheduleSlaOutput, HistoricalPatternOutput, CabReport, CabSummary",
         "Enums: ChangeType(standard/normal/emergency), RiskCategory(low/medium/high), Severity(blocker/warning/info), Recommendation(approve/conditional/reject), SlaAnalysisMode(full/overlap_only/not_applicable), FindingDimension(8 values matching archived finding.schema.json)",
-        "CRBundle.model_validate(cr_001_fixture_data) succeeds — full fixture roundtrips",
-        "CRBundle.model_validate({'itsm_record': minimal_record}) succeeds — minimal bundle",
+        "CRBundle.model_validate(cr_001_fixture_data) succeeds \u2014 full fixture roundtrips",
+        "CRBundle.model_validate({'itsm_record': minimal_record}) succeeds \u2014 minimal bundle",
         "All models use Pydantic v2 syntax (model_config, Field with description)",
         "pytest tests/ passes with >=1 test file covering fixture roundtrip + minimal bundle + invalid enum rejection",
-        "No JSON schema files under src/ — Pydantic is source of truth",
+        "No JSON schema files under src/ \u2014 Pydantic is source of truth",
         "CabReport includes stages_skipped: list[str] and analysis_coverage with executed/skipped/degraded counts",
         "HistoricalPatternOutput findings evidence includes service, change_category, matching_incidents per archived schema"
       ],
@@ -93,21 +93,23 @@
       "id": "feat-2",
       "name": "BPI 2014 adapter",
       "type": "feature",
-      "status": "pending",
-      "depends_on": ["feat-1"],
+      "status": "verified",
+      "depends_on": [
+        "feat-1"
+      ],
       "scope": "CSV parser that produces CRBundle objects from BPI 2014 Detail_Change.csv + Detail_Incident.csv. Maps fields per spike-1 (semicolon delimiter, multi-CI grouping, risk mapping, type derivation). Builds incident linkage index. Derives CAB windows (CAB-approval needed=Y, group by ISO week).",
       "acceptance_criteria": [
         "Adapter at src/cr_analyzer/adapters/bpi2014.py importable",
-        "Parses Detail_Change.csv (semicolon delimiter, 21 cols) → groups multi-CI rows by Change ID into single CRBundle each",
-        "Risk mapping: Minor→low, Business→medium, Major Business→high (3 enum values)",
-        "Type derivation: Emergency Change=Y→emergency; 'Standard *'→standard; 'Release *'→normal; default→normal",
+        "Parses Detail_Change.csv (semicolon delimiter, 21 cols) \u2192 groups multi-CI rows by Change ID into single CRBundle each",
+        "Risk mapping: Minor\u2192low, Business\u2192medium, Major Business\u2192high (3 enum values)",
+        "Type derivation: Emergency Change=Y\u2192emergency; 'Standard *'\u2192standard; 'Release *'\u2192normal; default\u2192normal",
         "affected_services populated from grouped CI Name values per change (list[str])",
-        "Parses Detail_Incident.csv and builds incident linkage index: maps (CI Name, Change Type) → list of incidents",
-        "CAB window derivation: filters CAB-approval needed=Y, groups by ISO week of Planned Start → returns dict[str, list[CRBundle]]",
+        "Parses Detail_Incident.csv and builds incident linkage index: maps (CI Name, Change Type) \u2192 list of incidents",
+        "CAB window derivation: filters CAB-approval needed=Y, groups by ISO week of Planned Start \u2192 returns dict[str, list[CRBundle]]",
         "Adapter produces >=17,000 unique CRBundle objects from full Detail_Change.csv",
         "374 CAB-approval changes identified across 51 weekly windows",
         "incident_history field populated on CRBundles that have linked incidents (>=231 changes with incidents)",
-        "Handles missing/empty fields gracefully: empty title/description → empty string, missing requestor/approvers → placeholder values",
+        "Handles missing/empty fields gracefully: empty title/description \u2192 empty string, missing requestor/approvers \u2192 placeholder values",
         "pytest tests for adapter: parses sample rows, validates CRBundle output, tests edge cases (multi-CI, missing fields)"
       ],
       "definition_of_done": "Adapter parses both BPI 2014 CSVs into valid CRBundle objects. `pytest tests/test_bpi2014_adapter.py -v` passes. Smoke test on full CSV: >=17K bundles, 374 CAB changes, 51 windows.",
@@ -124,20 +126,22 @@
       "id": "feat-3",
       "name": "Ingest + Normalize (L1)",
       "type": "feature",
-      "status": "pending",
-      "depends_on": ["feat-1"],
-      "scope": "Stage 1 Ingest (JSON/MD parser) and Stage 2 Normalize (field mapping, enum standardization, derived fields: is_customer_facing, affected_tier). Accept partial CR bundles — nullable artifacts pass through as None. Validated on both BPI 2014 (via adapter) and cr-001 fixture.",
+      "status": "verified",
+      "depends_on": [
+        "feat-1"
+      ],
+      "scope": "Stage 1 Ingest (JSON/MD parser) and Stage 2 Normalize (field mapping, enum standardization, derived fields: is_customer_facing, affected_tier). Accept partial CR bundles \u2014 nullable artifacts pass through as None. Validated on both BPI 2014 (via adapter) and cr-001 fixture.",
       "acceptance_criteria": [
-        "Stage 1 Ingest at src/cr_analyzer/stages/ingest.py: accepts CRBundle → returns IngestOutput",
+        "Stage 1 Ingest at src/cr_analyzer/stages/ingest.py: accepts CRBundle \u2192 returns IngestOutput",
         "Ingest parses JSON artifacts as-is, extracts Markdown structure from runbook/rollback (sections, steps, service_refs, commands)",
-        "Ingest handles null artifacts: runbook=None → IngestOutput.runbook=None (no crash)",
-        "Stage 2 Normalize at src/cr_analyzer/stages/normalize.py: accepts IngestOutput → returns NormalizeOutput",
+        "Ingest handles null artifacts: runbook=None \u2192 IngestOutput.runbook=None (no crash)",
+        "Stage 2 Normalize at src/cr_analyzer/stages/normalize.py: accepts IngestOutput \u2192 returns NormalizeOutput",
         "Normalize standardizes change type to ChangeType enum, risk_category to RiskCategory enum",
-        "Normalize derives is_customer_facing from CMDB tier (tier 1-2 = True; no CMDB → False)",
-        "Normalize derives affected_tier as min tier across affected services in CMDB (no CMDB → 4)",
+        "Normalize derives is_customer_facing from CMDB tier (tier 1-2 = True; no CMDB \u2192 False)",
+        "Normalize derives affected_tier as min tier across affected services in CMDB (no CMDB \u2192 4)",
         "Normalize timestamps to ISO-8601 format",
         "Both stages produce valid Pydantic model outputs (model_validate on output succeeds)",
-        "Works on cr-001 full fixture: all fields preserved through ingest→normalize",
+        "Works on cr-001 full fixture: all fields preserved through ingest\u2192normalize",
         "Works on BPI 2014 partial bundle: nullable fields remain None, no crashes",
         "Stage outputs serializable to JSON via model_dump_json() for disk checkpoints",
         "pytest tests: cr-001 roundtrip, minimal bundle, BPI-shaped bundle (no runbook/rollback/cmdb)"
@@ -145,7 +149,7 @@
       "definition_of_done": "`pytest tests/test_ingest.py tests/test_normalize.py -v` passes. Both stages handle full and partial bundles. Outputs validate as Pydantic models and serialize to JSON.",
       "metrics": {
         "field_presence_required": ">=99% on required NormalizeOutput fields",
-        "task_completion": "100% — no crash on any valid CRBundle input",
+        "task_completion": "100% \u2014 no crash on any valid CRBundle input",
         "latency": "<1s per CR (both stages combined)"
       }
     },
@@ -153,13 +157,15 @@
       "id": "feat-4",
       "name": "Completeness Check (L1)",
       "type": "feature",
-      "status": "pending",
-      "depends_on": ["feat-3"],
-      "scope": "Stage 3 Completeness Check — ITIL-required artifact checklist per change type. Rule engine: normal requires runbook+rollback+risk; emergency requires rollback+exec approval; customer-facing requires comms plan. Enhanced severity for BPI 2014: flags missing title, description, runbook, rollback, comms as findings.",
+      "status": "verified",
+      "depends_on": [
+        "feat-3"
+      ],
+      "scope": "Stage 3 Completeness Check \u2014 ITIL-required artifact checklist per change type. Rule engine: normal requires runbook+rollback+risk; emergency requires rollback+exec approval; customer-facing requires comms plan. Enhanced severity for BPI 2014: flags missing title, description, runbook, rollback, comms as findings.",
       "acceptance_criteria": [
-        "Stage at src/cr_analyzer/stages/completeness.py: accepts NormalizeOutput → returns CompletenessOutput",
+        "Stage at src/cr_analyzer/stages/completeness.py: accepts NormalizeOutput \u2192 returns CompletenessOutput",
         "Rule engine per change type: normal requires runbook+rollback+risk_category; emergency requires rollback+executive approver; all types require change_id+title+description+affected_services+scheduled_window",
-        "Customer-facing scope (is_customer_facing=True) requires communication_plan — missing = warning finding",
+        "Customer-facing scope (is_customer_facing=True) requires communication_plan \u2014 missing = warning finding",
         "Missing mandatory artifact (rollback for normal/emergency) = blocker finding",
         "Missing optional artifact (runbook for standard) = info finding",
         "Each finding has dimension='completeness', correct severity, evidence.artifact pointing to missing artifact, remediation text",
@@ -179,18 +185,20 @@
       "id": "feat-5",
       "name": "Schedule overlap (L1) + conditional skips",
       "type": "feature",
-      "status": "pending",
-      "depends_on": ["feat-3"],
+      "status": "verified",
+      "depends_on": [
+        "feat-3"
+      ],
       "scope": "Stage 6 Schedule & SLA in overlap_only mode (interval overlap detection on shared affected_services, no SLA budget math). Conditional skip infrastructure for stages 4/5/7: record in stages_skipped, log as info finding. Cross-CR stage: consumes all CRs in CAB window.",
       "acceptance_criteria": [
-        "Stage at src/cr_analyzer/stages/schedule_sla.py: accepts list[NormalizeOutput] → returns ScheduleSlaOutput",
+        "Stage at src/cr_analyzer/stages/schedule_sla.py: accepts list[NormalizeOutput] \u2192 returns ScheduleSlaOutput",
         "Detects interval overlaps: for each CR pair, checks if [start,end] windows overlap AND they share >=1 affected_service",
         "Output includes scheduling_conflicts array with cr_pair, shared_services, overlap_window (start/end), severity",
         "sla_analysis_mode = 'overlap_only' when sla_definitions absent (BPI 2014 path)",
         "sla_impact array empty when in overlap_only mode",
         "Overlap severity: exact window match on shared infra = blocker; partial overlap = warning; adjacent windows = info",
         "Conditional skip function at src/cr_analyzer/pipeline/skip.py: given NormalizeOutput, returns list of stage names to skip",
-        "Skip rules: runbook=None → skip 'runbook_validation'; rollback=None → skip 'rollback_feasibility'; cmdb=None → skip 'dependency_chain'",
+        "Skip rules: runbook=None \u2192 skip 'runbook_validation'; rollback=None \u2192 skip 'rollback_feasibility'; cmdb=None \u2192 skip 'dependency_chain'",
         "Skip results recorded as info findings with dimension='completeness' and evidence noting which artifact was absent",
         "Cross-CR: processes all CRs in a CAB window batch (not per-CR)",
         "pytest tests: 2 overlapping CRs on shared service, 2 non-overlapping CRs, skip logic for partial bundles"
@@ -198,7 +206,7 @@
       "definition_of_done": "`pytest tests/test_schedule_sla.py tests/test_skip.py -v` passes. Overlap detection works on synthetic fixture. Skip logic correctly identifies stages to skip for BPI 2014-shaped bundles.",
       "metrics": {
         "scheduling_conflict_recall": "100% on synthetic overlaps (deterministic interval math)",
-        "false_positive_rate": "0% — no overlap reported when windows don't actually overlap",
+        "false_positive_rate": "0% \u2014 no overlap reported when windows don't actually overlap",
         "latency": "<2s per CAB window (50 CRs)",
         "bpi2014_overlaps_detected": "subset of 25K known overlaps (smoke test on real data)"
       }
@@ -207,24 +215,27 @@
       "id": "feat-6",
       "name": "Historical Pattern L1 (exact tuple match)",
       "type": "feature",
-      "status": "pending",
-      "depends_on": ["feat-3", "feat-2"],
+      "status": "verified",
+      "depends_on": [
+        "feat-3",
+        "feat-2"
+      ],
       "scope": "Stage 8 Historical Pattern at L1: exact (service, change_category) tuple match against incident history. Alert when >=2 past incidents with severity P1/P2. Include incident count, most recent date, root_cause_summary in finding evidence.",
       "acceptance_criteria": [
-        "Stage at src/cr_analyzer/stages/historical_pattern.py: accepts NormalizeOutput → returns HistoricalPatternOutput",
+        "Stage at src/cr_analyzer/stages/historical_pattern.py: accepts NormalizeOutput \u2192 returns HistoricalPatternOutput",
         "L1 implementation: exact string match on (service, change_category) tuples against incident_history",
-        "Alert threshold: >=2 past incidents with severity P1 or P2 for same tuple → warning finding",
-        "Alert threshold: >=5 past incidents OR any P1 for same tuple → blocker finding",
+        "Alert threshold: >=2 past incidents with severity P1 or P2 for same tuple \u2192 warning finding",
+        "Alert threshold: >=5 past incidents OR any P1 for same tuple \u2192 blocker finding",
         "Finding evidence includes: service, change_category, matching_incidents array [{incident_id, severity, date, root_cause_summary}]",
         "Finding dimension = 'historical_pattern'",
-        "No incidents or <2 matching → no finding (empty findings array)",
+        "No incidents or <2 matching \u2192 no finding (empty findings array)",
         "method_used field on output = 'exact_match' (prepares for L2 dual-path)",
-        "Handles empty incident_history gracefully (incidents=[] or None → no findings)",
-        "pytest tests: CR with 3 matching P2 incidents → warning; CR with 0 matches → empty; CR with P1 → blocker"
+        "Handles empty incident_history gracefully (incidents=[] or None \u2192 no findings)",
+        "pytest tests: CR with 3 matching P2 incidents \u2192 warning; CR with 0 matches \u2192 empty; CR with P1 \u2192 blocker"
       ],
       "definition_of_done": "`pytest tests/test_historical_pattern.py -v` passes. On BPI 2014 data: stage identifies matches from the 56 GT tuples. L1 recall/precision measured and recorded as baseline.",
       "metrics": {
-        "l1_recall_on_bpi_gt": "measured (baseline — exact value recorded for L2 comparison)",
+        "l1_recall_on_bpi_gt": "measured (baseline \u2014 exact value recorded for L2 comparison)",
         "l1_precision_on_bpi_gt": "measured (baseline)",
         "target_recall_synthetic": ">=80% on injected pattern matches (per ARCHITECTURE.md)",
         "target_precision_synthetic": ">=75% on clean CRs",
@@ -236,32 +247,36 @@
       "name": "Risk Synthesis L1 + E2E runner",
       "type": "feature",
       "status": "pending",
-      "depends_on": ["feat-4", "feat-5", "feat-6"],
+      "depends_on": [
+        "feat-4",
+        "feat-5",
+        "feat-6"
+      ],
       "scope": "Stage 9 Risk Synthesis at L1: deterministic severity rollup (R1-R4 rules), template-based CAB report, stages_skipped + analysis_coverage tracking. E2E pipeline runner with conditional stage execution, disk checkpoints, JSON + Markdown output.",
       "acceptance_criteria": [
-        "Risk Synthesis at src/cr_analyzer/stages/risk_synthesis.py: accepts all stage outputs → returns CabReport",
-        "R1: any blocker finding → recommendation=reject",
-        "R2: >=2 warning findings across >=2 different dimensions → recommendation=conditional",
-        "R3: 1 warning OR only info findings → recommendation=approve",
-        "R4: no findings → recommendation=approve",
-        "risk_level derived: reject→critical, conditional→high, approve with warnings→medium, approve clean→low",
+        "Risk Synthesis at src/cr_analyzer/stages/risk_synthesis.py: accepts all stage outputs \u2192 returns CabReport",
+        "R1: any blocker finding \u2192 recommendation=reject",
+        "R2: >=2 warning findings across >=2 different dimensions \u2192 recommendation=conditional",
+        "R3: 1 warning OR only info findings \u2192 recommendation=approve",
+        "R4: no findings \u2192 recommendation=approve",
+        "risk_level derived: reject\u2192critical, conditional\u2192high, approve with warnings\u2192medium, approve clean\u2192low",
         "conditional_actions populated for conditional recommendations (template-derived from finding type)",
         "stages_skipped lists names of skipped stages; analysis_coverage counts executed/skipped/degraded",
         "Template Markdown report generated: per-dimension sections, severity badges, evidence citations, CAB recommendation",
         "CAB summary across window: CabSummary with disposition breakdown (approve/conditional/reject counts), cross_cr_conflicts from schedule stage, processing time",
-        "E2E runner at src/cr_analyzer/pipeline/runner.py: executes stages 1→2→3→6→8→9 sequentially, skips 4/5/7 conditionally",
+        "E2E runner at src/cr_analyzer/pipeline/runner.py: executes stages 1\u21922\u21923\u21926\u21928\u21929 sequentially, skips 4/5/7 conditionally",
         "Disk checkpoints: each stage writes {stage_name}.json to output directory before next stage starts",
         "JSON outputs: cab-report.json (per CR) + cab-summary.json (per window)",
         "Markdown outputs: change-risk-assessment.md (per CR) + cab-summary.md (per window)",
-        "E2E passes on cr-001 fixture: ingest→normalize→completeness→schedule→historical→synthesis, produces all outputs",
+        "E2E passes on cr-001 fixture: ingest\u2192normalize\u2192completeness\u2192schedule\u2192historical\u2192synthesis, produces all outputs",
         "E2E passes on BPI 2014 CAB window (1 week): handles partial bundles, skipped stages, produces summary",
         "pytest tests: R1-R4 rules, template generation, E2E on cr-001"
       ],
       "definition_of_done": "`pytest tests/test_risk_synthesis.py tests/test_runner.py -v` passes. E2E on cr-001 produces valid JSON + Markdown outputs. E2E on BPI 2014 window completes without crash. All output files validate against Pydantic models.",
       "metrics": {
-        "task_completion": "100% — no crash on valid input",
-        "schema_compliance": ">=99% — outputs validate against Pydantic models",
-        "template_coverage": ">=90% — all finding dimensions have report sections",
+        "task_completion": "100% \u2014 no crash on valid input",
+        "schema_compliance": ">=99% \u2014 outputs validate against Pydantic models",
+        "template_coverage": ">=90% \u2014 all finding dimensions have report sections",
         "cab_rollup_consistency": "100% on deterministic R1-R4 rules (L1 is deterministic)",
         "wall_clock_per_batch": "<5 min for 50-CR window at L1",
         "cost_per_batch": "$0 (L1 is all script)"
@@ -271,13 +286,15 @@
       "id": "feat-8",
       "name": "Historical Pattern L2 (embedding similarity)",
       "type": "feature",
-      "status": "pending",
-      "depends_on": ["feat-6"],
+      "status": "verified",
+      "depends_on": [
+        "feat-6"
+      ],
       "scope": "Stage 8 L2: sentence-transformer encoding of CR description + incident descriptions. Cosine similarity matching for fuzzy pattern detection. Dual-path with L1.",
       "acceptance_criteria": [
         "L2 implementation in historical_pattern.py alongside L1 (strategy pattern or config flag)",
         "Uses sentence-transformers to encode: CR (change_type + affected_services + description) and incident (root_cause_summary + severity)",
-        "Cosine similarity > configurable threshold → alert, even if exact (service, change_category) tuple doesn't match",
+        "Cosine similarity > configurable threshold \u2192 alert, even if exact (service, change_category) tuple doesn't match",
         "Output includes method_used='embedding_similarity' for L2 findings, 'exact_match' for L1",
         "Dual-path mode: runs both L1 and L2, merges findings (deduplicates if both match same incident)",
         "L2 catches semantically similar but differently categorized patterns (e.g. 'config change' vs 'configuration update')",
@@ -288,8 +305,8 @@
       ],
       "definition_of_done": "`pytest tests/test_historical_pattern_l2.py -v` passes. L2 recall >= L1 recall on BPI 2014 GT tuples. Comparison metrics (L1 recall, L2 recall, delta) recorded in test output.",
       "metrics": {
-        "l2_recall_on_bpi_gt": "measured — must be >= L1 recall (feat-6 baseline)",
-        "l2_precision_on_bpi_gt": "measured — documented even if lower than L1 (precision/recall tradeoff)",
+        "l2_recall_on_bpi_gt": "measured \u2014 must be >= L1 recall (feat-6 baseline)",
+        "l2_precision_on_bpi_gt": "measured \u2014 documented even if lower than L1 (precision/recall tradeoff)",
         "recall_delta_l2_vs_l1": "measured and positive (L2 improvement quantified)",
         "latency": "<5s per CR with embedding",
         "fallback_works": "L1-only mode works when sentence-transformers absent"
@@ -299,13 +316,15 @@
       "id": "feat-9",
       "name": "Risk Synthesis L2 (LLM narrative)",
       "type": "feature",
-      "status": "pending",
-      "depends_on": ["feat-7"],
+      "status": "verified",
+      "depends_on": [
+        "feat-7"
+      ],
       "scope": "Stage 9 L2: LLM generates cross-dimension CAB narrative for conditional/reject CRs. Template (L1) for approve CRs. Selective routing within cost ceiling.",
       "acceptance_criteria": [
         "L2 implementation in risk_synthesis.py alongside L1 (strategy pattern or config flag)",
         "Selective routing: LLM narrative only for recommendation=conditional or reject; template (L1) for approve",
-        "LLM input = structured findings JSON (not raw artifacts) — minimal token usage",
+        "LLM input = structured findings JSON (not raw artifacts) \u2014 minimal token usage",
         "LLM output = cross-dimension narrative explaining WHY findings matter together, specific conditional-approval actions",
         "Markdown report enhanced for L2 CRs: cross-dimension reasoning section, specific remediation language",
         "Cost tracking: tokens used per CR, estimated cost per CR, cumulative batch cost",
@@ -318,9 +337,9 @@
       "definition_of_done": "`pytest tests/test_risk_synthesis_l2.py -v` passes. Selective routing correct (LLM only for conditional/reject). Cost tracking reports tokens and estimated cost. Fallback to L1 works when LLM unavailable.",
       "metrics": {
         "cost_per_batch": "<$2 for 50-CR window (ARCHITECTURE.md ceiling)",
-        "selective_routing_accuracy": "100% — approve CRs never hit LLM",
-        "fallback_reliability": "100% — LLM failure → L1 template, no crash",
-        "cross_run_consistency": ">=85% — LLM outputs similar narrative across 3 runs (sampling variance)",
+        "selective_routing_accuracy": "100% \u2014 approve CRs never hit LLM",
+        "fallback_reliability": "100% \u2014 LLM failure \u2192 L1 template, no crash",
+        "cross_run_consistency": ">=85% \u2014 LLM outputs similar narrative across 3 runs (sampling variance)",
         "latency": "<10s per CR for L2 narrative"
       }
     },
@@ -328,13 +347,16 @@
       "id": "feat-10",
       "name": "Evaluation: L1 vs L2 on BPI 2014 GT",
       "type": "eval",
-      "status": "pending",
-      "depends_on": ["feat-8", "feat-9"],
+      "status": "verified",
+      "depends_on": [
+        "feat-8",
+        "feat-9"
+      ],
       "scope": "Evaluation harness: run full pipeline on BPI 2014 CAB windows. Measure per-stage metrics. L1 vs L2 comparison. Validates MVP thesis.",
       "acceptance_criteria": [
         "Eval script at src/cr_analyzer/eval/evaluate.py: runs pipeline on BPI 2014 data, collects metrics",
         "Runs full pipeline (L1 and L2) on all 51 BPI 2014 CAB windows (374 changes)",
-        "Historical Pattern metrics: L1 recall, L1 precision, L2 recall, L2 precision, delta — measured against 56 GT tuples",
+        "Historical Pattern metrics: L1 recall, L1 precision, L2 recall, L2 precision, delta \u2014 measured against 56 GT tuples",
         "Schedule overlap metrics: number of overlaps detected, cross-validated against spike-1 count (25K pairs)",
         "Completeness metrics: % of BPI changes flagged as incomplete (expected: ~100% due to missing artifacts)",
         "Risk Synthesis metrics: disposition breakdown (approve/conditional/reject distribution), template_coverage, schema_compliance",
@@ -347,13 +369,13 @@
       ],
       "definition_of_done": "Eval script completes on full BPI 2014 dataset. eval-report.json + eval-report.md produced with all metrics. L2 vs L1 comparison quantified. MVP thesis answered: does embedding improve recall over exact match?",
       "metrics": {
-        "task_completion": "100% — pipeline processes all 374 CAB changes",
+        "task_completion": "100% \u2014 pipeline processes all 374 CAB changes",
         "schema_compliance": ">=99%",
         "historical_pattern_l1_recall": "measured baseline",
-        "historical_pattern_l2_recall": "measured — target >= L1",
+        "historical_pattern_l2_recall": "measured \u2014 target >= L1",
         "historical_pattern_recall_delta": "quantified improvement (or not)",
-        "cost_total_l2": "measured — must be < $2 × (51 windows / 50 CRs per window)",
-        "wall_clock_total": "measured — target < 30min for largest window",
+        "cost_total_l2": "measured \u2014 must be < $2 \u00d7 (51 windows / 50 CRs per window)",
+        "wall_clock_total": "measured \u2014 target < 30min for largest window",
         "cross_run_consistency_l1": "100% (deterministic)",
         "cross_run_consistency_l2": ">=85%"
       }

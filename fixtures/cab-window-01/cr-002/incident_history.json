@@ -1,0 +1,4 @@
+[
+  {"incident_id": "INC-2026-0234", "service": "payment-api", "change_category": "schema_migration", "severity": "P2", "root_cause_summary": "Column type mismatch after migration caused payment failures for 45 minutes", "date": "2026-02-18"},
+  {"incident_id": "INC-2025-3102", "service": "payment-db", "change_category": "schema_migration", "severity": "P2", "root_cause_summary": "Migration lock contention caused 2-hour payment processing delay", "date": "2025-09-22"}
+]

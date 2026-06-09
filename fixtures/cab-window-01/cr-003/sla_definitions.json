@@ -1,0 +1,5 @@
+[
+  {"tier": 1, "monthly_downtime_budget_min": 43, "consumed_this_month_min": 12, "measurement_window": "2026-06"},
+  {"tier": 2, "monthly_downtime_budget_min": 120, "consumed_this_month_min": 35, "measurement_window": "2026-06"},
+  {"tier": 3, "monthly_downtime_budget_min": 480, "consumed_this_month_min": 60, "measurement_window": "2026-06"}
+]
