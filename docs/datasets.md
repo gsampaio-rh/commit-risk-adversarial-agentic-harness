@@ -66,6 +66,24 @@ Fixtures are used in `tests/conftest.py` for pytest integration.
 
 ---
 
-## Future Datasets (P1/P2)
+## Requirements for Predictive Validation
 
-For planned but not yet integrated datasets (UCI Incident Management, EnterpriseOps-Gym, ServiceNow safety-bench, etc.), see [.harness/archive/docs/ARCHITECTURE-aspirational.md](../.harness/archive/docs/ARCHITECTURE-aspirational.md#p1-datasets-not-yet-integrated).
+To validate that the pipeline correctly predicts which changes will cause incidents, a dataset needs:
+
+| Requirement | Why | BPI 2014 status |
+|-------------|-----|-----------------|
+| Change records with structured fields | Pipeline input | Yes (18K changes) |
+| Incident records with **direct linkage** to causing change | Ground truth labels | Partial (560 incidents, 231 changes, via `Related Change`) |
+| 100+ changes with linked incidents | Statistical power | No (25 high-severity, 231 total) |
+| Temporal ordering | Prevent data leakage | Yes (incident `Open Time` vs change `Planned Start`) |
+| Prose artifacts (runbooks, rollback plans) | Exercise full pipeline | No |
+
+BPI 2014 is the only public dataset that partially meets these criteria. A broad search of HuggingFace, Kaggle, UCI, Zenodo, GitHub, and ArXiv (2020-2026) found no better alternative. See [dataset-research.md](dataset-research.md) for the full investigation.
+
+---
+
+## Future Datasets
+
+For planned but not yet integrated datasets and the full research into public ITSM datasets, see:
+- [dataset-research.md](dataset-research.md) — verified assessment of all public candidates (2026)
+- [.harness/archive/docs/ARCHITECTURE-aspirational.md](../.harness/archive/docs/ARCHITECTURE-aspirational.md#p1-datasets-not-yet-integrated) — aspirational dataset plans

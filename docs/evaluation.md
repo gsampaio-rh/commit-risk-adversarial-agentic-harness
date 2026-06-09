@@ -100,3 +100,37 @@ Selective routing ensures cost ceiling compliance: LLM only for ~40% of batch (c
 | Cross-run consistency (L1) | >= 95% | 100% (deterministic) |
 
 For aspirational P0/P2 success gates and projected metric evolution across levels, see [.harness/archive/docs/ARCHITECTURE-aspirational.md](../.harness/archive/docs/ARCHITECTURE-aspirational.md#p0-success-gates-vs-p2-commercial-claims).
+
+---
+
+## Predictive Validation
+
+### What we measure today vs what we need
+
+| Dimension | Current (architecture validation) | Target (predictive validation) |
+|-----------|----------------------------------|-------------------------------|
+| Task completion | 100% — pipeline processes all CRs | Same |
+| Schema compliance | 100% — outputs are valid | Same |
+| **Prediction accuracy** | **Not measured** | Precision/recall: "of changes that caused incidents, how many did we flag?" |
+| **False positive rate** | **Not measured** | "Of changes we flagged as risky, how many actually caused incidents?" |
+| Consistency | 100% deterministic | Same |
+
+### What's blocking
+
+Predictive validation requires a dataset with both change features (input) and incident outcomes (labels). We searched HuggingFace, Kaggle, UCI, Zenodo, GitHub, and ArXiv (2020-2026). No public dataset passes the deal-breaker criteria: change records + direct incident linkage + sufficient sample size. See [dataset-research.md](dataset-research.md) for full findings.
+
+**BPI 2014** is the only partial candidate: 231 changes with linked incidents (25 with P1/P2). This is enough for a proof-of-concept but not for statistically robust conclusions.
+
+### What "good" looks like
+
+A dataset where we can:
+1. Run the pipeline on a change request, producing a risk score
+2. Look at what actually happened after the change was deployed
+3. Compare: did the pipeline correctly identify high-risk changes?
+4. Compute precision, recall, F1 on a meaningful sample (100+ labeled changes)
+
+### Next steps
+
+1. Run a proof-of-concept predictive evaluation on BPI 2014 using `Related Change` as outcome labels (n=25 positive, ~17K negative). Accept small-sample limitation.
+2. Fix adapter to use temporal split (only past incidents as input, post-change incidents as labels).
+3. For production-quality validation, enterprise partner data is required.
