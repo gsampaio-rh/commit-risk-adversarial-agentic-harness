@@ -4,7 +4,7 @@
 
 A sequential pipeline that predicts which IT changes will cause incidents. It analyzes change requests before the Change Advisory Board (CAB) meets, cross-referencing ITSM records, runbooks, rollback plans, CMDB state, SLA definitions, scheduling data, and incident history to produce per-CR risk assessments with approve/conditional/reject recommendations.
 
-**Objective:** Predict change risk and validate predictions against real incident outcomes. The pipeline produces a recommendation; validation requires comparing that recommendation against "did this change actually cause a P1/P2 incident?" See [dataset research](docs/dataset-research.md) for current validation status.
+**Objective:** Predict change risk and validate predictions against real incident outcomes. The pipeline produces a recommendation; validation requires comparing that recommendation against "did this change actually cause a P1/P2 incident?" See [datasets](docs/datasets.md#predictive-validation-landscape) for current validation status.
 
 **Principle:** minimum capable component — script for deterministic operations, embedding encoder for semantic matching, LLM only where natural-language synthesis is unavoidable. 7 of 9 stages have script or encoder as SOTA.
 

@@ -59,3 +59,5 @@
 {"ts":"2026-06-09T21:40:00Z","role":"builder","type":"fix","feat":"research-9","msg":"Fixed eval failures: v2⊃v1 statement, Tier-1 IBI/label-method, BPI per-year table, 20-paper catalog, constructed sensitivity+filters, cross-doc alignment","result":"pass"}
 {"ts":"2026-06-09T21:45:00Z","role":"evaluator","type":"eval","feat":"research-9","msg":"PASS retest: 15/15 AC, 4/4 edge cases resolved. Cross-ref aligned.","result":"pass"}
 {"ts":"2026-06-09T20:45:13","role":"builder","type":"checkpoint","feat":"research-9","msg":"Commit:  (6 files)"}
+{"ts":"2026-06-09T21:00:00Z","role":"builder","type":"build","feat":null,"msg":"Merged docs/dataset-research.md into docs/datasets.md. Slimmed docs/evaluation.md (predictive validation section links to datasets.md instead of duplicating). Deleted dataset-research.md. Updated ARCHITECTURE.md cross-reference. 3 docs → 2 docs.","result":"pass"}
+{"ts":"2026-06-09T20:51:06","role":"builder","type":"checkpoint","feat":"research-9","msg":"Commit:  (5 files)"}
