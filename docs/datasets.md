@@ -1,6 +1,6 @@
 # Datasets — ApacheJIT
 
-Primary data source for commit-risk investigation and five-dimension evaluation.
+Primary data source for commit-risk investigation and six-dimension evaluation.
 
 ## Active Data Source: ApacheJIT
 
@@ -71,5 +71,5 @@ data/
 
 ## Related Documents
 
-- [Experiment context](experiment-context.md) — why ApacheJIT enables five-dimension eval
+- [Experiment context](experiment-context.md) — why ApacheJIT enables six-dimension eval
 - [Evaluation](evaluation.md) — how ground truth feeds D1–D5 scoring

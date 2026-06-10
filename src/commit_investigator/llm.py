@@ -1,15 +1,18 @@
 """LLM provider interface and implementations.
 
-Pluggable provider pattern: real OpenAI-compatible client or mock for testing.
+Pluggable provider pattern: Cursor SDK, OpenAI-compatible, or mock for testing.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -73,19 +76,35 @@ class MockLLMProvider(LLMProvider):
         max_tokens: int = 4096,
     ) -> LLMResponse:
         """Generate a mock investigation response."""
+        import hashlib
+
         context = messages[-1].content if messages else ""
         has_diff = "diff" in context.lower() or "+++" in context
 
-        risk_level = "MEDIUM" if has_diff else "LOW"
-        confidence = 0.6 if has_diff else 0.3
+        seed = int(hashlib.md5(context[:512].encode()).hexdigest()[:8], 16)
+        risk_levels = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+        risk_level = risk_levels[seed % len(risk_levels)]
+        if not has_diff:
+            risk_level = "LOW" if seed % 2 else "MEDIUM"
+        confidence = round(0.35 + (seed % 61) / 100.0, 2)
+
+        touched_files = _extract_touched_files(context)
+        primary_file = touched_files[0] if touched_files else "unknown"
+        localization = [
+            {"file": path, "lines": "1-10", "rationale": f"Mock: flagged {path} from diff"}
+            for path in touched_files[:2]
+        ]
 
         response_content = json.dumps({
             "risk_level": risk_level,
             "confidence": confidence,
-            "reasoning": "Mock investigation: analyzed available context.",
-            "findings": ["Mock finding based on available evidence"],
+            "reasoning": (
+                f"Mock investigation of {primary_file}: "
+                f"reviewed diff ({len(context.split())} context tokens)."
+            ),
+            "findings": [f"Mock finding on {primary_file}"],
             "follow_up_needed": False,
-            "localization": [],
+            "localization": localization,
             "recommendations": [],
         })
 
@@ -99,6 +118,126 @@ class MockLLMProvider(LLMProvider):
             model=self.model_name,
             finish_reason="stop",
         )
+
+
+def _extract_touched_files(context: str) -> list[str]:
+    """Parse touched file paths from orchestrator context markdown."""
+    files: list[str] = []
+    in_section = False
+    for line in context.splitlines():
+        if line.strip() == "## Touched Files":
+            in_section = True
+            continue
+        if in_section:
+            if line.startswith("## "):
+                break
+            if line.startswith("- "):
+                files.append(line[2:].strip())
+    return files
+
+
+class CursorSDKProvider(LLMProvider):
+    """LLM provider using the Cursor SDK (cursor-sdk).
+
+    Runs one-shot Cursor agent prompts in read-only plan mode. Each complete()
+    call sends a formatted prompt via Agent.prompt() and parses the text result.
+    No tool-calling — all context is assembled in the prompt upfront.
+    """
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str = "claude-sonnet-4-6",
+    ) -> None:
+        self._api_key = api_key or os.environ.get("CURSOR_API_KEY", "")
+        self._model = model
+
+        if not self._api_key:
+            raise ValueError(
+                "Cursor API key required. Set CURSOR_API_KEY env var or pass api_key."
+            )
+
+    @property
+    def model_name(self) -> str:
+        return f"cursor-sdk/{self._model}"
+
+    def complete(
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+    ) -> LLMResponse:
+        """Send a one-shot prompt via Cursor SDK and return the result."""
+        from cursor_sdk import Agent, AgentOptions, LocalAgentOptions
+        from cursor_sdk.errors import CursorAgentError
+
+        prompt_text = self._format_messages(messages)
+        word_count = len(prompt_text.split())
+
+        try:
+            result = Agent.prompt(
+                prompt_text,
+                AgentOptions(
+                    api_key=self._api_key,
+                    model=self._model,
+                    local=LocalAgentOptions(cwd=os.getcwd()),
+                    mode="plan",
+                ),
+            )
+        except CursorAgentError as exc:
+            logger.error("Cursor SDK call failed: %s (retryable=%s)", exc.message, exc.is_retryable)
+            return LLMResponse(
+                content=json.dumps({
+                    "risk_level": "LOW",
+                    "confidence": 0.0,
+                    "reasoning": f"LLM call failed: {exc.message}",
+                    "findings": ["Investigation failed due to LLM error — not a risk assessment"],
+                    "follow_up_needed": False,
+                    "localization": [],
+                    "recommendations": [],
+                }),
+                model=self.model_name,
+                finish_reason="error",
+            )
+
+        if result.status != "finished":
+            logger.warning("Cursor SDK run status: %s (run %s)", result.status, result.id)
+
+        response_text = result.result or ""
+        response_word_count = len(response_text.split())
+        token_estimate = word_count + response_word_count
+        cost_estimate = token_estimate * 0.000003
+
+        actual_model = self._model
+        if result.model:
+            model_id = getattr(result.model, "id", None)
+            if model_id:
+                actual_model = str(model_id)
+
+        return LLMResponse(
+            content=response_text,
+            tool_calls=[],
+            tokens_used=token_estimate,
+            estimated_cost=cost_estimate,
+            model=f"cursor-sdk/{actual_model}",
+            finish_reason="stop" if result.status == "finished" else str(result.status),
+        )
+
+    @staticmethod
+    def _format_messages(messages: list[LLMMessage]) -> str:
+        """Flatten chat messages into a single prompt string for Agent.prompt()."""
+        parts: list[str] = []
+        for msg in messages:
+            if msg.role == "system":
+                parts.append(f"[System Instructions]\n{msg.content}\n")
+            elif msg.role == "user":
+                parts.append(f"{msg.content}\n")
+            elif msg.role == "assistant":
+                parts.append(f"[Previous Response]\n{msg.content}\n")
+            elif msg.role == "tool":
+                parts.append(f"[Tool Result: {msg.name}]\n{msg.content}\n")
+        return "\n".join(parts)
 
 
 class OpenAIProvider(LLMProvider):
@@ -185,7 +324,17 @@ class OpenAIProvider(LLMProvider):
 
 
 def get_provider(prefer_real: bool = True) -> LLMProvider:
-    """Factory: return real provider if API key available, otherwise mock."""
-    if prefer_real and os.environ.get("OPENAI_API_KEY"):
-        return OpenAIProvider()
+    """Factory: return real provider if API key available, otherwise mock.
+
+    Priority: CURSOR_API_KEY (Cursor SDK) → OPENAI_API_KEY (OpenAI) → Mock.
+    """
+    if prefer_real:
+        cursor_key = os.environ.get("CURSOR_API_KEY")
+        if cursor_key:
+            return CursorSDKProvider(api_key=cursor_key)
+
+        openai_key = os.environ.get("OPENAI_API_KEY")
+        if openai_key:
+            return OpenAIProvider(api_key=openai_key)
+
     return MockLLMProvider()

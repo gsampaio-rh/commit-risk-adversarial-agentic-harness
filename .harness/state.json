@@ -226,7 +226,7 @@
       "id": "spike-1",
       "name": "Framework comparison spike (post-V1)",
       "type": "spike",
-      "status": "pending",
+      "status": "done",
       "scope": "After feat-9, prototype same agent in LangGraph and minimal custom loop. Compare: lines of code, checkpoint fidelity, tool dispatch clarity, debuggability. Recommend framework for V2. No production dependency on spike outcome.",
       "depends_on": ["feat-9"]
     }

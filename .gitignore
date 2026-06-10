@@ -20,6 +20,9 @@ output/
 # Data (large CSVs, download locally)
 data/
 
+# Type checking
+.mypy_cache/
+
 # Test / coverage
 .pytest_cache/
 .coverage

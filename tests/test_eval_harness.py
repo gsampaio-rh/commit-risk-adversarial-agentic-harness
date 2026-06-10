@@ -1,4 +1,4 @@
-"""Tests for the five-dimension evaluation harness."""
+"""Tests for the six-dimension evaluation harness."""
 
 import pytest
 

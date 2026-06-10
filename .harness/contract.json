@@ -1,31 +1,31 @@
 {
-  "task_id": "feat-5",
-  "feature": "Agent investigation loop V1",
-  "problem": "Need a bounded multi-turn agent that investigates commits using tools (git context, features) and LLM reasoning, producing a CommitInvestigationReport. Must respect turn limits and budget constraints.",
-  "proposed_solution": "AgentOrchestrator with ToolRegistry, pluggable LLM provider interface, max 3 turns, budget tracking, checkpoint persistence. CLI entry point.",
+  "task_id": "pre-commit-audit",
+  "feature": "Pre-commit audit: reasoning faithfulness eval + timestamped runs + docs alignment",
+  "problem": "Three features built in this session (eval_judge D3/D5/D6, timestamped run folders, CursorSDK provider) need adversarial review before commit. Docs (ARCHITECTURE.md, evaluation.md) are stale — still say 'five-dimension' and reference mock-only results.",
+  "proposed_solution": "Evaluator reviews code quality, architecture, test coverage, doc accuracy. Builder fixes any gaps found.",
   "acceptance_criteria": [
-    "AC-1: src/commit_investigator/orchestrator.py exists with AgentOrchestrator class",
-    "AC-2: src/commit_investigator/tools.py exists with ToolRegistry and tool definitions",
-    "AC-3: src/commit_investigator/llm.py exists with LLMProvider protocol/ABC and at least one implementation (OpenAI-compatible)",
-    "AC-4: AgentOrchestrator.investigate(commit_id, project, csv_row) returns CommitInvestigationReport",
-    "AC-5: Investigation loop is bounded — max_turns parameter (default 3), enforced with hard stop",
-    "AC-6: Budget tracking: orchestrator tracks token usage and estimated cost per investigation",
-    "AC-7: ToolRegistry registers tools by name; orchestrator dispatches tool calls from LLM response",
-    "AC-8: Checkpoint persistence: each turn state is saved to a configurable output dir",
-    "AC-9: CLI entry point: python -m commit_investigator.investigate --commit <id> --project <name> --repos-dir <path>",
-    "AC-10: LLM provider is pluggable (interface-based), with a mock/stub provider for testing without API key",
-    "AC-11: When no API key is configured, investigation runs with mock provider and produces a valid report (degraded but schema-compliant)",
-    "AC-12: All new modules importable without error"
+    "AC-1: eval_judge.py — ReasoningJudge class has D3 (rubric 0-4), D5 (rubric 0-3), D6 (automated 0-4) scoring methods with 1-sentence justifications",
+    "AC-2: eval_harness.py — EvalHarness accepts optional judge_provider, D3/D5 use judge when available and fall back to word-overlap/stub without, D6 always runs",
+    "AC-3: run_eval.py — default output is timestamped folder under output/runs/ with run-config.json, run.log, investigations/, eval-report.json, eval-report.md",
+    "AC-4: run_eval.py — --output-dir overrides auto-timestamp, --runs-base controls base dir, --mock skips judge",
+    "AC-5: test_eval_judge.py — covers D3/D5/D6 scoring, JSON parsing, score clamping, LLM failure resilience, harness integration (judge vs fallback paths)",
+    "AC-6: All 69 tests pass with no regressions",
+    "AC-7: ARCHITECTURE.md reflects six dimensions (D1-D6), mentions LLM-as-judge for D3/D5, mentions D6 evidence grounding",
+    "AC-8: docs/evaluation.md is updated with real eval results from judge-v1 run, D6 dimension row, CursorSDK provider, timestamped run folder structure",
+    "AC-9: No secrets (API keys) in any committed file",
+    "AC-10: pyproject.toml includes cursor-sdk dependency",
+    "AC-11: eval_judge.py and eval_harness.py have no linter errors",
+    "AC-12: Breadcrumbs trace all session work (judge build, eval run, timestamped runs)"
   ],
   "edge_cases": [
-    "EC-1: Investigation with mock LLM produces valid CommitInvestigationReport (schema validates)",
-    "EC-2: Budget exceeded mid-investigation triggers early stop with partial report",
-    "EC-3: Git context unavailable (repo not cloned) — investigation fails gracefully with clear error message"
+    "EC-1: eval_judge handles LLM provider failure gracefully (returns score=0 with error justification, not exception)",
+    "EC-2: run_eval with --output-dir still works (no timestamped folder created)",
+    "EC-3: EvalHarness with judge_provider=None produces valid results (backward compatible)"
   ],
-  "verification_method": "Import checks, mock LLM investigation, CLI help output, budget enforcement test.",
+  "verification_method": "Read all changed files, run tests, check docs for accuracy, verify no secrets in diff, check lints",
   "rubrics": ["code-quality", "architecture"],
-  "rubric_mode": "warn",
-  "negotiation_rounds": 1,
-  "phase": "building",
-  "verified": false
+  "rubric_mode": "strict",
+  "negotiation_rounds": 0,
+  "phase": "evaluating",
+  "verified": true
 }

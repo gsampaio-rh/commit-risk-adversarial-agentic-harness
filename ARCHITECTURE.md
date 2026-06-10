@@ -9,9 +9,13 @@ The system has four layers:
 1. **Data & oracle** — ApacheJIT CSVs, replication-package linkage files, JIRA metadata (eval-only)
 2. **Context** — git diffs, messages, numeric features, file history, author stats
 3. **Investigation** — bounded agent loop with tool dispatch and schema-validated output
-4. **Evaluation** — five-dimension harness comparing agent output to oracle
+4. **Evaluation** — six-dimension harness comparing agent output to oracle (D1–D6)
 
 See also: [docs/experiment-context.md](docs/experiment-context.md), [docs/datasets.md](docs/datasets.md), [docs/evaluation.md](docs/evaluation.md)
+
+## LLM Provider
+
+V1 uses the **Cursor SDK** (`cursor-sdk`) as the primary LLM provider, with OpenAI as fallback and a deterministic mock for offline testing. Provider selection: `CURSOR_API_KEY` → `OPENAI_API_KEY` → Mock. The same provider powers both agent investigation and LLM-as-judge evaluation (D3/D5).
 
 ## Agent Loop and Orchestrator
 
@@ -49,7 +53,7 @@ bug_hash → fix_hash → issue_key → JIRA metadata
 - `commit_links_{PROJECT}.csv` — maps fixing commit to bug-inducing commit
 - `{PROJECT}.csv` — maps commits to JIRA issue keys
 
-The graph is first-class infrastructure for all five eval dimensions. JIRA API fetches (summary, description, priority, components) are cached on disk and used **only at eval time** — never during agent investigation.
+The graph is first-class infrastructure for all six eval dimensions. JIRA API fetches (summary, description, priority, components) are cached on disk and used **only at eval time** — never during agent investigation.
 
 Coverage reports (chain completeness %, broken links) gate eval claims (feat-2).
 
@@ -93,12 +97,30 @@ Schema validation rejects reports with zero evidence items. JSON schema export s
 ## Component Map (planned)
 
 ```
-ApacheJIT CSVs ──► GroundTruthGraph ──► EvalHarness (D1–D5)
-                         │
+ApacheJIT CSVs ──► GroundTruthGraph ──► EvalHarness (D1–D6)
+                         │                    │
+                    JiraClient (eval)    ReasoningJudge (D3/D5 LLM-as-judge, D6 automated)
+                                                    │
 Local git clones ──► GitContextProvider ──► CommitContextBuilder
                                                     │
 XGBoost router ──► AgentOrchestrator (≤3 turns) ──► CommitInvestigationReport
+                                                    │
+                                              Timestamped run folder
+                                              (run-config, run.log, investigations/, eval-report)
 ```
+
+### Evaluation Dimensions
+
+| ID | Dimension | Method | LLM cost |
+|----|-----------|--------|----------|
+| D1 | Prediction | Risk level vs buggy label | None |
+| D2 | Localization | Agent files vs fix-commit files (Jaccard) | None |
+| D3 | Diagnosis | Agent reasoning vs JIRA description | LLM-as-judge (rubric 0–4) |
+| D4 | Severity | Agent risk vs JIRA priority | None |
+| D5 | Recommendations | Agent recs vs actual fix pattern | LLM-as-judge (rubric 0–3) |
+| D6 | Evidence grounding | Agent claims vs actual diff/files | None (automated) |
+
+D3 and D5 use a `ReasoningJudge` with structured rubric prompts. When no judge provider is configured, D3 falls back to word overlap and D5 to a stub score. D6 runs unconditionally at zero LLM cost — it checks whether agent evidence cites real files and diff content rather than generic boilerplate.
 
 ## Harness Integration
 
@@ -108,4 +130,4 @@ This repo uses an adversarial verification harness (`.harness/`): contract-first
 
 - [Experiment context](docs/experiment-context.md) — thesis, dimensions, cost governance
 - [Datasets](docs/datasets.md) — ApacheJIT ground truth chain
-- [Evaluation](docs/evaluation.md) — D1–D5 framework and results (pending feat-9)
+- [Evaluation](docs/evaluation.md) — D1–D6 framework and results

@@ -1,6 +1,6 @@
-# Evaluation Framework & First Run Results
+# Evaluation Framework & Results
 
-Five-dimension evaluation comparing agent investigation output to ApacheJIT ground truth.
+Six-dimension evaluation comparing agent investigation output to ApacheJIT ground truth.
 
 ## Dimensions
 
@@ -8,80 +8,125 @@ Five-dimension evaluation comparing agent investigation output to ApacheJIT grou
 |----|-----------|-----------|------------|
 | **D1** | Prediction | Agent risk level vs buggy/clean label from CSV | Deterministic |
 | **D2** | Localization | Agent cited files vs fix-commit diff files (Jaccard overlap) | Deterministic |
-| **D3** | Diagnosis | Agent reasoning vs JIRA issue description | LLM-as-judge + human audit |
-| **D4** | Severity | Agent risk level vs JIRA priority (normalized mapping) | LLM-as-judge + human audit |
-| **D5** | Recommendations | Agent recommendations vs actual fix pattern | LLM-as-judge + human audit |
+| **D3** | Diagnosis | Agent reasoning vs JIRA issue description | LLM-as-judge (rubric 0–4) |
+| **D4** | Severity | Agent risk level vs JIRA priority (normalized mapping) | Deterministic |
+| **D5** | Recommendations | Agent recommendations vs actual fix pattern | LLM-as-judge (rubric 0–3) |
+| **D6** | Evidence grounding | Agent claims vs actual diff/files (no LLM cost) | Automated |
+
+### D3 Root-Cause Faithfulness (LLM-as-judge)
+
+Rubric 0–4:
+- **0**: Generic boilerplate — reasoning has no connection to the actual bug
+- **1**: Vaguely related — mentions the right area but no specifics
+- **2**: Partially correct — identifies some aspects but misses the core mechanism
+- **3**: Mostly correct — captures the key failure mechanism but misses details
+- **4**: Precise match — reasoning accurately describes the root cause
+
+### D5 Recommendation Relevance (LLM-as-judge)
+
+Rubric 0–3:
+- **0**: Irrelevant — no connection to the actual fix
+- **1**: Tangentially related — right direction, wrong specific action
+- **2**: Relevant — aligns with the fix pattern but lacks precision
+- **3**: Precise match — recommendations directly describe the applied fix
+
+### D6 Evidence Grounding (automated, zero LLM cost)
+
+Scores 0–4 based on four grounding signals:
+1. Agent provides localization claims (specific file paths)
+2. Localization files overlap with actual touched files
+3. Reasoning mentions specific file names from the diff
+4. Evidence content contains diff-specific strings (not generic)
+
+D6 catches boilerplate reports that classify correctly (high D1) but cite no concrete artifacts.
 
 ## Sampling Strategy
 
 - Stratified sample from **routed commits** within budget tier
-- Gray-zone focus (router probability 0.3–0.7) where investigation adds value
+- 50/50 buggy/clean split prioritizing buggy commits with full GT chains (fix + JIRA linkage)
+- Gray-zone + high-zone focus where investigation adds value
 - Router-only baseline (no LLM) reported on same sample for comparison
 
-## First Run Results (Mock Provider)
+## LLM Provider
 
-**Configuration:** 100 commits from gray-zone + high-zone of test_small split, mock LLM provider (no real API calls), no git clones available.
+Primary: **Cursor SDK** (`cursor-sdk/claude-sonnet-4-6`). Same provider used for both agent investigation and D3/D5 judging. Fallback: OpenAI. Offline: deterministic mock.
 
-### Infrastructure Metrics
+## Run Infrastructure
 
-| Metric | Value |
-|--------|-------|
-| Router AUC-ROC (train) | 0.855 |
-| Test_small total | 7,526 commits |
-| Gray-zone (0.3-0.7) | 2,822 commits |
-| High-zone (>0.7) | 1,982 commits |
-| Sample evaluated | 100 commits |
-| Buggy in sample | 26 (26%) |
-| Clean in sample | 74 (74%) |
-| Cost actual | $0 (mock) |
+Each eval run creates a timestamped folder:
 
-### Dimension Scores
+```
+output/runs/YYYY-MM-DD_HH-MM-SS_<real|mock>_n<count>/
+├── run-config.json          # CLI args, git rev, python version, stratification
+├── run.log                  # full timestamped log
+├── eval-report.json         # aggregate D1–D6 scores, baselines, strata
+├── eval-report.md           # human-readable report
+└── investigations/          # per-commit investigation reports
+    ├── <hash>_<project>.json
+    └── ...
+```
 
-| Dimension | Mock Agent | Router-only Baseline | Random Baseline |
-|-----------|-----------|---------------------|-----------------|
-| D1 Prediction | 0.74 | 0.26 | ~0.50 |
-| D2 Localization | 0.00 | N/A | N/A |
-| D3 Diagnosis | N/A (no JIRA) | N/A | N/A |
-| D4 Severity | N/A (no JIRA) | N/A | N/A |
-| D5 Recommendations | N/A (no JIRA) | N/A | N/A |
+## Real Eval Results (judge-v1, 20 commits)
 
-### Interpretation
+**Configuration:** 20 commits (10 buggy with full GT chain, 10 clean), `cursor-sdk/claude-sonnet-4-6`, real git clones, real JIRA, LLM-as-judge for D3/D5.
 
-- **D1 Mock = 0.74**: The mock provider always outputs MEDIUM risk (mapped to "not risky"). Since 74% of the sample is clean, it achieves 74% accuracy by always predicting safe. This is a naive baseline, not a real agent result.
-- **D1 Router-only = 0.26**: Router considers all INVESTIGATE+HIGH commits as risky. Since only 26% are buggy, it has 26% precision on this sample (it catches all bugs but has high false positive rate).
-- **D2 = 0.00**: No localization possible without git clones for actual diff access.
-- **D3–D5 = N/A**: Require JIRA client connection (eval-time only).
+### Headline Scores
 
-## Provable Claims (from this run)
+| Dimension | Score | Buggy stratum | Clean stratum |
+|-----------|-------|---------------|---------------|
+| D1 Prediction | **0.85** | 0.70 | 1.00 |
+| D2 Localization | 0.13 | 0.27 | 0.00 |
+| D3 Diagnosis | 0.20 | 0.20 | — |
+| D4 Severity | 0.84 | 0.84 | — |
+| D5 Recommendations | 0.43 | 0.43 | — |
+| D6 Evidence grounding | **0.75** | 0.78 | 0.73 |
 
-1. **The harness pipeline works end-to-end**: route → investigate → evaluate → report — fully functional without external dependencies (mock mode).
-2. **Ground truth chain is 100% complete**: all 22,421 train buggy commits and 1,448 test_small buggy commits have fix linkage + issue linkage across 14 projects.
-3. **XGBoost router achieves AUC-ROC 0.855 on train split**: meaningful signal from 12 numeric features alone, sufficient for routing decisions.
-4. **Budget governance enforces limits**: 3-turn hard cap, per-commit token budget, per-run dollar cap — all enforced by orchestrator.
+### Baselines
 
-## Non-Provable / Inconclusive Claims (require real runs)
+| Baseline | D1 Score |
+|----------|----------|
+| Agent (claude-sonnet-4-6) | **0.85** |
+| Always-predict-clean | 0.50 |
+| Router-only (INVESTIGATE/HIGH=risky) | 0.50 |
 
-1. **Agent investigative quality vs router**: requires real LLM + git clones to produce meaningful D1 improvement over router baseline.
-2. **Localization accuracy (D2)**: requires git clones to access fix-commit diffs for Jaccard comparison.
-3. **Diagnosis/severity/recommendations (D3-D5)**: require both real LLM reasoning and JIRA API access.
-4. **Cost-effectiveness of routing**: need actual LLM costs to compare $50 budget tier with full-population investigation.
-5. **Multi-turn follow-up value**: mock provider never requests follow-up; real LLM may use 2-3 turns on uncertain commits.
+### Key Findings
 
-## Requirements for Real Evaluation
+- **D1 = 0.85** beats both baselines (always-clean 0.50, router-only 0.50) on a balanced 50/50 sample
+- **D3 = 0.20** is the honest signal — judge catches that most agent reasoning is directionally correct but misses the actual root-cause mechanism. One commit scored 4/4 (perfect root-cause match)
+- **D6 = 0.75** confirms the agent isn't generating boilerplate — it cites real file names and diff content
+- **The D6↔D3 gap** (0.75 vs 0.20) is the investigation quality gap: the agent reads the diff faithfully but can't deduce the underlying bug without running the code
+- **Cost**: $0.066 total (~$0.003/commit investigation + ~$0.003/commit judging)
 
-| Requirement | Status | Action |
-|-------------|--------|--------|
-| Git clones (Camel + Hadoop) | Not cloned | `./scripts/clone_apache_repos.sh` (~2-5GB) |
-| OpenAI API key | Not configured | Set `OPENAI_API_KEY` env var |
-| JIRA access | Available (public) | Automatic via JiraClient |
-| Budget ($50 tier) | Governance ready | ~300 real LLM investigations |
+### Cost Breakdown
+
+| Phase | Cost | Per commit |
+|-------|------|-----------|
+| Investigation (20 commits) | $0.066 | ~$0.003 |
+| Judge (10 buggy × D3+D5) | ~$0.030 | ~$0.003 |
+| D6 grounding | $0 | $0 |
+
+## Provable Claims
+
+1. **Agent beats both baselines on balanced sample**: D1=0.85 vs always-clean=0.50 and router-only=0.50
+2. **Agent produces grounded evidence (D6=0.75)**: not boilerplate — cites real files from the diff
+3. **LLM-as-judge D3 catches reasoning failures**: 6/10 buggy commits scored 0 (generic reasoning), proving word-overlap D3 was inadequate
+4. **D4 severity alignment is strong (0.84)**: agent risk levels match JIRA priority well
+5. **End-to-end pipeline validated**: route → real git context → Cursor SDK investigation → JIRA-backed evaluation → timestamped artifacts
+
+## Non-Provable / Requires More Data
+
+1. **D3 improvement path**: requires prompt engineering or multi-turn investigation to improve root-cause identification
+2. **D2 localization at scale**: n=20 with Jaccard=0.27 on buggy — needs larger sample for statistical confidence
+3. **Cost-effectiveness of routing at $50 tier**: not yet tested at 300-commit scale
+4. **Cross-project generalization**: only Camel + Hadoop tested
+5. **Judge reliability**: no human audit of D3/D5 judge scores yet (20-commit protocol TBD)
 
 ## Human Audit
 
-20-commit sample reviewed by human for D3–D5 judge drift detection. Protocol TBD after first real LLM evaluation run.
+20-commit sample should be reviewed for D3–D5 judge drift detection. Protocol: compare judge scores against human ratings on the same rubric. Pending.
 
 ## Related Documents
 
-- [Experiment context](experiment-context.md) — dimension rationale and oracle isolation
-- [Datasets](datasets.md) — ground truth chain feeding eval
-- [Architecture](../ARCHITECTURE.md) — eval harness component design
+- [Experiment context](experiment-context.md) — thesis, dimensions, cost governance
+- [Datasets](datasets.md) — ApacheJIT ground truth chain
+- [Architecture](../ARCHITECTURE.md) — six-dimension harness component design

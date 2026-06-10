@@ -8,7 +8,7 @@ Experiment **#19b** in a long-running agent research program. This document fram
 
 **Investigative agent (this experiment):** a bounded multi-turn loop gathers diff, message, file history, and author context; an LLM reasons over assembled evidence; output is a **`CommitInvestigationReport`** with cited evidence, localization claims, and recommendations.
 
-ApacheJIT is the test bed not because we need another classifier, but because its replication package provides a **five-dimensional validation chain** (bug-inducing commit → fixing commit → JIRA issue) covering 100% of ~28K positives. That richness supports eval dimensions no classifier output can satisfy.
+ApacheJIT is the test bed not because we need another classifier, but because its replication package provides a **six-dimensional validation chain** (bug-inducing commit → fixing commit → JIRA issue) covering 100% of ~28K positives. That richness supports eval dimensions no classifier output can satisfy.
 
 The deliverable is a **verifiable investigation harness** proving that harness engineering (context construction, routing, verification, cost governance) matters more than raw model quality.
 
@@ -54,7 +54,7 @@ This prevents oracle leakage that would trivialize the investigation task and in
 1. **feat-2** — load ground truth graph; emit coverage report before any eval claims
 2. **feat-5** — standalone agent (no routing) demonstrable on single commits
 3. **feat-6** — XGBoost router integrated; gray-zone routing live
-4. **feat-7** — five-dimension eval harness with tiered automation
+4. **feat-7** — six-dimension eval harness with tiered automation
 5. **feat-9** — first $50 eval run; document ≥3 provable and ≥3 non-provable claims
 
 Negative results (agent ≈ router-only) are valid if documented honestly.

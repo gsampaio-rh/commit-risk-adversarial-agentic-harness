@@ -1,0 +1,100 @@
+{
+  "task_id": "eval-real-pipeline",
+  "evaluator": "adversarial",
+  "timestamp": "2026-06-10T02:05:00Z",
+  "overall": "PASS",
+  "retest": true,
+  "contract_verified": true,
+  "criteria": [
+    {
+      "id": "AC-1",
+      "status": "PASS",
+      "evidence": "CursorSDKProvider.complete() calls Agent.prompt() (llm.py:147). output/eval_sdk_test3: provider=cursor-sdk/claude-sonnet-4-6, 5/5 commits investigated successfully with non-error responses."
+    },
+    {
+      "id": "AC-2",
+      "status": "PASS",
+      "evidence": "CommitContextBuilder.build('HEAD~5','camel'): diff=True, msg=True, files=10."
+    },
+    {
+      "id": "AC-3",
+      "status": "PASS",
+      "evidence": "SDK eval risks: HIGH, LOW, LOW, HIGH, LOW — 0/5 MEDIUM."
+    },
+    {
+      "id": "AC-4",
+      "status": "PASS",
+      "evidence": "_extract_json handles markdown fences, bare JSON, wrapped JSON, empty string."
+    },
+    {
+      "id": "AC-5",
+      "status": "PASS",
+      "evidence": "_parse_lines: '370-377'→(370,377), [1,10]→(1,10), None→None, '42'→(42,42)."
+    },
+    {
+      "id": "AC-6",
+      "status": "PASS",
+      "evidence": "D1 unit logic verified. Smoke D1=0.5 (5 buggy MEDIUM incorrect + 5 clean MEDIUM correct)."
+    },
+    {
+      "id": "AC-7",
+      "status": "PASS",
+      "evidence": "Real fix files via git clones; smoke D2=0.088 avg with Jaccard on 5/5 buggy commits (e.g. 0.500 on XmppConsumer.java)."
+    },
+    {
+      "id": "AC-8",
+      "status": "PASS",
+      "evidence": "JIRA CAMEL-2327 fetched via GT chain. Smoke: 5/5 buggy commits scored D3-D5, D4 avg=0.934."
+    },
+    {
+      "id": "AC-9",
+      "status": "PASS",
+      "evidence": "run_eval.py V1 filter + stratified sampling (buggy_with_chain=5, clean=5) + real CSV/git context."
+    },
+    {
+      "id": "AC-10",
+      "status": "PASS",
+      "evidence": "EvalHarness git_providers wired through _get_fix_files and _score_d2_localization."
+    },
+    {
+      "id": "AC-11",
+      "status": "PASS",
+      "evidence": "pytest tests/: 44 passed in 7.94s."
+    },
+    {
+      "id": "AC-12",
+      "status": "PASS",
+      "evidence": "--mock --max-evals 10: exit 0, output/eval_adversarial_smoke/eval-report.json + eval-report.md produced."
+    }
+  ],
+  "edge_cases": [
+    {
+      "id": "EC-1",
+      "status": "PASS",
+      "evidence": "Missing commit completes without crash. report.metadata.missing_reasons has 4 entries (diff, message, files, CSV)."
+    },
+    {
+      "id": "EC-2",
+      "status": "PASS",
+      "evidence": "Non-JSON LLM → empty dict → valid report with MEDIUM fallback."
+    },
+    {
+      "id": "EC-3",
+      "status": "PASS",
+      "evidence": "No JIRA keys → D1+D2 scored, D3-D5 skipped with error logged."
+    },
+    {
+      "id": "EC-4",
+      "status": "PASS",
+      "evidence": "String line range '370-377' → (370, 377) in report assembly."
+    }
+  ],
+  "issues_found": [],
+  "fixes_verified": [
+    "Stratified sampling ensures D2-D5 exercised end-to-end on buggy commits.",
+    "MockLLM emits localization from touched files for D2 Jaccard.",
+    "missing_reasons propagated to report.metadata (EC-1).",
+    "contract.json verified=true set on PASS."
+  ],
+  "recommendation": "accept"
+}

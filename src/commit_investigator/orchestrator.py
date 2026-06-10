@@ -8,6 +8,7 @@ over assembled context inside each turn.
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -175,11 +176,16 @@ class AgentOrchestrator:
         system_prompt = (
             "You are a commit risk investigator. Analyze the provided commit context "
             "and produce a risk assessment with evidence. Be specific: cite file paths, "
-            "diff hunks, and metrics. If you need more information, use the available tools. "
-            "Respond with a JSON object containing: risk_level (LOW/MEDIUM/HIGH/CRITICAL), "
-            "confidence (0.0-1.0), reasoning (string), findings (list of strings), "
-            "follow_up_needed (bool), localization (list of {file, lines, rationale}), "
-            "recommendations (list of {action, priority, rationale})."
+            "diff hunks, and metrics. If you need more information, use the available tools.\n\n"
+            "IMPORTANT: Respond ONLY with a single JSON object (no markdown, no explanation "
+            "outside the JSON). The JSON must contain these fields:\n"
+            "- risk_level: one of LOW, MEDIUM, HIGH, CRITICAL\n"
+            "- confidence: float 0.0 to 1.0\n"
+            "- reasoning: string explaining your assessment\n"
+            "- findings: list of strings with specific observations\n"
+            "- follow_up_needed: boolean\n"
+            "- localization: list of {file, lines, rationale} objects\n"
+            "- recommendations: list of {action, priority, rationale} objects"
         )
 
         context_parts = [f"## Commit: {context.commit_id}\n## Project: {context.project}\n"]
@@ -231,10 +237,7 @@ class AgentOrchestrator:
         turns: int,
     ) -> CommitInvestigationReport:
         """Parse LLM output into a validated CommitInvestigationReport."""
-        try:
-            parsed = json.loads(last_response.content)
-        except (json.JSONDecodeError, TypeError):
-            parsed = {}
+        parsed = _extract_json(last_response.content)
 
         risk_level_str = parsed.get("risk_level", "MEDIUM")
         try:
@@ -259,7 +262,7 @@ class AgentOrchestrator:
             if isinstance(loc, dict) and "file" in loc:
                 localization.append(LocalizationClaim(
                     file=loc["file"],
-                    lines=tuple(loc["lines"]) if loc.get("lines") else None,
+                    lines=_parse_lines(loc.get("lines")),
                     rationale=loc.get("rationale", "Identified during investigation"),
                 ))
 
@@ -292,6 +295,7 @@ class AgentOrchestrator:
                 "total_tokens": self._budget.total_tokens,
                 "total_cost": self._budget.total_cost,
                 "budget_exceeded": self._budget.budget_exceeded,
+                "missing_reasons": list(context.missing_reasons),
             },
         )
 
@@ -310,3 +314,69 @@ class AgentOrchestrator:
                 "cost": checkpoint.cost,
                 "follow_up_needed": checkpoint.follow_up_needed,
             }, indent=2))
+
+
+def _parse_lines(raw: Any) -> tuple[int, int] | None:
+    """Parse a line range from various LLM output formats.
+
+    Handles: [1, 10], "1-10", "370-377", [1], None.
+    """
+    if raw is None:
+        return None
+
+    if isinstance(raw, (list, tuple)):
+        nums = [int(x) for x in raw if str(x).strip().isdigit()]
+        if len(nums) >= 2:
+            return (nums[0], nums[1])
+        if len(nums) == 1:
+            return (nums[0], nums[0])
+        return None
+
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if "-" in raw:
+            parts = raw.split("-", 1)
+            try:
+                return (int(parts[0].strip()), int(parts[1].strip()))
+            except ValueError:
+                return None
+        try:
+            n = int(raw)
+            return (n, n)
+        except ValueError:
+            return None
+
+    return None
+
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n\s*```", re.DOTALL)
+
+
+def _extract_json(text: str) -> dict[str, Any]:
+    """Extract a JSON object from LLM output, tolerating markdown fences."""
+    if not text:
+        return {}
+
+    text = text.strip()
+
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    match = _JSON_FENCE_RE.search(text)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    brace_start = text.find("{")
+    brace_end = text.rfind("}")
+    if brace_start != -1 and brace_end > brace_start:
+        try:
+            return json.loads(text[brace_start : brace_end + 1])
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return {}
