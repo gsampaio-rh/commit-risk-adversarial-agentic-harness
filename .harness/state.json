@@ -162,7 +162,7 @@
       "id": "feat-2",
       "name": "Ground truth graph loader",
       "type": "feature",
-      "status": "pending",
+      "status": "done",
       "scope": "Extract and index replication package linkage files: commit_links_{PROJECT}.csv (fix_hash→bug_hash), {PROJECT}.csv (issue_key→commit_id). Build GroundTruthGraph resolving bug-inducing commit → fixing commit → JIRA issue. JIRA API client (public Apache JIRA) for issue summary, description, priority, components, resolution — with disk cache. Emit coverage report validating chain completeness on train+test splits. This is the foundation for all 5 eval dimensions.",
       "depends_on": ["feat-1"]
     },

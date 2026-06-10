@@ -24,3 +24,6 @@
 {"ts":"2026-06-10T00:17:57Z","role":"builder","type":"build","feat":"feat-1","msg":"Scaffold complete: src/commit_investigator/ (v0.1.0), pyproject.toml rewrite, README+ARCHITECTURE rewrite, docs/ triple recreated. Fresh venv pip install -e . + import OK. contract phase=building.","result":"pass"}
 {"ts":"2026-06-10T00:20:00Z","role":"evaluator","type":"eval","feat":"feat-1","msg":"PASS 16/16 AC, 7/7 EC. Package scaffold, docs shell, pyproject rewrite, fresh venv install verified. contract verified=true.","result":"pass"}
 {"ts":"2026-06-10T00:20:08","role":"builder","type":"checkpoint","feat":"feat-1","msg":"Commit:  (7 files)"}
+{"ts":"2026-06-10T00:25:00Z","role":"builder","type":"build","feat":"feat-2","msg":"Ground truth graph, JIRA client, and coverage report implemented. Coverage CLI validates 100% chain completeness: 22,421 buggy train commits and 1,448 buggy test_small commits all have fix+issue linkage across 14 projects.","result":"pass"}
+{"ts":"2026-06-09T23:30:00Z","role":"evaluator","type":"eval","feat":"feat-2","msg":"PASS 16/16 AC, 4/4 EC. GroundTruthGraph from real zip (58124 bugs, 14 projects), coverage CLI 100% train chain, JiraClient cache+retry verified with mocks. contract verified=true.","result":"pass"}
+{"ts":"2026-06-10T00:24:49","role":"builder","type":"checkpoint","feat":"feat-2","msg":"Commit:  (3 files)"}
