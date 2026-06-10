@@ -186,7 +186,7 @@
       "id": "feat-5",
       "name": "Agent investigation loop V1",
       "type": "feature",
-      "status": "pending",
+      "status": "done",
       "scope": "Framework-agnostic AgentOrchestrator: ToolRegistry (git tools, feature lookup), bounded multi-turn loop (max 3), LLM reasoning step (pluggable provider), budget tracking (tokens + estimated cost), checkpoint persistence per turn. CLI: investigate --commit <id> --project <name>. Output: CommitInvestigationReport JSON. No routing yet — every invocation runs full investigation.",
       "depends_on": ["feat-3", "feat-4"]
     },
