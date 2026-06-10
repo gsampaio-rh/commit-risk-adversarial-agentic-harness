@@ -1,17 +1,19 @@
-"""AC-7 isolation tests for _apply_clean_commit_risk_cap() — pre-extraction.
+"""Tests for risk_policy: PolicyVerdict, evaluate_risk, and reasoning helpers.
 
-Written against orchestrator private functions before archetype.py / risk_policy.py
-exist. Post-extraction (iter-3a commit 2) these tests migrate to risk_policy.evaluate_risk().
+These tests were written pre-extraction (AC-7) against the orchestrator private
+functions and now run against the canonical risk_policy module. The behavior
+contract is unchanged — every case that passed pre-move must pass post-move.
 """
 
 import pytest
 
 from commit_investigator.context_builder import InvestigationContext
-from commit_investigator.orchestrator import (
-    _apply_clean_commit_risk_cap,
-    _reasoning_all_speculative_or_unverifiable,
-)
 from commit_investigator.report import RiskLevel
+from commit_investigator.risk_policy import (
+    PolicyVerdict,
+    _reasoning_all_speculative_or_unverifiable,
+    evaluate_risk,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -129,151 +131,225 @@ class TestReasoningAllSpeculative:
 
 
 # ---------------------------------------------------------------------------
-# _apply_clean_commit_risk_cap — full AC-7 isolation matrix
+# evaluate_risk — full AC-7 matrix (behavior-preserving vs old cap function)
 # ---------------------------------------------------------------------------
 
-class TestApplyCleanCommitRiskCap:
+class TestEvaluateRisk:
+    # --- Passthrough cases (no cap ever applied) ---
+
     def test_low_passthrough(self):
-        level, capped = _apply_clean_commit_risk_cap(
-            RiskLevel.LOW, _version_bump_context(), "STAGE 3: SPECULATIVE",
-        )
-        assert level == RiskLevel.LOW
-        assert capped is False
+        verdict = evaluate_risk(RiskLevel.LOW, _version_bump_context(), "STAGE 3: SPECULATIVE")
+        assert verdict.risk_level == RiskLevel.LOW
+        assert verdict.cap_applied is False
 
     def test_medium_passthrough(self):
-        level, capped = _apply_clean_commit_risk_cap(
-            RiskLevel.MEDIUM, _version_bump_context(), "STAGE 3: SPECULATIVE",
-        )
-        assert level == RiskLevel.MEDIUM
-        assert capped is False
+        verdict = evaluate_risk(RiskLevel.MEDIUM, _version_bump_context(), "STAGE 3: SPECULATIVE")
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is False
 
     def test_low_passthrough_generic_context(self):
-        level, capped = _apply_clean_commit_risk_cap(RiskLevel.LOW, _generic_diff_context(), "")
-        assert level == RiskLevel.LOW
-        assert capped is False
+        verdict = evaluate_risk(RiskLevel.LOW, _generic_diff_context(), "")
+        assert verdict.risk_level == RiskLevel.LOW
+        assert verdict.cap_applied is False
+
+    # --- HIGH capped to MEDIUM ---
 
     def test_high_capped_version_bump_speculative_reasoning(self):
-        level, capped = _apply_clean_commit_risk_cap(
+        verdict = evaluate_risk(
             RiskLevel.HIGH,
             _version_bump_context(),
             "STAGE 3: HYPOTHESIS 1 (SPECULATIVE): cross-version break.",
         )
-        assert level == RiskLevel.MEDIUM
-        assert capped is True
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
 
     def test_high_capped_archetype_with_criterion_b_supported(self):
+        """SUPPORTED criterion (b) still capped inside clean archetype."""
         ctx = _version_bump_context()
         ctx.diff += "\n+        return future;\n"
         reasoning = (
             "STAGE 3: HYPOTHESIS A — SUPPORTED: raw QueryFactory erasure breaks callers. "
             "STAGE 4: criterion (b) HIGH."
         )
-        level, capped = _apply_clean_commit_risk_cap(RiskLevel.HIGH, ctx, reasoning)
-        assert level == RiskLevel.MEDIUM
-        assert capped is True
+        verdict = evaluate_risk(RiskLevel.HIGH, ctx, reasoning)
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
+
+    # --- CRITICAL capped to MEDIUM ---
 
     def test_critical_capped_version_bump_speculative(self):
-        level, capped = _apply_clean_commit_risk_cap(
+        verdict = evaluate_risk(
             RiskLevel.CRITICAL,
             _version_bump_context(),
             "STAGE 3: HYPOTHESIS 1 (SPECULATIVE): cross-version break.",
         )
-        assert level == RiskLevel.MEDIUM
-        assert capped is True
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
 
     def test_critical_capped_speculative_only_non_archetype(self):
-        level, capped = _apply_clean_commit_risk_cap(
+        """Speculative-only reasoning caps globally — even on non-archetype diff."""
+        verdict = evaluate_risk(
             RiskLevel.CRITICAL,
             _generic_diff_context(),
             "HYPOTHESIS 1 (SPECULATIVE): external caller impact. HYPOTHESIS 2 (UNVERIFIABLE): scope unknown.",
         )
-        assert level == RiskLevel.MEDIUM
-        assert capped is True
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
+
+    # --- Guard/lifecycle/concurrency prevents cap ---
 
     def test_high_not_capped_when_guard_removal(self):
-        level, capped = _apply_clean_commit_risk_cap(
+        verdict = evaluate_risk(
             RiskLevel.HIGH,
             _guard_removal_context(),
             "STAGE 3: HYPOTHESIS 1 (SPECULATIVE): migration.",
         )
-        assert level == RiskLevel.HIGH
-        assert capped is False
+        assert verdict.risk_level == RiskLevel.HIGH
+        assert verdict.cap_applied is False
 
     def test_high_not_capped_when_lifecycle_change(self):
-        level, capped = _apply_clean_commit_risk_cap(
+        verdict = evaluate_risk(
             RiskLevel.HIGH,
             _lifecycle_context(),
             "STAGE 3: HYPOTHESIS 1 (SPECULATIVE): lifecycle ordering.",
         )
-        assert level == RiskLevel.HIGH
-        assert capped is False
+        assert verdict.risk_level == RiskLevel.HIGH
+        assert verdict.cap_applied is False
 
     def test_high_not_capped_when_concurrency_change(self):
-        level, capped = _apply_clean_commit_risk_cap(
+        verdict = evaluate_risk(
             RiskLevel.HIGH,
             _concurrency_context(),
             "STAGE 3: HYPOTHESIS 1 (SPECULATIVE): race condition.",
         )
-        assert level == RiskLevel.HIGH
-        assert capped is False
+        assert verdict.risk_level == RiskLevel.HIGH
+        assert verdict.cap_applied is False
+
+    # --- Speculative-only caps globally (not only archetype) ---
 
     def test_high_capped_speculative_only_generic_context(self):
-        level, capped = _apply_clean_commit_risk_cap(
+        """Global cap rule: speculative-only reasoning caps even without archetype match."""
+        verdict = evaluate_risk(
             RiskLevel.HIGH,
             _generic_diff_context(),
             "HYPOTHESIS 1 (SPECULATIVE): assumed external behavior.",
         )
-        assert level == RiskLevel.MEDIUM
-        assert capped is True
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
+
+    # --- Supported hypothesis on non-archetype: NOT capped ---
 
     def test_high_not_capped_when_supported_on_generic_diff(self):
-        level, capped = _apply_clean_commit_risk_cap(
+        verdict = evaluate_risk(
             RiskLevel.HIGH,
             _generic_diff_context(),
             "STAGE 3: HYPOTHESIS A — SUPPORTED: removed null-check at line 42.",
         )
-        assert level == RiskLevel.HIGH
-        assert capped is False
+        assert verdict.risk_level == RiskLevel.HIGH
+        assert verdict.cap_applied is False
+
+    # --- Edge cases ---
 
     def test_empty_reasoning_no_cap_on_generic_diff(self):
-        level, capped = _apply_clean_commit_risk_cap(RiskLevel.HIGH, _generic_diff_context(), "")
-        assert level == RiskLevel.HIGH
-        assert capped is False
+        """Empty reasoning has no speculative signal → no global cap on generic diff."""
+        verdict = evaluate_risk(RiskLevel.HIGH, _generic_diff_context(), "")
+        assert verdict.risk_level == RiskLevel.HIGH
+        assert verdict.cap_applied is False
 
     def test_empty_reasoning_caps_on_archetype(self):
-        level, capped = _apply_clean_commit_risk_cap(RiskLevel.HIGH, _version_bump_context(), "")
-        assert level == RiskLevel.MEDIUM
-        assert capped is True
+        """Archetype alone triggers cap regardless of reasoning content."""
+        verdict = evaluate_risk(RiskLevel.HIGH, _version_bump_context(), "")
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
 
     def test_null_diff_no_crash(self):
         ctx = _generic_diff_context()
         ctx.diff = None  # type: ignore[assignment]
-        level, capped = _apply_clean_commit_risk_cap(RiskLevel.HIGH, ctx, "SPECULATIVE")
-        assert level in (RiskLevel.HIGH, RiskLevel.MEDIUM)
+        verdict = evaluate_risk(RiskLevel.HIGH, ctx, "SPECULATIVE")
+        assert verdict.risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM)
+
+    # --- PolicyVerdict fields ---
+
+    def test_cap_reason_populated_for_archetype_cap(self):
+        verdict = evaluate_risk(
+            RiskLevel.HIGH,
+            _version_bump_context(),
+            "STAGE 3: HYPOTHESIS 1 (SPECULATIVE): migration.",
+        )
+        assert verdict.cap_reason == "clean_archetype_no_production_defect_signals"
+        assert "cap_to_MEDIUM:clean_archetype" in verdict.applied_rules
+
+    def test_cap_reason_populated_for_speculative_only_cap(self):
+        verdict = evaluate_risk(
+            RiskLevel.HIGH,
+            _generic_diff_context(),
+            "HYPOTHESIS 1 (SPECULATIVE): assumed external behavior.",
+        )
+        assert verdict.cap_reason == "speculative_or_unverifiable_only"
+        assert "cap_to_MEDIUM:speculative_only" in verdict.applied_rules
+
+    def test_cap_reason_empty_when_no_cap(self):
+        verdict = evaluate_risk(
+            RiskLevel.HIGH,
+            _generic_diff_context(),
+            "HYPOTHESIS A — SUPPORTED: removed guard at line 42.",
+        )
+        assert verdict.cap_reason == ""
+        assert verdict.applied_rules == []
+
+    def test_supported_count_one_when_supported_reasoning(self):
+        verdict = evaluate_risk(
+            RiskLevel.HIGH,
+            _generic_diff_context(),
+            "HYPOTHESIS A — SUPPORTED: removed null-check at line 42.",
+        )
+        assert verdict.supported_count == 1
+
+    def test_supported_count_zero_when_speculative_only(self):
+        verdict = evaluate_risk(
+            RiskLevel.HIGH,
+            _generic_diff_context(),
+            "HYPOTHESIS 1 (SPECULATIVE): assumed behavior.",
+        )
+        assert verdict.supported_count == 0
+
+    def test_verdict_is_frozen_dataclass(self):
+        verdict = evaluate_risk(RiskLevel.LOW, _generic_diff_context(), "")
+        assert isinstance(verdict, PolicyVerdict)
+        with pytest.raises((AttributeError, TypeError)):
+            verdict.risk_level = RiskLevel.HIGH  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
 # AC-6: determinism test (same inputs → same outputs ×1000)
 # ---------------------------------------------------------------------------
 
-class TestApplyCleanCommitRiskCapDeterminism:
+class TestEvaluateRiskDeterminism:
     def test_deterministic_1000x_archetype_cap(self):
+        """Same inputs must produce identical PolicyVerdict 1000 times."""
         ctx = _version_bump_context()
         reasoning = "STAGE 3: HYPOTHESIS 1 (SPECULATIVE): cross-version break."
-        first = _apply_clean_commit_risk_cap(RiskLevel.HIGH, ctx, reasoning)
+        first = evaluate_risk(RiskLevel.HIGH, ctx, reasoning)
         for _ in range(999):
-            assert _apply_clean_commit_risk_cap(RiskLevel.HIGH, ctx, reasoning) == first
+            result = evaluate_risk(RiskLevel.HIGH, ctx, reasoning)
+            assert result.risk_level == first.risk_level
+            assert result.cap_applied == first.cap_applied
+            assert result.cap_reason == first.cap_reason
+            assert result.applied_rules == first.applied_rules
+            assert result.supported_count == first.supported_count
 
     def test_deterministic_1000x_no_cap_supported(self):
         ctx = _generic_diff_context()
         reasoning = "HYPOTHESIS A — SUPPORTED: removed null-check at line 42."
-        first = _apply_clean_commit_risk_cap(RiskLevel.HIGH, ctx, reasoning)
+        first = evaluate_risk(RiskLevel.HIGH, ctx, reasoning)
         for _ in range(999):
-            assert _apply_clean_commit_risk_cap(RiskLevel.HIGH, ctx, reasoning) == first
+            result = evaluate_risk(RiskLevel.HIGH, ctx, reasoning)
+            assert result == first
 
     def test_deterministic_1000x_speculative_global_cap(self):
         ctx = _generic_diff_context()
         reasoning = "HYPOTHESIS 1 (SPECULATIVE): assumed external behavior."
-        first = _apply_clean_commit_risk_cap(RiskLevel.CRITICAL, ctx, reasoning)
+        first = evaluate_risk(RiskLevel.CRITICAL, ctx, reasoning)
         for _ in range(999):
-            assert _apply_clean_commit_risk_cap(RiskLevel.CRITICAL, ctx, reasoning) == first
+            result = evaluate_risk(RiskLevel.CRITICAL, ctx, reasoning)
+            assert result == first

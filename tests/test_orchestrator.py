@@ -9,13 +9,8 @@ from commit_investigator.orchestrator import (
     INVESTIGATION_SYSTEM_PROMPT,
     AgentOrchestrator,
     InvalidInvestigationResponseError,
-    _apply_clean_commit_risk_cap,
-    _coerce_text_field,
-    _has_production_defect_signals,
-    _matches_clean_archetype,
-    _normalize_findings,
-    _reasoning_all_speculative_or_unverifiable,
 )
+from commit_investigator.response_parser import coerce_text_field, normalize_findings
 from commit_investigator.report import CommitInvestigationReport, RiskLevel
 
 
@@ -63,9 +58,9 @@ class TestInvestigationPrompt:
         assert "even if ≥ 0.70" in INVESTIGATION_SYSTEM_PROMPT
 
     def test_coerce_structured_llm_fields(self):
-        reasoning = _coerce_text_field({"STAGE 1": "summary"}, "default")
+        reasoning = coerce_text_field({"STAGE 1": "summary"}, "default")
         assert "STAGE 1" in reasoning
-        findings = _normalize_findings([{"hypothesis": "If X then Y"}, "plain string"])
+        findings = normalize_findings([{"hypothesis": "If X then Y"}, "plain string"])
         assert len(findings) == 2
         assert "hypothesis" in findings[0]
         assert findings[1] == "plain string"
@@ -150,84 +145,6 @@ def _version_bump_context() -> InvestigationContext:
         author_stats=None,
     )
 
-
-class TestCleanCommitRiskCap:
-    def test_matches_version_bump_archetype(self):
-        assert _matches_clean_archetype(_version_bump_context()) is True
-
-    def test_reasoning_all_speculative_when_no_supported_hypothesis(self):
-        reasoning = (
-            "STAGE 3: HYPOTHESIS 1 (SPECULATIVE): migration change. "
-            "HYPOTHESIS 2 (UNVERIFIABLE): truncated diff."
-        )
-        assert _reasoning_all_speculative_or_unverifiable(reasoning) is True
-
-    def test_reasoning_not_all_speculative_when_supported_present(self):
-        reasoning = "STAGE 3: HYPOTHESIS A — SUPPORTED: removed guard at line 42."
-        assert _reasoning_all_speculative_or_unverifiable(reasoning) is False
-
-    def test_apply_cap_downgrades_high_on_version_bump_with_speculative_only(self):
-        reasoning = "STAGE 3: HYPOTHESIS 1 (SPECULATIVE): cross-version break."
-        level, capped = _apply_clean_commit_risk_cap(
-            RiskLevel.HIGH, _version_bump_context(), reasoning,
-        )
-        assert capped is True
-        assert level == RiskLevel.MEDIUM
-
-    def test_apply_cap_downgrades_high_on_supported_criterion_b_when_archetype(self):
-        reasoning = (
-            "STAGE 3: HYPOTHESIS A — SUPPORTED: raw QueryFactory erasure breaks callers. "
-            "STAGE 4: criterion (b) HIGH."
-        )
-        ctx = _version_bump_context()
-        ctx.diff += "\n+        return future;\n"
-        level, capped = _apply_clean_commit_risk_cap(RiskLevel.HIGH, ctx, reasoning)
-        assert capped is True
-        assert level == RiskLevel.MEDIUM
-
-    def test_apply_cap_skipped_when_guard_removal_in_diff(self):
-        ctx = _version_bump_context()
-        ctx.diff += "\n-        if (value != null) {\n-            return value;\n-        }\n"
-        level, capped = _apply_clean_commit_risk_cap(
-            RiskLevel.HIGH, ctx, "STAGE 3: HYPOTHESIS 1 (SPECULATIVE): migration.",
-        )
-        assert capped is False
-        assert level == RiskLevel.HIGH
-
-    def test_jira_ticket_with_return_does_not_opt_out_of_cap(self):
-        ctx = _version_bump_context()
-        ctx.diff += "\n+        return future;\n"
-        assert _has_production_defect_signals(ctx) is False
-
-    def test_has_production_defect_signals_for_guard_removal(self):
-        ctx = InvestigationContext(
-            commit_id="fbf0ffad627b",
-            project="camel",
-            message="CAMEL-10279 fix lifecycle ordering",
-            diff="-        if (started) {\n+        // removed guard\n",
-            touched_files=["RoutesCollector.java"],
-            csv_features={},
-            file_histories={},
-            author_stats=None,
-        )
-        assert _has_production_defect_signals(ctx) is True
-
-    def test_matches_jetty_version_bump_archetype(self):
-        ctx = InvestigationContext(
-            commit_id="b9f1653151e2",
-            project="camel",
-            message="CAMEL jetty upgrade",
-            diff=(
-                "-    <jetty9-version>9.3.14</jetty9-version>\n"
-                "+    <jetty9-version>9.3.21</jetty9-version>\n"
-                "-    <!-- binary incompatible above 9.3.15 -->\n"
-            ),
-            touched_files=["parent/pom.xml"],
-            csv_features={},
-            file_histories={},
-            author_stats=None,
-        )
-        assert _matches_clean_archetype(ctx) is True
 
 
 class TestInvalidInvestigationResponse:
