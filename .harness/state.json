@@ -1,5 +1,5 @@
 {
-  "project": "exp19b-commit-risk-investigator",
+  "project": "exp19b-commit-risk-adversarial-agentic-harness",
   "created": "2026-06-09T23:30:00Z",
   "schema_version": 2,
   "vision": "Experiment #19b (rewrite): build an investigative AI agent that examines real code commits — gathering diff, message, and repository evidence — and produces structured risk assessments with explanations. ApacheJIT is the test bed not because we need another classifier, but because its replication package provides a rare 5-dimensional validation chain (bug-inducing commit → fixing commit → JIRA issue) covering 100% of 28K positives. The deliverable is a solid, verifiable investigation harness that proves harness engineering (context construction, routing, verification, cost governance) matters more than raw model quality — with optional XGBoost routing demonstrating when to skip, flag, or investigate.",
@@ -74,6 +74,40 @@
       "reasoning": "Would trivialize the task and invalidate claims about investigative capability. Agent sees what a reviewer would see at commit time; eval compares output to oracle after the fact."
     }
   ],
+  "acceptance_thresholds": {
+    "defined_at": "2026-06-10T11:45:00Z",
+    "defined_before_run": "real_n100 (output/runs/2026-06-10_11-39-59_real_n100)",
+    "min_eval_size": 50,
+    "stratification": "50/50 buggy/clean",
+    "gate": {
+      "description": "All six must pass simultaneously. Blocks V1 delivery.",
+      "D1": 0.70,
+      "D2": 0.15,
+      "D3": 0.20,
+      "D4": 0.60,
+      "D5": 0.25,
+      "D6": 0.60
+    },
+    "target": {
+      "description": "Quality bar for an acceptable deliverable.",
+      "D1": 0.80,
+      "D2": 0.25,
+      "D3": 0.35,
+      "D4": 0.75,
+      "D5": 0.40,
+      "D6": 0.70
+    },
+    "stretch": {
+      "description": "Excellence tier.",
+      "D1": 0.90,
+      "D2": 0.40,
+      "D3": 0.50,
+      "D4": 0.85,
+      "D5": 0.55,
+      "D6": 0.80
+    },
+    "baseline_rule": "soft — emit WARNING if D1_agent < D1_always_predict_clean or D1_router_only"
+  },
   "open_questions": [
     "Package name: `commit_investigator`, `jit_agent`, or keep repo name aligned? Builder decides in scaffold task.",
     "Replication package layout: exact paths for commit_links_{PROJECT}.csv and {PROJECT}.csv inside zip — feat-2 must verify user's 100% chain claim on real extracted files.",

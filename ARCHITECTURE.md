@@ -1,6 +1,6 @@
-# Architecture — Commit Risk Investigator
+# Architecture — Commit Risk Adversarial Agentic Harness
 
-System design for an investigative commit-risk agent validated against ApacheJIT ground truth. This document describes planned components; implementation is staged across feat-2 through feat-7.
+System design for an investigative commit-risk agent validated against ApacheJIT ground truth through a six-dimension adversarial evaluation harness. See [docs/harness.md](docs/harness.md) for the harness architecture. Implementation is staged across feat-2 through feat-7.
 
 ## Overview
 

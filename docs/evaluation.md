@@ -40,6 +40,25 @@ Scores 0–4 based on four grounding signals:
 
 D6 catches boilerplate reports that classify correctly (high D1) but cite no concrete artifacts.
 
+## Acceptance Thresholds
+
+Defined before the n=100 real eval run (2026-06-10). Three tiers: GATE blocks V1 delivery, TARGET is the quality bar for an acceptable deliverable, STRETCH marks excellence.
+
+| Dimension | GATE (blocks V1) | TARGET (deliverable) | STRETCH (excellent) |
+|-----------|-------------------|----------------------|---------------------|
+| **D1** Prediction | >= 0.70 | >= 0.80 | >= 0.90 |
+| **D2** Localization | >= 0.15 | >= 0.25 | >= 0.40 |
+| **D3** Diagnosis | >= 0.20 | >= 0.35 | >= 0.50 |
+| **D4** Severity | >= 0.60 | >= 0.75 | >= 0.85 |
+| **D5** Recommendations | >= 0.25 | >= 0.40 | >= 0.55 |
+| **D6** Evidence grounding | >= 0.60 | >= 0.70 | >= 0.80 |
+
+**GATE rule:** All six gates must pass simultaneously on a stratified eval with n >= 50 (50/50 buggy/clean). Any single dimension below its gate blocks V1 delivery.
+
+**Baseline soft constraint:** If D1 agent < D1 baseline (always-predict-clean or router-only), emit WARNING in the eval report. Documented, not blocking.
+
+**Calibration note:** These thresholds were set using only the n=20 judge-v1 results (D1=0.85, D2=0.13, D3=0.20, D4=0.84, D5=0.43, D6=0.75). The n=20 results fail D2 GATE (0.13 < 0.15) and are at the edge of D3 GATE (0.20 = 0.20). This is intentional — gates should have teeth.
+
 ## Sampling Strategy
 
 - Stratified sample from **routed commits** within budget tier
