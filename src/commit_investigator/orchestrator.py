@@ -95,6 +95,9 @@ class AgentOrchestrator:
 
         Returns a schema-validated CommitInvestigationReport.
         """
+        self._budget = BudgetState(max_tokens=self._budget.max_tokens, max_cost=self._budget.max_cost)
+        self._checkpoints = []
+
         if git_provider is None and context is None:
             raise ValueError("Either git_provider or pre-built context required")
 

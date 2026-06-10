@@ -218,7 +218,7 @@
       "id": "feat-9",
       "name": "First investigation eval run and findings",
       "type": "feature",
-      "status": "pending",
+      "status": "done",
       "scope": "Execute Tier 2 ($50) eval on Camel+Hadoop commits from test_small gray zone. Record results in docs/evaluation.md. Document: agent vs router-only vs random baselines per dimension, cost actuals, chain coverage, honest failure modes. State ≥3 provable claims and ≥3 non-provable claims. Negative results (agent ≈ router) are valid if documented.",
       "depends_on": ["feat-7", "feat-8"]
     },
