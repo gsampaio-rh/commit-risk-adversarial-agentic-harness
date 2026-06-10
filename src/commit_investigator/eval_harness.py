@@ -495,10 +495,44 @@ class EvalHarness:
         return out
 
 
+def _serialize_eval_result(r: CommitEvalResult) -> dict:
+    """Serialize a single CommitEvalResult to a dict."""
+    return {
+        "commit_id": r.commit_id,
+        "project": r.project,
+        "buggy": r.buggy_label,
+        "route": r.route.value,
+        "has_fix_chain": r.has_fix_chain,
+        "agent": {
+            "risk_level": r.agent_risk_level,
+            "confidence": r.agent_confidence,
+            "reasoning_summary": r.agent_reasoning,
+            "localization_count": r.localization_count,
+        },
+        "scores": {k: {"score": v.score, "details": v.details} for k, v in r.scores.items()},
+        "errors": r.errors,
+    }
+
+
+def _save_per_commit_evals(results: list[CommitEvalResult], output_dir: Path) -> None:
+    """Save each commit's eval result as an individual JSON in evaluations/."""
+    eval_dir = output_dir / "evaluations"
+    eval_dir.mkdir(parents=True, exist_ok=True)
+
+    for r in results:
+        filename = f"{r.commit_id[:12]}_{r.project}.json"
+        data = _serialize_eval_result(r)
+        (eval_dir / filename).write_text(
+            json.dumps(data, indent=2), encoding="utf-8"
+        )
+
+
 def save_eval_report(report: EvalReport, output_dir: str | Path) -> None:
-    """Persist evaluation report as JSON and markdown."""
+    """Persist evaluation report as JSON, markdown, and per-commit eval files."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    _save_per_commit_evals(report.results, output_dir)
 
     json_data = {
         "budget_tier": report.budget_tier,
@@ -510,24 +544,7 @@ def save_eval_report(report: EvalReport, output_dir: str | Path) -> None:
         "router_baseline": report.router_baseline,
         "cost_actual": report.cost_actual,
         "metadata": report.metadata,
-        "results": [
-            {
-                "commit_id": r.commit_id,
-                "project": r.project,
-                "buggy": r.buggy_label,
-                "route": r.route.value,
-                "has_fix_chain": r.has_fix_chain,
-                "agent": {
-                    "risk_level": r.agent_risk_level,
-                    "confidence": r.agent_confidence,
-                    "reasoning_summary": r.agent_reasoning,
-                    "localization_count": r.localization_count,
-                },
-                "scores": {k: {"score": v.score, "details": v.details} for k, v in r.scores.items()},
-                "errors": r.errors,
-            }
-            for r in report.results
-        ],
+        "results": [_serialize_eval_result(r) for r in report.results],
     }
 
     (output_dir / "eval-report.json").write_text(
