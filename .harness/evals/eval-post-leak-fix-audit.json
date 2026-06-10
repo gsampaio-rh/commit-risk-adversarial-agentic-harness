@@ -1,0 +1,77 @@
+{
+  "task_id": "post-leak-fix-audit",
+  "evaluator": "adversarial",
+  "timestamp": "2026-06-10T13:53:32Z",
+  "commits_audited": ["c2341e2", "6ca573d", "731c088"],
+  "results": [
+    {
+      "id": "data-leak-fix-buggy",
+      "result": "PASS",
+      "evidence": "context_builder.py lines 166-172 exclude buggy from csv_features passthrough (if k not in ('commit_id', 'project', 'buggy')). Git diff 731c088 confirms prior code only excluded commit_id/project. Orchestrator and get_numeric_features tool surface csv_features to the agent; buggy no longer present."
+    },
+    {
+      "id": "data-leak-additional-risks",
+      "result": "FAIL",
+      "evidence": "CSV columns after exclusion: fix, year, author_date still pass through. fix is a boolean GT-adjacent flag (True/False); cross-tab shows fix=True correlates with buggy in 8184/100364 rows but is not identical (3180 clean+fix=True, 21503 buggy+fix=False). Agent can partially infer label from fix=True. author_stats exposes buggy_commits and buggy_rate (train-split aggregates) via get_author_stats tool — intentional per state.json trade-off but indirect signal. No unit test asserts exclusion list. harness.md line 47 claims no fix-commit info leaks, but fix boolean is still exposed."
+    },
+    {
+      "id": "per-commit-eval-outputs",
+      "result": "PASS",
+      "evidence": "_save_per_commit_evals (eval_harness.py:517-527) writes evaluations/<hash12>_<project>.json using _serialize_eval_result. save_eval_report calls it before aggregate eval-report.json; aggregate results[] uses identical _serialize_eval_result. Live smoke test: per-commit JSON == aggregate results[0]. Filename uses commit_id[:12]. output/runs/ artifacts gitignored — no committed n=5 evaluations/ on disk to diff, but code path verified. No dedicated pytest for save path."
+    },
+    {
+      "id": "acceptance-thresholds",
+      "result": "PASS",
+      "evidence": "GATE/TARGET/STRETCH values identical across docs/evaluation.md (lines 47-54), README.md (lines 108-115), and .harness/state.json acceptance_thresholds (lines 82-108): D1 0.70/0.80/0.90, D2 0.15/0.25/0.40, D3 0.20/0.35/0.50, D4 0.60/0.75/0.85, D5 0.25/0.40/0.55, D6 0.60/0.70/0.80. GATE rule (all six, n>=50, 50/50) consistent. docs/evaluation.md n=5 table correctly marks D1/D2/D3 FAIL vs GATE, D4/D5/D6 PASS, baseline WARNING (agent D1 0.40 < always-predict-clean 0.60)."
+    },
+    {
+      "id": "documentation-quality",
+      "result": "FAIL",
+      "evidence": "README.md Status (line 133) still cites invalidated pre-leak results: 'First real eval (n=20): D1=0.85, D6=0.75' and '100-commit eval in progress' — contradicts docs/evaluation.md invalidation notice and n=5 clean run (D1=0.40). docs/harness.md artifact tree (lines 116-125) omits evaluations/ subdirectory documented in evaluation.md lines 84-86. README/harness/evaluation.md use six-dimension consistently; state.json vision/tasks still say 'five-dimension' in historical task scopes (lines 5, 29, 67, 192, 237, 269) — archival drift. Core definitions (agent, long-running, harness, adversarial) in README and harness.md are accurate and align with implementation."
+    },
+    {
+      "id": "tests",
+      "result": "PASS",
+      "evidence": "pytest tests/ -q: 69 passed in 8.78s (2026-06-10 audit run)."
+    },
+    {
+      "id": "lints",
+      "result": "PASS",
+      "evidence": "ReadLints on eval_harness.py and context_builder.py: no linter errors."
+    }
+  ],
+  "additional_data_leak_risks": [
+    {
+      "field": "fix",
+      "location": "csv_features via context_builder.py",
+      "severity": "high",
+      "note": "Boolean flag indicating fix-commit linkage; partially encodes buggy status. Should be excluded alongside buggy."
+    },
+    {
+      "field": "author_stats.buggy_rate / buggy_commits",
+      "location": "get_author_stats tool",
+      "severity": "low",
+      "note": "Train-split aggregate; documented intentional context. Not per-commit label but may bias risk upward for high-rate authors."
+    },
+    {
+      "field": "year",
+      "location": "csv_features",
+      "severity": "low",
+      "note": "Temporal metadata; unlikely to trivialize D1 but not reviewer-visible at commit time."
+    }
+  ],
+  "doc_inconsistencies": [
+    "README.md Status section reports pre-leak D1=0.85 and in-progress n=100 — stale after 731c088",
+    "docs/harness.md run folder layout missing evaluations/ vs docs/evaluation.md",
+    ".harness/state.json historical text still references five-dimension eval while codebase is six-dimension (D6)"
+  ],
+  "summary": "The critical buggy label leak is fixed in code (731c088). Per-commit eval serialization is correct and matches aggregate reports. Acceptance thresholds are consistent across docs and state; n=5 post-leak results are accurately documented against GATE tiers (3/6 dimensions fail). Tests (69) and lints pass. Two gaps block a clean bill of health: (1) fix column still leaks GT-adjacent signal into csv_features — n=5 D1=0.40 may still be optimistic for commits where fix=True; (2) README Status and harness.md artifact layout are stale relative to post-leak truth. All pre-real_n5 eval runs remain invalidated; no new contract verified these three post-harness commits.",
+  "recommendation": "CONDITIONAL — do not treat n=5 or any post-fix run as gate-valid until fix column is excluded and README/harness docs are aligned. Re-run n=5 after fix-column exclusion to establish a clean baseline. Proceed to n=50 stratified eval only after oracle-isolation contract passes.",
+  "next_contract_suggestions": [
+    "Oracle isolation hardening: exclude fix, year (and document allowlist for csv_features); add test_context_builder.py asserting no GT fields in agent context; audit orchestrator prompt for leaked fields",
+    "Doc alignment post-leak: update README Status to n=5 clean results and invalidation notice; sync harness.md artifact tree with evaluations/ folder",
+    "D1 improvement (prompt rubric + router probability injection): target moving D1 from 0.40 toward GATE 0.70 without reintroducing oracle leakage",
+    "n=50 stratified real eval contract: 50/50 buggy/clean, all six GATE thresholds, baseline WARNING rule, human audit sample protocol for D3-D5",
+    "Regression guard: CI test that csv_features keys are exactly the numeric feature allowlist plus author_date (or stricter allowlist)"
+  ]
+}

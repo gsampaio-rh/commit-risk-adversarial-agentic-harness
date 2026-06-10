@@ -1,31 +1,29 @@
 {
-  "task_id": "pre-commit-audit",
-  "feature": "Pre-commit audit: reasoning faithfulness eval + timestamped runs + docs alignment",
-  "problem": "Three features built in this session (eval_judge D3/D5/D6, timestamped run folders, CursorSDK provider) need adversarial review before commit. Docs (ARCHITECTURE.md, evaluation.md) are stale — still say 'five-dimension' and reference mock-only results.",
-  "proposed_solution": "Evaluator reviews code quality, architecture, test coverage, doc accuracy. Builder fixes any gaps found.",
+  "task_id": "d1-d3-prompt-engineering",
+  "feature": "Prompt engineering to reach D1/D2/D3 acceptance gates",
+  "problem": "After removing buggy/fix label leakage, the agent fails 3/6 dimension gates: D1=0.40 (gate 0.70), D2=0.08 (gate 0.15), D3=0.13 (gate 0.20). The agent reads diffs correctly (D6=0.85) and calibrates severity well (D4=0.84), but under-classifies buggy commits as MEDIUM and produces generic reasoning that misses root causes.",
+  "proposed_solution": "Three low-effort, high-impact prompt changes: (1) Add explicit risk classification rubric mapping code patterns to risk levels, (2) Inject XGBoost router probability as calibrated prior context, (3) Add 2-3 few-shot investigation examples showing good root-cause analysis. Validate with n=20 stratified eval.",
   "acceptance_criteria": [
-    "AC-1: eval_judge.py — ReasoningJudge class has D3 (rubric 0-4), D5 (rubric 0-3), D6 (automated 0-4) scoring methods with 1-sentence justifications",
-    "AC-2: eval_harness.py — EvalHarness accepts optional judge_provider, D3/D5 use judge when available and fall back to word-overlap/stub without, D6 always runs",
-    "AC-3: run_eval.py — default output is timestamped folder under output/runs/ with run-config.json, run.log, investigations/, eval-report.json, eval-report.md",
-    "AC-4: run_eval.py — --output-dir overrides auto-timestamp, --runs-base controls base dir, --mock skips judge",
-    "AC-5: test_eval_judge.py — covers D3/D5/D6 scoring, JSON parsing, score clamping, LLM failure resilience, harness integration (judge vs fallback paths)",
-    "AC-6: All 69 tests pass with no regressions",
-    "AC-7: ARCHITECTURE.md reflects six dimensions (D1-D6), mentions LLM-as-judge for D3/D5, mentions D6 evidence grounding",
-    "AC-8: docs/evaluation.md is updated with real eval results from judge-v1 run, D6 dimension row, CursorSDK provider, timestamped run folder structure",
-    "AC-9: No secrets (API keys) in any committed file",
-    "AC-10: pyproject.toml includes cursor-sdk dependency",
-    "AC-11: eval_judge.py and eval_harness.py have no linter errors",
-    "AC-12: Breadcrumbs trace all session work (judge build, eval run, timestamped runs)"
+    "AC-1: System prompt includes a risk classification rubric with concrete pattern→risk mappings (e.g., API contract changes→HIGH, test-only changes→LOW)",
+    "AC-2: XGBoost router probability is passed to the agent as context (NOT the buggy label — oracle isolation preserved)",
+    "AC-3: System prompt includes 2-3 few-shot examples of high-quality investigation reports with specific root-cause reasoning",
+    "AC-4: Oracle isolation tests pass (76+ tests, no regressions) — router probability is NOT a ground truth leak",
+    "AC-5: n=20 stratified eval (10 buggy, 10 clean) shows D1 >= 0.60 (improvement from 0.40, trending toward gate 0.70)",
+    "AC-6: n=20 eval shows D3 >= 0.18 (improvement from 0.13, trending toward gate 0.20)",
+    "AC-7: D6 >= 0.70 (no regression on evidence grounding from prompt changes)",
+    "AC-8: D4 >= 0.50 (no regression on severity calibration)",
+    "AC-9: Per-commit eval JSONs in evaluations/ folder confirm agent no longer references buggy/fix labels in reasoning_summary",
+    "AC-10: docs/evaluation.md updated with n=20 post-prompt results and comparison to pre-prompt baseline"
   ],
   "edge_cases": [
-    "EC-1: eval_judge handles LLM provider failure gracefully (returns score=0 with error justification, not exception)",
-    "EC-2: run_eval with --output-dir still works (no timestamped folder created)",
-    "EC-3: EvalHarness with judge_provider=None produces valid results (backward compatible)"
+    "EC-1: Agent with router_probability=0.95 (near HIGH threshold) should not blindly say HIGH — must still reason from diff evidence",
+    "EC-2: Few-shot examples don't cause the agent to parrot example language — reasoning must reference actual commit content",
+    "EC-3: Commits with truncated diffs (>4K chars) should not systematically score lower on D1 than full-diff commits"
   ],
-  "verification_method": "Read all changed files, run tests, check docs for accuracy, verify no secrets in diff, check lints",
-  "rubrics": ["code-quality", "architecture"],
+  "verification_method": "Run n=20 stratified eval with post-prompt agent. Compare D1/D2/D3/D6 against pre-prompt baseline (n=5 clean run). Check oracle isolation tests. Read 3 random eval reports to verify reasoning quality.",
+  "rubrics": ["code-quality", "llm-skeptic"],
   "rubric_mode": "strict",
   "negotiation_rounds": 0,
-  "phase": "evaluating",
-  "verified": true
+  "phase": "negotiating",
+  "verified": false
 }

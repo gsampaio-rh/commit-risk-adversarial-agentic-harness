@@ -130,4 +130,4 @@ Full methodology and results: [docs/evaluation.md](docs/evaluation.md)
 
 ## Status
 
-All 11 V1 tasks complete. First real eval (n=20, Claude Sonnet 4.6): D1=0.85, D6=0.75, D3=0.20. 100-commit eval in progress. See [docs/evaluation.md](docs/evaluation.md).
+All 11 V1 tasks complete. Data leakage fix applied (buggy/fix labels removed from agent context). Clean n=5 eval: D1=0.40 (FAIL gate), D6=0.85 (PASS), D3=0.13 (FAIL). 3/6 gates fail — prompt engineering needed for D1/D3. See [docs/evaluation.md](docs/evaluation.md).

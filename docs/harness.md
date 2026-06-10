@@ -117,11 +117,14 @@ Every eval run creates a timestamped folder:
 output/runs/2026-06-10_11-39-59_real_n100/
 ├── run-config.json          # All CLI args, git rev, python version, stratification
 ├── run.log                  # Full timestamped log (every commit, every error)
-├── eval-report.json         # Aggregate D1–D6 scores, baselines, strata
-├── eval-report.md           # Human-readable report
-└── investigations/          # Per-commit investigation reports
-    ├── f897d46870ba_camel.json
-    └── ...
+├── investigations/          # Per-commit agent reports (what the agent produced)
+│   ├── f897d46870ba_camel.json
+│   └── ...
+├── evaluations/             # Per-commit eval scores (how it scored vs ground truth)
+│   ├── f897d46870ba_camel.json
+│   └── ...
+├── eval-report.json         # Aggregate D1–D6 scores, baselines, strata (unified)
+└── eval-report.md           # Human-readable report
 ```
 
 Run configs capture everything needed to reproduce: exact git revision, Python version, stratification counts, provider, CLI arguments. Investigation reports capture per-commit risk, reasoning, evidence, cost, and timing.

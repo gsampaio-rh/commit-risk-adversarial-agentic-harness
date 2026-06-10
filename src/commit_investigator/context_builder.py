@@ -166,9 +166,9 @@ class CommitContextBuilder:
         csv_features: dict[str, Any] = {}
         if csv_row:
             csv_features = {
-                k: _safe_float(v) if k in _NUMERIC_FEATURES else v
+                k: _safe_float(v)
                 for k, v in csv_row.items()
-                if k not in ("commit_id", "project", "buggy")
+                if k in _NUMERIC_FEATURES
             }
         else:
             missing_reasons.append("No CSV row provided")
