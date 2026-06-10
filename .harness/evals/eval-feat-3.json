@@ -1,0 +1,106 @@
+{
+  "task_id": "feat-3",
+  "evaluator": "evaluator",
+  "timestamp": "2026-06-10T00:28:59Z",
+  "criteria_results": [
+    {
+      "id": "AC-1",
+      "result": "PASS",
+      "evidence": "exists=True, executable=True"
+    },
+    {
+      "id": "AC-2",
+      "result": "PASS",
+      "evidence": "configurable TARGET_DIR, idempotent skip"
+    },
+    {
+      "id": "AC-13",
+      "result": "PASS",
+      "evidence": "python -c imports succeed"
+    },
+    {
+      "id": "AC-3",
+      "result": "PASS",
+      "evidence": "GitContextProvider present"
+    },
+    {
+      "id": "EC-1",
+      "result": "PASS",
+      "evidence": "Git repo not found at data/repos_nonexistent/camel. Run scripts/clone_apache_repos.sh first."
+    },
+    {
+      "id": "AC-4",
+      "result": "PASS",
+      "evidence": "diff len=117"
+    },
+    {
+      "id": "AC-5",
+      "result": "PASS",
+      "evidence": "'Second commit adds line\\n\\n'"
+    },
+    {
+      "id": "AC-6",
+      "result": "PASS",
+      "evidence": "['foo.txt']"
+    },
+    {
+      "id": "AC-7",
+      "result": "PASS",
+      "evidence": "3 entries"
+    },
+    {
+      "id": "AC-8",
+      "result": "PASS",
+      "evidence": "invalid commits return None"
+    },
+    {
+      "id": "EC-2",
+      "result": "PASS",
+      "evidence": "history after delete"
+    },
+    {
+      "id": "AC-9",
+      "result": "PASS",
+      "evidence": "CommitContextBuilder present"
+    },
+    {
+      "id": "AC-10",
+      "result": "PASS",
+      "evidence": "v1 project=camel author_stats=True, commits=8299"
+    },
+    {
+      "id": "EC-3",
+      "result": "PASS",
+      "evidence": "['No CSV row provided']"
+    },
+    {
+      "id": "AC-11",
+      "result": "PASS",
+      "evidence": "per-author grouping=True, authors=44557, sample_commits=1"
+    },
+    {
+      "id": "AC-12",
+      "result": "PASS",
+      "evidence": "index=44834, csv=44834"
+    },
+    {
+      "id": "INT-camel",
+      "result": "SKIP",
+      "evidence": "data/repos/camel not cloned \u2014 skipped"
+    }
+  ],
+  "rubrics": {
+    "code-quality": {
+      "mode": "warn",
+      "notes": "Per-author index via author_date; project fallback for v1 short names."
+    },
+    "architecture": {
+      "mode": "warn",
+      "notes": "Clean separation: git provider, author index, context builder with graceful fallbacks."
+    }
+  },
+  "overall": "PASS",
+  "summary": "All acceptance criteria and edge cases pass.",
+  "issues": [],
+  "recommendations": []
+}

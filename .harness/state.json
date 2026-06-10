@@ -170,7 +170,7 @@
       "id": "feat-3",
       "name": "Git access layer and context builder",
       "type": "feature",
-      "status": "pending",
+      "status": "done",
       "scope": "scripts/clone_apache_repos.sh for Camel and Hadoop (configurable, cached under data/repos/). GitContextProvider: get_diff(commit_id), get_commit_message, get_file_history(path, n=3), get_touched_files. CommitContextBuilder assembles investigation context bundle from git + CSV row + precomputed author stats index (built from train split). Handle missing commits gracefully (skip with reason).",
       "depends_on": ["feat-1"]
     },
