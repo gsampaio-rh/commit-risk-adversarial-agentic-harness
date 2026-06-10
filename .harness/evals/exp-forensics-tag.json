@@ -1,0 +1,171 @@
+{
+  "experiment": "EXP-FORENSICS-TAG",
+  "date": "2026-06-10",
+  "source_run": "output/runs/2026-06-10_17-12-55_real_n20",
+  "provider": "cursor-sdk/claude-sonnet-4-6",
+  "method": "Manual classification of per-commit eval JSONs. Each D3≤0.25 buggy commit tagged with primary failure mode based on: (1) what the agent hypothesized vs ground truth, (2) whether the diff was truncated in the bug-relevant section, (3) whether the root cause required context beyond the diff.",
+
+  "d3_failure_classification": {
+    "population": "10 buggy commits from n=20 stratified eval",
+    "d3_score_distribution": {
+      "D3=1.0": 1,
+      "D3=0.5": 1,
+      "D3=0.25": 2,
+      "D3=0.0": 6
+    },
+
+    "commits": [
+      {
+        "commit": "55dcbe801e76", "project": "camel", "D3": 1.0, "D1": 1.0, "D6": 1.0,
+        "tag": "correct",
+        "summary": "Agent precisely identified negative default values rendered as positive due to JSON schema type-coercion."
+      },
+      {
+        "commit": "fe57a498f6a5", "project": "camel", "D3": 0.5, "D1": 1.0, "D6": 1.0,
+        "tag": "partial-correct",
+        "summary": "Agent identified correct root cause in Hypothesis 3 (hardcoded constant vs resolved format variable) but didn't prioritize it as primary."
+      },
+      {
+        "commit": "dd6f9ba60fb4", "project": "camel", "D3": 0.25, "D1": 1.0, "D6": 1.0,
+        "tag": "wrong-mechanism",
+        "summary": "Agent focused on Host header NPE and duplicate headers in DefaultUndertowHttpBinding. Actual bug: UndertowProducer using full URL as request path (fix across URISupport.java + UndertowProducer.java). Agent saw the right file but reasoned about a different issue.",
+        "could_context_help": "Partially — seeing the fix-commit diff or blame on UndertowProducer.java might redirect attention, but the agent had the relevant file and still chose wrong mechanism."
+      },
+      {
+        "commit": "294c169f6d66", "project": "camel", "D3": 0.25, "D1": 0.0, "D6": 0.5,
+        "tag": "missing-context-likely",
+        "sub_tag": "diff-truncation",
+        "summary": "Agent identified right area (EhcacheManager, concurrency) but missed actual fix: shared ReferenceCount CacheManager. Diff truncated at ~9KB, hiding the key EhcacheManager.java lifecycle logic.",
+        "could_context_help": "Yes — full diff or blame showing ReferenceCount utility would reveal the shared-lifecycle pattern."
+      },
+      {
+        "commit": "2213f71944ae", "project": "camel", "D3": 0.0, "D1": 1.0, "D6": 1.0,
+        "tag": "wrong-mechanism",
+        "summary": "Agent focused on whitespace/trim bug in enum parsing (CoreEipAnnotationProcessor.java). Actual bug: incorrect default values in 12 Spring Boot DataFormatConfiguration.java files. Agent reasoned from wrong file entirely.",
+        "could_context_help": "Unlikely — agent had the diff and chose to reason about an interesting-looking code pattern rather than the actual defect. The fix files (DataFormatConfiguration) were listed as touched but agent ignored them."
+      },
+      {
+        "commit": "409664582f53", "project": "camel", "D3": 0.0, "D1": 1.0, "D6": 1.0,
+        "tag": "wrong-mechanism",
+        "summary": "Agent found a REAL but DIFFERENT bug (TriggerKey null-variable substitution). Actual JIRA issue: trigger misfires from unconditional rescheduling with stale START_TIME. Agent found A bug but not THE bug.",
+        "could_context_help": "Unlikely — agent had the diff and found a plausible defect. The actual root cause (stale START_TIME in existing trigger) requires domain knowledge about Quartz scheduling semantics."
+      },
+      {
+        "commit": "572f3cee35fe", "project": "camel", "D3": 0.0, "D1": 0.0, "D6": 0.5,
+        "tag": "missing-context-likely",
+        "sub_tag": "diff-truncation",
+        "summary": "Diff truncated after XmppBinding.java and XmppConsumer.java. Actual bug in XmppGroupChatProducer.java (missing room password during reconnection). Agent couldn't see the relevant code.",
+        "could_context_help": "Yes — full diff would show the XmppGroupChatProducer.java changes where the bug lives."
+      },
+      {
+        "commit": "90846b586c51", "project": "camel", "D3": 0.0, "D1": 1.0, "D6": 1.0,
+        "tag": "missing-context-likely",
+        "sub_tag": "architectural-depth",
+        "summary": "Agent focused on binary incompatibility (generic type removal) and null serviceName NPE. Actual bug: Spring Boot deadlock during reactive-streams auto-configuration circular initialization. Fix files (ReactiveStreamsServiceAutoConfiguration, ServiceCreationHelper) not visible in agent's analysis.",
+        "could_context_help": "Possibly — Spring Boot auto-config lifecycle is architectural knowledge beyond diffs. Blame/history might show the circular dependency pattern. Test files would show deadlock reproduction."
+      },
+      {
+        "commit": "f897d46870ba", "project": "camel", "D3": 0.0, "D1": 1.0, "D6": 1.0,
+        "tag": "judge-infra",
+        "summary": "JIRA issue has no description — judge cannot score D3. Agent's reasoning (code-gen without tests, 416-line Mojo) was plausible but untestable.",
+        "could_context_help": "N/A — judge infrastructure limitation, not agent failure."
+      },
+      {
+        "commit": "fbf0ffad627b", "project": "camel", "D3": 0.0, "D1": 1.0, "D6": 1.0,
+        "tag": "missing-context-likely",
+        "sub_tag": "diff-truncation",
+        "summary": "32-file commit (890 lines added), diff truncated at ~89KB. Agent focused on SmartLifecycle/ContextRefreshedEvent ordering. Actual bug: RoutesCollector fails to load Java DSL routes when XML routes present. RoutesCollector.java changes not visible.",
+        "could_context_help": "Yes — full diff showing RoutesCollector.java changes would reveal the mixed-routes handling bug."
+      }
+    ],
+
+    "tag_distribution": {
+      "wrong-mechanism": {
+        "count": 3,
+        "pct": 37.5,
+        "commits": ["2213f71944ae", "409664582f53", "dd6f9ba60fb4"],
+        "description": "Agent had sufficient context but identified wrong defect mechanism. Prompt/reasoning issue."
+      },
+      "missing-context-likely": {
+        "count": 4,
+        "pct": 50.0,
+        "sub_tags": {
+          "diff-truncation": {"count": 3, "commits": ["572f3cee35fe", "294c169f6d66", "fbf0ffad627b"]},
+          "architectural-depth": {"count": 1, "commits": ["90846b586c51"]}
+        },
+        "commits": ["572f3cee35fe", "90846b586c51", "294c169f6d66", "fbf0ffad627b"],
+        "description": "Agent couldn't find root cause because relevant code was truncated (3) or required architectural context beyond the diff (1)."
+      },
+      "judge-infra": {
+        "count": 1,
+        "pct": 12.5,
+        "commits": ["f897d46870ba"],
+        "description": "JIRA has no description — judge can't evaluate D3. Not an agent failure."
+      }
+    }
+  },
+
+  "clean_fp_analysis": {
+    "population": "10 clean commits from n=20 stratified eval",
+    "d1_distribution": {
+      "D1=1.0_correct": 4,
+      "D1=0.0_false_positive": 6
+    },
+    "false_positive_rate": 0.60,
+    "pattern": "All 6 FP commits were classified HIGH with SUPPORTED hypotheses. Agent generates plausible, evidence-grounded defect hypotheses on clean commits. High D6 scores (1.0 on 5/6 FPs) confirm the agent IS grounding in the diff — it just reasons too aggressively.",
+    "fp_commits": [
+      {"commit": "9530370f7642", "risk": "HIGH", "D6": 1.0, "mechanism": "Cross-library NotifyingFuture substitution during Infinispan upgrade"},
+      {"commit": "b9f1653151e2", "risk": "HIGH", "D6": 1.0, "mechanism": "Jetty binary incompatibility (crossed documented breaking threshold) + header behavior change"},
+      {"commit": "ce2d5bfa5f84", "risk": "HIGH", "D6": 1.0, "mechanism": "LogType/FileName label swap in structured log output"},
+      {"commit": "24d9de042248", "risk": "HIGH", "D6": 1.0, "mechanism": "Not fully classified — likely similar pattern"},
+      {"commit": "4a72341ebffc", "risk": "HIGH", "D6": 1.0, "mechanism": "Not fully classified — likely similar pattern"},
+      {"commit": "7cff0990283b", "risk": "HIGH", "D6": 1.0, "mechanism": "Not fully classified — likely similar pattern"}
+    ],
+    "key_insight": "The rubric criterion (a) 'SUPPORTED hypothesis → HIGH' causes the agent to always classify HIGH when it finds any plausible defect. On clean commits, the agent finds plausible-looking patterns (type migrations, version bumps crossing documented thresholds, label mismatches) that look like real bugs but weren't. This is an inherent limitation of single-commit analysis without runtime or test evidence."
+  },
+
+  "decision": {
+    "threshold_check": {
+      "rule": "If >40% tagged missing-context-likely, prioritize EXP-BUNDLE-EXPAND",
+      "result": "50% missing-context-likely → TRIGGERED"
+    },
+    "recommendation": "BOTH prompt refinement AND context expansion needed",
+    "rationale": [
+      "50% missing-context-likely (4/8) → EXP-BUNDLE-EXPAND is justified",
+      "37.5% wrong-mechanism (3/8) → prompt refinement also needed",
+      "3/4 missing-context-likely cases are due to diff truncation specifically — increasing context_builder max_diff_chars would directly address these before needing test/blame expansion",
+      "60% clean-FP rate is a separate prompt issue — rubric criterion (a) is too aggressive on clean commits"
+    ],
+    "iter_2_priority_order": [
+      {
+        "priority": 1,
+        "action": "Increase diff character limit in context_builder.py",
+        "type": "infrastructure",
+        "expected_impact": "Directly addresses 3/4 missing-context-likely cases (diff-truncation). Low cost, no LLM change.",
+        "blocks": false
+      },
+      {
+        "priority": 2,
+        "action": "Add clean-commit discrimination to rubric (e.g., require ≥2 SUPPORTED hypotheses for HIGH, or add MEDIUM-default for style/refactor commits)",
+        "type": "prompt-refinement",
+        "expected_impact": "Reduces 60% clean-FP rate. Directly improves D1 from 0.60 toward gate (0.70).",
+        "blocks": false
+      },
+      {
+        "priority": 3,
+        "action": "EXP-BUNDLE-EXPAND: add test files + blame snippets for INVESTIGATE-zone commits",
+        "type": "loop-architecture",
+        "expected_impact": "Addresses architectural-depth case (90846b). May help wrong-mechanism cases by providing additional signal.",
+        "blocks": false
+      },
+      {
+        "priority": 4,
+        "action": "EXP-JUDGE-SWAP: cross-model judge to verify D3 scores aren't inflated",
+        "type": "validation",
+        "expected_impact": "Mandatory before n=50 gate. Low cost.",
+        "blocks": "n=50 acceptance"
+      }
+    ],
+    "tier_2_verdict": "PARTIALLY TRIGGERED. diff-truncation is a context-assembly fix (Priority 1), not a loop architecture change. True loop changes (EXP-BUNDLE-EXPAND) are justified but secondary to the simpler fix."
+  }
+}

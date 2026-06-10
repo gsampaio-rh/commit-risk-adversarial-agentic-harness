@@ -111,11 +111,14 @@
       "id": "EXP-FORENSICS-TAG",
       "name": "Experiment: classify D3 failure modes",
       "type": "experiment",
-      "status": "pending",
-      "scope": "Tag D3≤0.25 commits from Claude n=20 into {wrong-mechanism, judge-infra, missing-context-likely, clean-FP}. Determines whether iter-2 focus is prompt refinement or loop architecture.",
+      "status": "completed",
+      "scope": "Tagged 8 D3≤0.25 buggy commits from Claude n=20. Result: 50% missing-context-likely (3 diff-truncation + 1 architectural-depth), 37.5% wrong-mechanism, 12.5% judge-infra. Also found 60% clean-FP rate (6/10 clean→HIGH). Decision: BOTH context expansion AND prompt refinement needed.",
       "depends_on": ["iter-1"],
-      "cost_estimate": "~$0 (manual analysis of eval JSONs)",
-      "decision_rule": "If >40% tagged missing-context-likely, prioritize EXP-BUNDLE-EXPAND in iter-2 track"
+      "cost_estimate": "$0 (manual analysis)",
+      "decision_rule": "If >40% tagged missing-context-likely, prioritize EXP-BUNDLE-EXPAND in iter-2 track",
+      "decision_outcome": "TRIGGERED (50% > 40%). Priority order: (1) increase diff char limit, (2) add clean-commit rubric discrimination, (3) EXP-BUNDLE-EXPAND, (4) EXP-JUDGE-SWAP.",
+      "eval_report": ".harness/evals/exp-forensics-tag.json",
+      "completed_at": "2026-06-10T18:00:00Z"
     },
     {
       "id": "EXP-MULTITURN-AB",
@@ -205,7 +208,7 @@
     }
   ],
   "session_handoff": {
-    "for_new_chat": "Phase: investigation-quality. iter-1 COMMITTED (production-verified, Claude Sonnet 4.6 n=20). Current baseline: D1=0.60, D3=0.20, D6=0.85. 5/6 gates pass. Next: EXP-FORENSICS-TAG (classify D3 failure modes from n=20 eval JSONs). Then iter-2 (n=50). 86 tests. Docs reorganized: architecture.md + agent-loop.md + harness.md + evaluation.md + experiment-context.md + datasets.md. Spikes archived to .harness/archive/docs/.",
+    "for_new_chat": "Phase: investigation-quality. iter-1 COMMITTED. EXP-FORENSICS-TAG COMPLETE: 50% missing-context-likely (3 truncation + 1 arch-depth), 37.5% wrong-mechanism, 12.5% judge-infra. 60% clean-FP rate. Decision: (1) increase diff char limit in context_builder, (2) add clean-commit rubric discrimination, (3) EXP-BUNDLE-EXPAND, (4) EXP-JUDGE-SWAP. Current baseline: D1=0.60, D3=0.20, D6=0.85. 86 tests.",
     "preserved_assets": [
       "All V1 code (orchestrator, eval_harness, router, ground_truth, etc.)",
       "data/apachejit/ + data/repos/ (Camel, Hadoop clones)",
