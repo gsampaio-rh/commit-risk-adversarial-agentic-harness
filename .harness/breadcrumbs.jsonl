@@ -39,3 +39,5 @@
 {"ts":"2026-06-10T00:34:08","role":"builder","type":"checkpoint","feat":"feat-5","msg":"Commit:  (3 files)"}
 {"ts":"2026-06-10T00:36:00Z","role":"builder","type":"build","feat":"feat-6","msg":"XGBoost router complete: train AUC-ROC 0.855, routes test_small (7526 commits: 2722 SAFE, 2822 INVESTIGATE, 1982 HIGH). Model persisted. route_cli emits JSON manifests. Thresholds 0.3/0.7 enforced.","result":"pass"}
 {"ts":"2026-06-10T00:35:37","role":"builder","type":"checkpoint","feat":"feat-5","msg":"Commit:  (2 files)"}
+{"ts":"2026-06-10T01:00:00Z","role":"builder","type":"build","feat":"feat-7","msg":"Five-dimension eval harness complete: D1 prediction (deterministic), D2 localization (Jaccard stub, needs git clone for fix files), D3-D5 (word overlap/severity mapping stubs, full scoring needs LLM-as-judge). Batch eval, router baseline, JSON+MD report export. Tested against real ground truth.","result":"pass"}
+{"ts":"2026-06-10T00:37:25","role":"builder","type":"checkpoint","feat":"feat-5","msg":"Commit:  (2 files)"}

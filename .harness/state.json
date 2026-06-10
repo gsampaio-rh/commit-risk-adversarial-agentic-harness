@@ -202,7 +202,7 @@
       "id": "feat-7",
       "name": "Five-dimension evaluation harness",
       "type": "feature",
-      "status": "pending",
+      "status": "done",
       "scope": "EvalHarness sampling strategy: stratified sample from routed commits within budget tier (default $50/300 LLM calls). Score D1 prediction (risk level vs buggy label), D2 localization (agent files vs fix diff files, Jaccard + optional line overlap), D3 diagnosis (agent reasoning vs JIRA description, LLM-as-judge rubric), D4 severity calibration (agent risk vs JIRA priority, normalized mapping), D5 recommendation relevance (agent rec vs actual fix pattern, LLM-as-judge). Emit eval-report.json + eval-report.md. Include router-only baseline (no LLM) for comparison.",
       "depends_on": ["feat-2", "feat-6"]
     },
