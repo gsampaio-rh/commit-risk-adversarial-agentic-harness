@@ -154,7 +154,7 @@
       "id": "feat-1",
       "name": "Project scaffold and documentation shell",
       "type": "feature",
-      "status": "pending",
+      "status": "done",
       "scope": "New src/ package (investigator), pyproject.toml (rename from cr-analyzer, add deps: pydantic, httpx for JIRA, xgboost, scikit-learn; optional dev: pytest, mypy). README.md and ARCHITECTURE.md rewritten for investigative agent thesis. docs/ recreated minimally: experiment-context.md (updated thesis), datasets.md (ApacheJIT ground truth chain section), evaluation.md (5-dimension framework stub). No agent logic yet.",
       "depends_on": ["chore-0"]
     },
