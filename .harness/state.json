@@ -194,7 +194,7 @@
       "id": "feat-6",
       "name": "XGBoost routing layer",
       "type": "feature",
-      "status": "pending",
+      "status": "done",
       "scope": "Train XGBoost on apachejit_train.csv numeric features (LA, LD, NF, ND, NS, ENT, NDEV, AGE, EXP, REXP, SEXP, etc.). Router classifies: SAFE (<0.3), INVESTIGATE (0.3-0.7), HIGH (>0.7). CLI: route --split test_small|test_large emits routing manifest. Integrate with orchestrator: INVESTIGATE/HIGH run agent; SAFE skips. Persist router model + metrics (AUC, calibration) for harness comparison.",
       "depends_on": ["feat-5"]
     },
