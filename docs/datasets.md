@@ -69,7 +69,7 @@ data/
     └── hadoop/
 ```
 
-## Related Documents
+## Related
 
-- [Experiment context](experiment-context.md) — why ApacheJIT enables six-dimension eval
-- [Evaluation](evaluation.md) — how ground truth feeds D1–D5 scoring
+- [experiment-context.md](experiment-context.md) — why ApacheJIT enables six-dimension eval
+- [evaluation.md](evaluation.md) — how ground truth feeds D1–D6 scoring

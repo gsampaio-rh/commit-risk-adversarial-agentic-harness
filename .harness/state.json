@@ -3,12 +3,12 @@
   "phase": "investigation-quality",
   "created": "2026-06-10T14:00:00Z",
   "schema_version": 2,
-  "vision": "The V1 harness is built and validated: routing, context construction, schema validation, 6-dimension eval, cost governance, artifact persistence. The agent investigates commits and produces grounded evidence (D6=0.85). But it fails 3/6 acceptance gates — it can't reliably classify risk (D1=0.40) or identify root causes (D3=0.13) without the ground truth label. This phase focuses on improving investigation quality through systematic prompt engineering and eval iteration, not infrastructure changes.",
-  "direction": "Two-tier improvement: Tier 1 (iter-1/2) — method changes (prompt, context injection) with loop frozen. Tier 2 (triggered by plateau) — loop architecture becomes variable: multi-turn, bundle expansion, judge split. Eval diagnoses; humans change method or loop based on forensics.",
+  "vision": "The V1 harness is built and validated. iter-1 prompt engineering (rubric + staged CoT + router probability) moved D1 from 0.40 to 0.60 and D3 from 0.13 to 0.20 on Claude Sonnet 4.6 production data (n=20). D6 stable at 0.85. 5/6 gates pass at n=20. Next: diagnose D3 failure modes (EXP-FORENSICS-TAG) and validate at n=50 (iter-2).",
+  "direction": "Two-tier improvement: Tier 1 (iter-1/2) — method changes (prompt, context injection) with loop frozen. Tier 2 (triggered by plateau) — loop architecture becomes variable. tier_2_pivot NOT triggered (ΔD1=+0.20, ΔD3=+0.07).",
   "prior_phase": {
     "name": "v1-build",
     "archived_to": ".harness/archive/phases/v1-build/state.json",
-    "summary": "11 tasks (scaffold → eval run). All done and committed. Built: GroundTruthGraph, GitContextProvider, CommitContextBuilder, AgentOrchestrator, XGBoostRouter, EvalHarness (6D), ReasoningJudge, CursorSDK provider, timestamped runs. 76 tests. Data leakage found and fixed post-V1 (buggy/fix labels).",
+    "summary": "11 tasks (scaffold → eval run). All done and committed. Built: GroundTruthGraph, GitContextProvider, CommitContextBuilder, AgentOrchestrator, XGBoostRouter, EvalHarness (6D), ReasoningJudge, CursorSDK provider, timestamped runs. Data leakage found and fixed post-V1.",
     "key_commits": ["c2341e2", "6ca573d", "731c088"]
   },
   "acceptance_thresholds": {
@@ -31,19 +31,25 @@
     "baseline_rule": "soft — emit WARNING if D1_agent < D1_always_predict_clean or D1_router_only"
   },
   "current_baseline": {
-    "run": "output/runs/2026-06-10_13-17-45_real_n5",
-    "note": "First clean run after buggy/fix label leak fix. n=5 is too small for conclusions but establishes direction.",
+    "run": "output/runs/2026-06-10_17-12-55_real_n20",
+    "note": "iter-1 production eval with Claude Sonnet 4.6. n=20 stratified (10 buggy + 10 clean). Verified by evaluator round 8.",
+    "provider": "cursor-sdk/claude-sonnet-4-6",
     "scores": {
-      "D1": 0.40, "D2": 0.08, "D3": 0.13, "D4": 0.84, "D5": 0.50, "D6": 0.85
+      "D1": 0.60, "D2": 0.15, "D3": 0.20, "D4": 0.90, "D5": 0.37, "D6": 0.85
+    },
+    "strata": {
+      "buggy": {"D1": 0.80, "D2": 0.30, "D3": 0.20, "D6": 0.90, "_count": 10},
+      "clean": {"D1": 0.40, "D6": 0.80, "_count": 10}
     },
     "vs_gate": {
-      "D1": "FAIL (0.40 < 0.70)",
-      "D2": "FAIL (0.08 < 0.15)",
-      "D3": "FAIL (0.13 < 0.20)",
+      "D1": "FAIL (0.60 < 0.70) — iter-1 target 0.50 PASS",
+      "D2": "PASS (0.15 = 0.15)",
+      "D3": "PASS (0.20 = 0.20)",
       "D4": "PASS",
       "D5": "PASS",
       "D6": "PASS"
-    }
+    },
+    "key_finding": "6/10 clean commits classified HIGH (false positive problem). Agent generates plausible SUPPORTED hypotheses on clean commits."
   },
   "improvement_process": {
     "description": "Two-tier improvement model per eval-agent-loop-design.json.",
@@ -55,35 +61,36 @@
     "tier_2": {
       "scope": "Loop architecture: max_turns, bundle expansion, judge model split, deterministic context expansion",
       "trigger": "Post-iter-1 n=20: ΔD3 < 0.05 AND ΔD1 < 0.10, OR EXP-FORENSICS-TAG shows >40% missing-context-likely",
+      "trigger_status": "NOT TRIGGERED (ΔD1=+0.20, ΔD3=+0.07)",
       "tasks": ["EXP-MULTITURN-AB", "EXP-BUNDLE-EXPAND", "EXP-JUDGE-SWAP", "iter-3", "iter-4"]
     },
     "cycle": [
       "1. Hypothesize: which prompt/loop change will move which dimension?",
       "2. Implement: change orchestrator.py prompt or context assembly",
-      "3. Smoke test: run n=5 to catch regressions quickly (~4 min, ~$0.02)",
-      "4. Validate: run n=20 stratified eval to measure dimension scores (~20 min, ~$0.07)",
+      "3. Smoke test: run n=5 to catch regressions quickly (~5 min, ~$0.02)",
+      "4. Validate: run n=20 stratified eval to measure dimension scores (~24 min, ~$0.10)",
       "5. Compare: check against baseline and thresholds, analyze per-commit eval JSONs",
       "6. Decide: if gate-trending, run n=50 for statistical confidence; if flat, activate Tier 2"
     ],
     "constraints": [
       "Oracle isolation must hold — agent never sees buggy/fix/year labels",
-      "76+ tests must pass after every change",
+      "86+ tests must pass after every change",
       "D6 ≥ 0.70 is a hard regression guard in every eval run",
       "Each iteration tracked as a breadcrumb with before/after scores"
     ]
   },
   "failure_analysis": {
-    "D1_why_failing": "Agent defaults to MEDIUM risk. Without the buggy label, it lacks a strong internal signal to push toward HIGH/CRITICAL. The XGBoost router already scored these commits 0.3-0.7 (gray zone), but the agent doesn't see this probability.",
-    "D2_why_failing": "Agent lists files it analyzed (touched files from the diff) rather than files most likely to contain the bug. Jaccard penalizes extra files heavily.",
-    "D3_why_failing": "Agent describes code structure changes accurately (D6=0.85 proves this) but cannot deduce the failure mechanism — it says 'this is complex' instead of 'this introduces a null pointer when X is empty'. Needs calibration examples showing the difference."
+    "D1_why_failing": "D1=0.60 (gate 0.70). Buggy recall is good (0.80) but 6/10 clean commits classified HIGH. The rubric generates plausible SUPPORTED hypotheses on clean commits — Claude's reasoning ability works against precision. Needs clean-commit discrimination.",
+    "D2_status": "D2=0.15, at gate boundary. Agent still lists files analyzed rather than defect locus, but rubric (e) criterion forces correct localization on some commits.",
+    "D3_status": "D3=0.20, at gate boundary. Mixed: b4c933b7 gets D3=0.75 (correct classloader mechanism), but 90846b5 gets D3=0.0 (wrong root cause — binary incompat vs deadlock). Judge infra issues (JIRA no description) also cause D3=0.0."
   },
   "tasks": [
     {
       "id": "spike-0",
       "name": "Research spike: optimal investigation harness design",
       "type": "spike",
-      "status": "verified",
-      "scope": "Define investigation harness as system architecture: ARCHITECTURE.md (identity, method, eval loop, improvement cycle), docs/harness.md (agent loop, control plane, operational enforcement), terminology alignment, agent-loop design critique. Research in docs/spike-investigation-harness.md. No code changes.",
+      "status": "committed",
+      "scope": "Define investigation harness as system architecture. Research in .harness/archive/docs/spike-investigation-harness.md.",
       "depends_on": [],
       "eval_report": ".harness/evals/eval-spike-0-final.json",
       "completed_at": "2026-06-10T20:15:00Z"
@@ -92,21 +99,22 @@
       "id": "iter-1",
       "name": "Prompt engineering: A+B hybrid + router prior",
       "type": "feature",
-      "status": "verified",
-      "scope": "Implement spike §5.2 system prompt (rubric + staged CoT + hedge-ban + 2 few-shots) and §5.3 router_probability injection in orchestrator.py. Add fix-commit residual-risk rubric guard. Smoke n=5 (D6≥0.70 revert gate) + individual commits f897d46/90846b5/b4c933b7. Validate n=20: targets D1≥0.50, D3≥0.18. Check 3 reports for few-shot parroting.",
+      "status": "committed",
+      "scope": "Implemented spike §5.2 system prompt + §5.3 router_probability injection. Production-verified with Claude Sonnet 4.6: D1=0.60 (+0.20), D3=0.20 (+0.07), D6=0.85 (stable).",
       "depends_on": ["spike-0"],
       "contract": "iter-1",
       "eval_report": ".harness/evals/eval-iter-1.json",
       "completed_at": "2026-06-10T15:30:19Z",
+      "production_run": "output/runs/2026-06-10_17-12-55_real_n20"
     },
     {
       "id": "EXP-FORENSICS-TAG",
       "name": "Experiment: classify D3 failure modes",
       "type": "experiment",
       "status": "pending",
-      "scope": "Tag n=50 (or available n=100 eval JSONs) D3≤0.25 commits into {hedging, generic-structure, missing-context-likely, judge-infra}. Determines whether next iteration is method (prompt) or loop (bundle expansion). Run in parallel with iter-1 — does not block prompt implementation.",
-      "depends_on": ["spike-0"],
-      "cost_estimate": "~$0.05 LLM assist or ~2hr human",
+      "scope": "Tag D3≤0.25 commits from Claude n=20 into {wrong-mechanism, judge-infra, missing-context-likely, clean-FP}. Determines whether iter-2 focus is prompt refinement or loop architecture.",
+      "depends_on": ["iter-1"],
+      "cost_estimate": "~$0 (manual analysis of eval JSONs)",
       "decision_rule": "If >40% tagged missing-context-likely, prioritize EXP-BUNDLE-EXPAND in iter-2 track"
     },
     {
@@ -114,45 +122,45 @@
       "name": "Experiment: multi-turn A/B (max_turns 1 vs 3)",
       "type": "experiment",
       "status": "pending",
-      "scope": "n=20 stratified eval with iter-1 prompt: max_turns=1 vs max_turns=3, identical bundle. Measure ΔD1, ΔD3, ΔD2, cost/commit, follow-up trigger rate. Score turn-1-only vs final merged report.",
+      "scope": "n=20 stratified eval with iter-1 prompt: max_turns=1 vs max_turns=3, identical bundle.",
       "depends_on": ["iter-1"],
       "cost_estimate": "~$0.15",
-      "decision_rule": "If ΔD3≥0.05 or ΔD1≥0.10 with ≤60% cost increase, merge multi-turn into iter-2 validation — do not defer to iter-3"
+      "decision_rule": "If ΔD3≥0.05 or ΔD1≥0.10 with ≤60% cost increase, merge multi-turn into iter-2"
     },
     {
       "id": "iter-2",
-      "name": "Validate at n=50 + Tier-2 experiments if triggered",
+      "name": "Validate at n=50 + experiments",
       "type": "validation",
       "status": "pending",
-      "scope": "Run n=50 stratified eval to confirm iter-1 improvements are statistically stable. All 6 gates must pass for delivery. If EXP-MULTITURN-AB shows lift, include max_turns=3 arm. If EXP-FORENSICS-TAG shows missing-context dominance, run EXP-BUNDLE-EXPAND (test files + blame injection) before n=50. Mandate EXP-JUDGE-SWAP before declaring n=50 gate pass.",
-      "depends_on": ["iter-1", "EXP-MULTITURN-AB"]
+      "scope": "Run n=50 stratified eval to confirm iter-1 improvements are statistically stable. All 6 gates must pass for delivery.",
+      "depends_on": ["iter-1", "EXP-FORENSICS-TAG"]
     },
     {
       "id": "EXP-JUDGE-SWAP",
       "name": "Experiment: cross-model judge vs same-model",
       "type": "experiment",
       "status": "pending",
-      "scope": "Re-score n=20 investigation reports with cross-model judge (different provider/model than Sonnet investigator). Compare mean D3/D5, rank correlation, gate flip rate.",
+      "scope": "Re-score n=20 investigation reports with cross-model judge.",
       "depends_on": ["iter-1"],
       "cost_estimate": "~$0.05",
-      "decision_rule": "If mean D3 drops ≥0.03 or ≥3 commits flip gate status, mandate split judge before n=50 acceptance"
+      "decision_rule": "If mean D3 drops ≥0.03 or ≥3 commits flip gate status, mandate split judge before n=50"
     },
     {
       "id": "EXP-BUNDLE-EXPAND",
       "name": "Experiment: deterministic context expansion",
       "type": "experiment",
       "status": "pending",
-      "scope": "n=5 smoke on D6≥0.7 D3≤0.25 commits: (a) baseline, (b) +auto test files, (c) +blame snippets, (d) b+c. Orchestrator-only flags on CommitContextBuilder — no LLM tool selection.",
+      "scope": "n=5 smoke: (a) baseline, (b) +auto test files, (c) +blame snippets, (d) b+c.",
       "depends_on": ["EXP-FORENSICS-TAG"],
       "cost_estimate": "~$0.02",
-      "decision_rule": "If (b) or (c) lifts D3≥0.25 on ≥2/5 without D6 regression, add to context builder before iter-4"
+      "decision_rule": "If (b) or (c) lifts D3≥0.25 on ≥2/5 without D6 regression, add to context builder"
     },
     {
       "id": "iter-3",
-      "name": "Multi-turn investigation (if not merged from EXP-MULTITURN-AB)",
+      "name": "Multi-turn investigation",
       "type": "feature",
       "status": "pending",
-      "scope": "Enable turn 2–3 for low-confidence commits (confidence <0.6, empty localization, explicit uncertainty). Follow-up: targeted failure-mode question + deeper blame/history. Only if EXP-MULTITURN-AB did not already promote multi-turn to iter-2. Same or stronger model on follow-up turns (not cheaper).",
+      "scope": "Enable turn 2–3 for low-confidence commits. Only if EXP-MULTITURN-AB did not already promote multi-turn to iter-2.",
       "depends_on": ["iter-2"]
     },
     {
@@ -160,7 +168,7 @@
       "name": "D2 localization + deterministic bundle expansion",
       "type": "feature",
       "status": "pending",
-      "scope": "Prompt agent to distinguish defect locus from analysis scope. If EXP-BUNDLE-EXPAND showed lift, integrate test-file and blame injection into CommitContextBuilder. May improve with D3 gains from iter-1/3.",
+      "scope": "Prompt agent to distinguish defect locus from analysis scope. Integrate EXP-BUNDLE-EXPAND results if positive.",
       "depends_on": ["iter-1", "EXP-BUNDLE-EXPAND"]
     },
     {
@@ -168,36 +176,26 @@
       "name": "Experiment: Sonnet vs Opus on hard commits",
       "type": "experiment",
       "status": "pending",
-      "scope": "10 commits with D3=0 and D6≥0.7. Run Sonnet vs Opus/reasoning model, same prompt. Measure ΔD3 and cost.",
+      "scope": "10 commits with D3=0 and D6≥0.7. Run Sonnet vs Opus/reasoning model.",
       "depends_on": ["iter-1"],
       "cost_estimate": "~$0.10",
-      "decision_rule": "If Opus ΔD3≥0.15 on subset, consider tiered routing for INVESTIGATE zone; if flat, stay Sonnet"
+      "decision_rule": "If Opus ΔD3≥0.15 on subset, consider tiered routing"
     }
   ],
   "risks": [
     {
-      "risk": "Prompt changes improve D1 but regress D6 (agent starts guessing instead of grounding)",
-      "mitigation": "D6≥0.70 is a hard constraint in every eval. Regression = revert.",
-      "severity": "medium"
-    },
-    {
-      "risk": "Few-shot examples cause parroting — agent copies example language instead of reasoning from actual diff",
-      "mitigation": "EC-2 in contract: check 3 random eval reports for example language leakage",
-      "severity": "medium"
-    },
-    {
-      "risk": "Router probability injection creates a new form of leakage (agent uses P as proxy for buggy)",
-      "mitigation": "Router is trained on train split only. P correlates with buggy but is not the label — same as any ML feature. Oracle isolation tests verify no GT fields leak.",
-      "severity": "low"
-    },
-    {
-      "risk": "n=5 baseline is too noisy — improvements may be sample variance",
-      "mitigation": "iter-2 validates at n=50. Don't declare victory on n=20.",
-      "severity": "medium"
+      "risk": "False positives on clean commits (6/10 clean → HIGH)",
+      "mitigation": "EXP-FORENSICS-TAG will classify these as clean-FP. If dominant, iter-2 adds clean-commit discrimination to rubric.",
+      "severity": "high"
     },
     {
       "risk": "Same-model judge inflates D3 scores — false progress signal",
       "mitigation": "EXP-JUDGE-SWAP mandatory before n=50 gate declaration",
+      "severity": "medium"
+    },
+    {
+      "risk": "D3 at exact gate boundary (0.20 = 0.20) — unstable",
+      "mitigation": "n=50 will determine whether 0.20 is real or sample variance",
       "severity": "medium"
     },
     {
@@ -207,13 +205,13 @@
     }
   ],
   "session_handoff": {
-    "for_new_chat": "Phase: investigation-quality. spike-0 VERIFIED (eval-spike-0-final.json). Next: iter-1 — implement spike §5.2 prompt + §5.3 router_probability in orchestrator.py. Contract at .harness/contract.json (iter-1, negotiated). Parallel: EXP-FORENSICS-TAG. After iter-1: EXP-MULTITURN-AB. Baseline: n=5 clean (D1=0.40, D3=0.13, D6=0.85). 76 tests.",
+    "for_new_chat": "Phase: investigation-quality. iter-1 COMMITTED (production-verified, Claude Sonnet 4.6 n=20). Current baseline: D1=0.60, D3=0.20, D6=0.85. 5/6 gates pass. Next: EXP-FORENSICS-TAG (classify D3 failure modes from n=20 eval JSONs). Then iter-2 (n=50). 86 tests. Docs reorganized: architecture.md + agent-loop.md + harness.md + evaluation.md + experiment-context.md + datasets.md. Spikes archived to .harness/archive/docs/.",
     "preserved_assets": [
       "All V1 code (orchestrator, eval_harness, router, ground_truth, etc.)",
       "data/apachejit/ + data/repos/ (Camel, Hadoop clones)",
       "output/runs/ (all run artifacts including invalidated ones)",
       ".harness/archive/phases/v1-build/ (prior state)",
-      "docs/spike-investigation-harness.md §5.2 (iter-1 prompt template)"
+      ".harness/archive/docs/spike-investigation-harness.md (iter-1 prompt template)"
     ]
   }
 }

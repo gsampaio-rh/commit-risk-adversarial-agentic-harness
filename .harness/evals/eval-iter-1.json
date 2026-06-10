@@ -1,88 +1,190 @@
 {
   "task_id": "iter-1",
   "eval_type": "adversarial",
-  "eval_round": 6,
-  "timestamp": "2026-06-10T15:30:19Z",
+  "eval_round": 8,
+  "calibration": "production",
+  "timestamp": "2026-06-10T17:45:00Z",
   "verdict": "PASS",
-  "summary": "All code and measurement ACs verified. Builder unblocked eval via Ollama local fallback + JSON coercion fix. Real runs: n=5 D6=1.00 (AC-4), commit-ids smoke f897d46/90846b5/b4c933b7 (AC-5), n=20 D1=0.50 D3=0.60 D6=0.9125 (AC-6). Parroting check on 3 random n=20 reports: clean (AC-9). Anti-parrot prompt fix verified on b4c933b7 retest. AC-10 breadcrumb with before/after scores. 86 pytest pass. Caveat: measurements used local Ollama (llama3.1:8b), not Cursor SDK — recommend CURSOR_API_KEY re-run for production calibration; f897d46 remains MEDIUM (EC-4 documented, rubric criterion (e) added).",
+  "summary": "Production calibration retest (cursor-sdk/claude-sonnet-4-6): 10/10 AC PASS, 4/4 EC PASS. n=20 stratified eval complete (output/runs/2026-06-10_17-12-55_real_n20): D1=0.60≥0.50, D3=0.20≥0.18 (interim targets met). AC-9 parroting check on seed=42 sample (3/20 reports): no WidgetConverter/library Z or verbatim example phrasing. AC-10 PASS — Claude before/after breadcrumb at 2026-06-10T17:20:00Z. Key finding: Claude D3=0.20 vs Ollama D3=0.60 (−0.40); 6/10 clean commits classified HIGH (false positives). tier_2_pivot NOT triggered (ΔD1=+0.20, ΔD3=+0.07). Full gate D1=0.60 still below 0.70 at n=50 scale.",
+  "provider": "cursor-sdk/claude-sonnet-4-6",
   "criteria": {
     "AC-1": {
       "status": "PASS",
-      "evidence": "INVESTIGATION_SYSTEM_PROMPT: STAGE 1–4, rubric (a)–(e), hedge-ban, fix-commit guard, abstract EXAMPLE A/B with anti-parrot RULE."
+      "evidence": "INVESTIGATION_SYSTEM_PROMPT in orchestrator.py (unchanged from round 7): STAGE 1–4, rubric (a)–(e), hedge-ban phrases, fix-commit residual-risk rule, abstract EXAMPLE A/B with anti-parrot RULE ('NEVER reuse names... WidgetConverter.java, library Z'). Matches spike §5.2 intent."
     },
     "AC-2": {
       "status": "PASS",
-      "evidence": "router_probability injected per §5.3; run_eval wires RoutingDecision."
+      "evidence": "run_eval.py sets context.router_probability and context.router_route from RoutingDecision. orchestrator._build_initial_messages injects '## ML Risk Prior\\nrouter_probability={p:.3f} (route={route})' with prior disclaimer. Verified in n=20 run-config metadata (provider cursor-sdk/claude-sonnet-4-6)."
     },
     "AC-3": {
       "status": "PASS",
-      "evidence": "Fix-commit residual-risk rule in prompt + unit test."
+      "evidence": "Prompt RULES: 'Do NOT assign LOW/MEDIUM solely because the commit message mentions a fix... still requires ≥ HIGH when a SUPPORTED mechanism exists.' Unit test test_system_prompt_has_fix_commit_residual_risk_rule passes. Production: b4c933b7 D3=0.75 on commit-smoke; f897d46/90846b5/572f3cee all HIGH on n=20 despite varied framing."
     },
     "AC-4": {
       "status": "PASS",
-      "evidence": "Real n=5 stratified: output/runs/2026-06-10_15-18-55_real_n5 eval-report.json D6=1.00 (≥0.70 gate)."
+      "evidence": "Claude n=5 stratified run output/runs/2026-06-10_16-45-28_real_n5/eval-report.json: D6=0.80 (≥0.70 hard revert gate). Provider=cursor-sdk/claude-sonnet-4-6. Buggy stratum D6=1.0, clean stratum D6=0.67."
     },
     "AC-5": {
       "status": "PASS",
-      "evidence": "Real commit-ids run output/runs/2026-06-10_15-20-58_real_n3: f897d46=MEDIUM (416-line codegen hypotheses), 90846b5=MEDIUM (serviceName/NPE hypotheses), b4c933b7=MEDIUM (classloader hypotheses). D3 scores 0.0/0.25/0.75 in eval-report."
+      "evidence": "Claude commit-ids smoke output/runs/2026-06-10_16-51-19_real_n3/eval-report.json documents all three commits with risk_level and D3-relevant reasoning: f897d46 risk=HIGH D3=0.0 (judge-infra: JIRA no description); 90846b5 risk=HIGH D3=0.0 (wrong root cause: binary incompatibility vs Spring Boot deadlock); b4c933b7 risk=HIGH D3=0.75 (classloader mechanism match). All three HIGH vs Ollama MEDIUM."
     },
     "AC-6": {
       "status": "PASS",
-      "evidence": "Real n=20: output/runs/2026-06-10_15-22-32_real_n20 D1=0.50 (≥0.50), D3=0.60 (≥0.18), D6=0.9125. Stratified 10 buggy / 10 clean."
+      "evidence": "n=20 stratified eval COMPLETE: output/runs/2026-06-10_17-12-55_real_n20/eval-report.json — 20/20 evaluated, 10 buggy/10 clean, provider=cursor-sdk/claude-sonnet-4-6, cost=$0.097, elapsed=1437.6s. D1=0.60 (≥0.50 interim target PASS). D3=0.20 (≥0.18 interim target PASS, exactly at boundary). D6=0.85 (≥0.70 hard guard PASS). Buggy stratum: D1=0.80, D3=0.20. Clean stratum: D1=0.40 (6/10 clean classified HIGH)."
     },
     "AC-7": {
       "status": "PASS",
-      "evidence": "86 pytest pass; 7 oracle isolation tests pass."
+      "evidence": "pytest 86 passed (verified 2026-06-10T17:45Z). Oracle isolation: tests/test_context_builder.py 7 passed — buggy/fix excluded from csv_features allowlist. No oracle test changes in iter-1 commit 1e0ea15."
     },
     "AC-8": {
       "status": "PASS",
-      "evidence": "src/ changes: orchestrator.py, context_builder.py, run_eval.py, llm.py (Ollama fallback + JSON coercion). No multi-turn or bundle expansion."
+      "evidence": "iter-1 commit 1e0ea15 src changes limited to orchestrator.py (prompt), context_builder.py (router fields), run_eval.py (wiring), llm.py (Ollama fallback), tests. No max_turns change, no CommitContextBuilder bundle expansion, no multi-turn enable."
     },
     "AC-9": {
       "status": "PASS",
-      "evidence": "3 random n=20 investigations (seed=42): 572f3cee, 2213f719, fe57a498 — no DefaultExchange/library X/WidgetConverter parrot phrases."
+      "evidence": "Random sample seed=42 from n=20 investigations (3/20): 24d9de042248_camel.json, 0a3aa40fe787_hadoop.json, 572f3cee35fe_camel.json. Grep of all 20 investigation JSONs: zero matches for WidgetConverter, library Z, DefaultExchange, 'HYPOTHESIS: If null property', 'HYPOTHESIS: If null input'. Sample reports use actual commit files (CacheManagerCustomizer.java, CapacitySchedulerQueueManager.java, XmppBinding.java) and commit-specific hypotheses — no copied few-shot phrasing."
     },
     "AC-10": {
       "status": "PASS",
-      "evidence": "Breadcrumb 2026-06-10T15:30:19Z: before D1=0.40/D3=0.13/D6=0.85 vs after n=5 D1=0.60/D3=0.375/D6=1.00 and n=20 D1=0.50/D3=0.60/D6=0.9125."
+      "evidence": "Breadcrumb 2026-06-10T17:20:00Z documents Claude before/after: BEFORE baseline n=5 (D1=0.40, D2=0.08, D3=0.13, D4=0.84, D5=0.50, D6=0.85). AFTER iter-1 n=5 Claude (D1=0.80, D3=0.00, D6=0.80). AFTER commit-smoke (D1=1.0, D3=0.25, D6=1.0). Follow-up breadcrumb 2026-06-10T17:37:00Z adds n=20 Claude scores (D1=0.60, D3=0.20, D6=0.85)."
     }
   },
   "edge_cases": {
     "EC-1": {
       "status": "PASS",
-      "evidence": "Oracle isolation tests pass; router_probability is ML prior."
+      "evidence": "7 oracle isolation tests pass. Agent receives router_probability ML prior, not buggy/fix labels. Clean commit b9f1653 classified HIGH from diff reasoning (deleted Jetty incompatibility comment), not from label leak — demonstrates over-assertion, not leakage."
     },
     "EC-2": {
       "status": "PASS",
-      "evidence": "Pre-fix b4c933b7 parroted DefaultExchange (fail caught). Post-fix retest output/runs/2026-06-10_15-31-00_real_b4c933b7_retest uses actual ConnectorModel/DefaultConnectorComponent names only."
+      "evidence": "AC-9 sample + full n=20 grep: no few-shot parroting. Agent follows STAGE 1–4 structure from examples but generates commit-specific hypotheses (ehcache property rename, iterator.remove fix, reactive-streams generic removal) rather than copying WidgetConverter/library Z templates."
     },
     "EC-3": {
       "status": "PASS",
-      "evidence": "n=5 D6=1.00 ≥ 0.70 — no D6 regression."
+      "evidence": "Claude n=5 D6=0.80 ≥ 0.70. Claude n=20 D6=0.85 (vs baseline 0.85, Ollama iter-1 0.9125). Assertive rubric floor does not collapse evidence grounding on production model."
     },
     "EC-4": {
       "status": "PASS",
-      "evidence": "f897d46 remains MEDIUM on Ollama smoke. Documented; rubric criterion (e) added for large untested production surface. Recommend Cursor SDK re-smoke to validate D1 lift on f897d46."
+      "evidence": "f897d46 on Claude commit-smoke and n=20: risk=HIGH (not MEDIUM). Rubric criterion (e) fires on 416-line SpringBootAutoConfigurationMojo with no tests. D3=0.0 on f897d46 is judge-infra (JIRA no description), not rubric gap."
     }
   },
-  "blocked_reason": null,
-  "recommendation": "proceed",
+  "production_calibration": {
+    "provider": "cursor-sdk/claude-sonnet-4-6",
+    "status": "complete",
+    "eval_round": 8,
+    "n20_run": "output/runs/2026-06-10_17-12-55_real_n20",
+    "cost_usd": 0.097,
+    "elapsed_minutes": 24,
+    "claude_n20_scores": {
+      "D1": 0.6,
+      "D2": 0.15,
+      "D3": 0.2,
+      "D4": 0.9,
+      "D5": 0.37,
+      "D6": 0.85
+    },
+    "claude_n5_scores": {
+      "D1": 0.8,
+      "D3": 0.0,
+      "D6": 0.8,
+      "run": "output/runs/2026-06-10_16-45-28_real_n5"
+    },
+    "pre_iter_baseline": {
+      "D1": 0.4,
+      "D3": 0.13,
+      "D6": 0.85,
+      "run": "output/runs/2026-06-10_13-17-45_real_n5"
+    },
+    "ollama_iter1_n20": {
+      "D1": 0.5,
+      "D3": 0.6,
+      "D6": 0.9125,
+      "run": "output/runs/2026-06-10_15-22-32_real_n20"
+    },
+    "vs_ollama_n20": {
+      "D1_delta": 0.1,
+      "D3_delta": -0.4,
+      "D6_delta": -0.0625,
+      "interpretation": "Claude lifts D1 (+0.10) via aggressive rubric floor but regresses D3 sharply (−0.40). Likely model behavior difference, not prompt regression: Claude generates more plausible SUPPORTED hypotheses on clean commits (6/10 false HIGH), inflating D1 while D3 judge scores generic/wrong mechanisms at 0. Ollama assigned all commits MEDIUM, masking rubric floor and yielding higher D3 on the subset where it happened to match."
+    },
+    "vs_interim_targets": {
+      "D1": {"score": 0.6, "target": 0.5, "pass": true},
+      "D3": {"score": 0.2, "target": 0.18, "pass": true, "note": "Exactly at boundary — fragile PASS"},
+      "D6": {"score": 0.85, "target": 0.7, "pass": true}
+    },
+    "vs_full_gate_n50": {
+      "D1": {"score": 0.6, "gate": 0.7, "pass": false},
+      "D3": {"score": 0.2, "gate": 0.2, "pass": true, "note": "At gate boundary on n=20 only"},
+      "note": "iter-1 interim targets met; full delivery gate requires n=50 confirmation"
+    },
+    "strata_analysis": {
+      "buggy_n10": {"D1": 0.8, "D3": 0.2, "D6": 0.9, "high_count": 8, "medium_count": 2},
+      "clean_n10": {"D1": 0.4, "D6": 0.8, "false_high_count": 6, "false_high_ids": ["b9f16531", "9530370f", "4a72341e", "7cff0990", "24d9de04", "ce2d5bfa"]},
+      "pattern": "Agent is aggressive — high buggy recall (8/10 HIGH) but poor clean precision (6/10 false HIGH). Rubric criteria (a)/(b) fire on plausible integration-risk narratives even on clean commits."
+    },
+    "d3_regression_analysis": {
+      "severity": "high_concern_documented_not_fail",
+      "claude_d3": 0.2,
+      "ollama_d3": 0.6,
+      "delta": -0.4,
+      "likely_causes": [
+        "Claude SUPPORTED-hypothesis generation on clean commits produces confident but wrong mechanisms — judge scores 0 (e.g., b9f1653 Jetty comment removal, 24d9de042248 ehcache property rename)",
+        "90846b5 wrong root cause persists on Claude (binary incompatibility vs actual Spring Boot deadlock) — agent reasoning failure, not judge infra",
+        "f897d46 D3=0.0 on both n=5 and commit-smoke due to JIRA missing description — judge infra, not prompt",
+        "Same-model judge may inflate Ollama D3 when agent hedges with generic structure; Claude's assertive wrong hypotheses score 0 more consistently"
+      ],
+      "tier_2_pivot": {
+        "triggered": false,
+        "delta_D1_vs_baseline": 0.2,
+        "delta_D3_vs_baseline": 0.07,
+        "thresholds": {"delta_D1": "<0.10", "delta_D3": "<0.05"},
+        "assessment": "Improvement on both dimensions vs pre-iter baseline — tier-2 loop experiments NOT auto-triggered"
+      }
+    }
+  },
+  "tier_2_pivot": {
+    "status": "NOT_TRIGGERED",
+    "pre_iter_baseline": {"D1": 0.4, "D3": 0.13},
+    "claude_n20": {"D1": 0.6, "D3": 0.2, "delta_vs_baseline": {"D1": 0.2, "D3": 0.07}},
+    "assessment": "Both ΔD1 (+0.20) and ΔD3 (+0.07) exceed pivot thresholds. Prompt-only iter-1 shows measurable lift on production model. D3 Ollama gap is a calibration finding, not a pivot trigger."
+  },
+  "recommendation": {
+    "next_task": "EXP-FORENSICS-TAG",
+    "rationale": "iter-1 contract PASS on Claude interim targets. Before iter-2 n=50 validation, classify D3≤0.25 commits from Claude n=20 (and available Ollama runs) into {hedging, generic-structure, missing-context-likely, judge-infra, wrong-mechanism}. The −0.40 D3 Ollama-vs-Claude gap and 6/10 clean false-HIGH pattern need forensics to decide whether iter-2 is prompt tuning (clean-commit rubric guard, hedge calibration) or loop change (EXP-BUNDLE-EXPAND). EXP-FORENSICS-TAG is parallel-safe, ~$0.05, and directly informs iter-2 scope.",
+    "sequencing": [
+      "1. EXP-FORENSICS-TAG — tag D3 failures on Claude n=20 eval JSONs",
+      "2. EXP-JUDGE-SWAP — cross-model re-score n=20 before trusting D3=0.20 at boundary",
+      "3. iter-2 prep — if >40% missing-context-likely, prioritize EXP-BUNDLE-EXPAND; if wrong-mechanism/clean-FP dominant, prompt rubric amendment for clean commits",
+      "4. EXP-MULTITURN-AB — run after forensics; may help 90846b5-class integration defects",
+      "5. iter-2 n=50 — only after forensics + judge-swap clarify D3 signal"
+    ],
+    "do_not": "Do not skip forensics and jump to iter-2 n=50 — D3 at exact boundary (0.20) with known Ollama divergence and clean FP rate warrants diagnosis first."
+  },
   "code_ready": true,
+  "production_gate_ready": false,
   "measurement_caveats": [
-    "Eval runs used Ollama llama3.1:8b auto-fallback (try_local_ollama_provider) — not cursor-sdk/claude-sonnet-4-6",
-    "Ollama rated all 20 commits MEDIUM — D1 gains may not transfer to production model",
-    "Re-run ./scripts/run-iter-1-eval.sh with CURSOR_API_KEY for canonical iter-1 scores"
+    "D3=0.20 meets interim target by 0.02 margin — statistically fragile on n=20",
+    "Claude D3=0.20 vs Ollama D3=0.60 suggests model-specific rubric calibration needed before declaring D3 stable",
+    "6/10 clean false-HIGH will cap D1 at n=50 unless rubric adds clean-commit guard",
+    "Same-model judge on D3 — EXP-JUDGE-SWAP mandatory before n=50 gate declaration per state.json",
+    "Full gate D1=0.60 < 0.70 — iter-1 succeeds on interim targets only"
   ],
   "artifact_paths": {
-    "n5": "output/runs/2026-06-10_15-18-55_real_n5/eval-report.json",
-    "n20": "output/runs/2026-06-10_15-22-32_real_n20/eval-report.json",
-    "commit_smoke": "output/runs/2026-06-10_15-20-58_real_n3/eval-report.json",
-    "b4c933b7_retest": "output/runs/2026-06-10_15-31-00_real_b4c933b7_retest/investigations/b4c933b7f958_camel.json"
+    "n5_claude": "output/runs/2026-06-10_16-45-28_real_n5/eval-report.json",
+    "n3_commit_smoke_claude": "output/runs/2026-06-10_16-51-19_real_n3/eval-report.json",
+    "n20_claude": "output/runs/2026-06-10_17-12-55_real_n20/eval-report.json",
+    "ollama_n20": "output/runs/2026-06-10_15-22-32_real_n20/eval-report.json",
+    "pre_iter_baseline": "output/runs/2026-06-10_13-17-45_real_n5/eval-report.json"
+  },
+  "prior_eval": {
+    "round": 7,
+    "verdict": "PARTIAL_PASS",
+    "blocked_ac": ["AC-6", "AC-9"],
+    "failed_ac": ["AC-10"]
   },
   "rubrics": {
     "llm-skeptic": {
       "severity": "warn",
-      "notes": "Ollama fallback enables CI/local measurement but weaker model masks rubric floor behavior. Production gate should use Cursor SDK per baseline run."
+      "notes": "Claude rubric floor (criteria a/b/e) lifts D1 but inflates clean FPs (6/10). D3 at boundary with −0.40 vs Ollama — prompt-only iter-1 may plateau on integration defects (90846b5). Forensics before iter-2 n=50."
     }
   }
 }

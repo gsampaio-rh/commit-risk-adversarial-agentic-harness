@@ -8,9 +8,9 @@ This is a **verifiable commit investigation system** — not an LLM wrapper, not
 
 The thesis: harness engineering (routing, context assembly, schema enforcement, cost governance) and a separate evaluation framework (six-dimension adversarial scoring against ground truth) together produce better investigations than raw model quality alone. ApacheJIT's ground truth chain — buggy commits linked to fixing commits linked to JIRA issues — enables evaluation dimensions that no score-only model can satisfy. A model can predict "buggy" but cannot prove it investigated the *mechanism*. This system can.
 
-**Current phase:** V1 infrastructure is built and committed. The system is in the *investigation-quality* phase — improving D1/D2/D3 through method and prompt iteration while holding D6 (evidence grounding) as a hard regression constraint. The harness (infrastructure) is stable; the investigation method (configuring the agent loop) is the variable.
+**Current phase:** Investigation-quality iteration. iter-1 (rubric + staged CoT + router probability) verified with Claude Sonnet 4.6 production data. Next: EXP-FORENSICS-TAG (D3 failure mode classification), then iter-2 (n=50 validation).
 
-**Baseline (post data-leak fix, n=5 clean):** D1=0.40, D2=0.08, D3=0.13 (FAIL gates) | D4=0.84, D5=0.50, D6=0.85 (PASS). The agent describes diffs accurately and grounds its output in real artifacts, but it won't commit to risk classifications or articulate failure mechanisms without explicit architectural pressure.
+**Current results (iter-1, Claude n=20):** D1=0.60, D2=0.15, D3=0.20, D4=0.90, D5=0.37, D6=0.85. D1/D3 improved from baseline (0.40/0.13). D6 stable. 5/6 gates pass at n=20; D1 at 0.60 vs 0.70 gate needs iter-2. See [evaluation.md](evaluation.md).
 
 ## 2. Design Philosophy
 
@@ -40,7 +40,7 @@ The harness is deterministic infrastructure (routing, budget, schema, errors). T
 | Whether investigation meets quality gates | Schema + follow-up triggers (no GT) | — |
 | **Reasoning over evidence** | — | **Core LLM value** |
 
-*Note: whether output matches ground truth is Evaluation's job (separate process, post-hoc). See [docs/evaluation.md](docs/evaluation.md).*
+*Note: whether output matches ground truth is Evaluation's job (separate process, post-hoc). See [evaluation.md](evaluation.md).*
 
 The LLM does one thing: reason over assembled context and produce structured output. Everything else is deterministic infrastructure.
 
@@ -59,14 +59,14 @@ The investigation method follows four conceptual stages regardless of prompt imp
 3. **Evidence triage** — each hypothesis marked SUPPORTED / REFUTED / UNVERIFIABLE with diff citations. Agent must cite specific lines or hunks, not entire files.
 4. **Verdict** — risk level tied to rubric tier based on supported hypotheses. No hedging when mechanism is identified.
 
-This model is the *architectural requirement*. Concrete prompt implementation for iter-1: see [spike research §5.2](docs/spike-investigation-harness.md).
+This model is the *architectural requirement*. iter-1 implements it as a system prompt with rubric tiers and hedge-ban rules (see `orchestrator.py`). Research backing: [spike research §5.2](.harness/archive/docs/spike-investigation-harness.md).
 
 ### 3.3 Classification rules (design-level)
 
-Four constraints define correct investigation at the architecture level. Operational enforcement — prompt gates and schema validation — is in [docs/harness.md §Investigation Method](docs/harness.md#investigation-method-operational). Dimension scoring (post-hoc, against GT) is in [docs/evaluation.md](docs/evaluation.md).
+Four constraints define correct investigation at the architecture level. Operational enforcement — prompt gates and schema validation — is in [harness.md §Investigation Method](harness.md#investigation-method-operational). Dimension scoring (post-hoc, against GT) is in [evaluation.md](evaluation.md).
 
-- **Mechanism floor:** SUPPORTED mechanistic hypothesis → risk ≥ HIGH (b4c933b7: D3=1.0 but D1=0.0 without this rule).
-- **No hedge downgrade:** Additive/blast-radius/backward-compatible language must not lower risk when a mechanism is identified ([spike §1.5 hedging catalog](docs/spike-investigation-harness.md)).
+- **Mechanism floor:** SUPPORTED mechanistic hypothesis → risk ≥ HIGH (b4c933b7: D3=0.75 with this rule).
+- **No hedge downgrade:** Additive/blast-radius/backward-compatible language must not lower risk when a mechanism is identified.
 - **Localization semantics:** `localization[]` = defect locus, not all touched files (D2 Jaccard penalizes extras).
 - **ML prior, not oracle:** Router probability is injected context, not the buggy label.
 
@@ -96,7 +96,7 @@ Evaluation is not a report card — it's the mechanism by which the system learn
 | D5 | Are recommendations aligned with the actual fix? | LLM-as-judge rubric 0–3 | LLM |
 | D6 | Does the agent cite real artifacts? | Claims vs actual diff/files | None |
 
-Full rubrics and thresholds: [docs/evaluation.md](docs/evaluation.md).
+Full rubrics and thresholds: [evaluation.md](evaluation.md).
 
 ### 4.2 Dimension coupling
 
@@ -117,7 +117,7 @@ These couplings define what the improvement cycle targets: a change that lifts D
 - **Soft baseline rule:** Agent D1 must beat always-predict-clean and router-only. Violation emits WARNING.
 - **Regression guard:** D6 ≥ 0.70 is a hard constraint in every eval run. Drop below = revert.
 
-Gate/target/stretch thresholds: [docs/evaluation.md](docs/evaluation.md) and [`.harness/state.json`](.harness/state.json).
+Gate/target/stretch thresholds: [evaluation.md](evaluation.md) and [`.harness/state.json`](../.harness/state.json).
 
 ## 5. Improvement Cycle
 
@@ -145,13 +145,12 @@ The system improves through eval-driven iteration: change the method → measure
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| spike-0 | Define investigation harness design (this document) | Complete |
-| iter-1 | A+B hybrid prompt (rubric + staged CoT + router probability) | Pending |
+| spike-0 | Define investigation harness design | **Complete** |
+| iter-1 | A+B hybrid prompt (rubric + staged CoT + router probability) | **Verified** (D1=0.60, D3=0.20) |
+| EXP-FORENSICS-TAG | Classify D3 failure modes from iter-1 data | Next |
 | iter-2 | Validate at n=50 | Pending |
 | iter-3 | Multi-turn investigation for low-confidence commits | Pending |
 | iter-4 | D2 localization focus | Pending |
-
-Research backing for iter-1 approach: [docs/spike-investigation-harness.md](docs/spike-investigation-harness.md).
 
 ## 6. Trust Boundaries and Data Flow
 
@@ -189,7 +188,7 @@ Research backing for iter-1 approach: [docs/spike-investigation-harness.md](docs
 
 ## 7. V1 Implementation Map
 
-V1 build is complete (see [`.harness/archive/phases/v1-build/`](.harness/archive/phases/v1-build/)). Current work is investigation-quality iteration.
+V1 build is complete (see [`.harness/archive/phases/v1-build/`](../.harness/archive/phases/v1-build/)). Current work is investigation-quality iteration.
 
 ### Components
 
@@ -210,7 +209,7 @@ V1 build is complete (see [`.harness/archive/phases/v1-build/`](.harness/archive
 - Two Apache projects: Camel and Hadoop
 - Local full clones under `data/repos/`
 - Default eval budget: $50 (~300 investigations)
-- 76 tests (unit + integration)
+- 86 tests (unit + integration)
 
 ### Deferred
 
@@ -220,12 +219,12 @@ V1 build is complete (see [`.harness/archive/phases/v1-build/`](.harness/archive
 - Agent framework selection (LangGraph, CrewAI)
 - Production deployment
 
-## Related Documents
+## Related
 
 | Document | Purpose |
 |----------|---------|
-| [docs/harness.md](docs/harness.md) | Operational design: control plane, investigation method, eval loop, improvement cycle |
-| [docs/spike-investigation-harness.md](docs/spike-investigation-harness.md) | Research spike: failure analysis, external approaches, iter-1 prompt recommendation |
-| [docs/evaluation.md](docs/evaluation.md) | Dimension rubrics, acceptance thresholds, run results |
-| [docs/experiment-context.md](docs/experiment-context.md) | Research thesis, experiment lineage, oracle isolation rationale |
-| [docs/datasets.md](docs/datasets.md) | ApacheJIT ground truth chain, data splits, download instructions |
+| [harness.md](harness.md) | Deterministic infrastructure: routing, budget, schema, control plane, improvement cycle |
+| [agent-loop.md](agent-loop.md) | Investigation process: flow, validation, quality gates, model strategy |
+| [evaluation.md](evaluation.md) | D1–D6 rubrics, acceptance thresholds, run results |
+| [experiment-context.md](experiment-context.md) | Research thesis, oracle isolation rationale |
+| [datasets.md](datasets.md) | ApacheJIT ground truth chain, data splits |

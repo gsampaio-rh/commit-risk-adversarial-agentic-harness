@@ -45,5 +45,24 @@
       "note": "Run after iter-1 prompt lands; compare max_turns=1 vs 3 on n=20"
     }
   ],
-  "tier_2_pivot": "If n=20 post-iter-1 shows ΔD3<0.05 AND ΔD1<0.10, activate loop architecture experiments (EXP-BUNDLE-EXPAND, EXP-JUDGE-SWAP) per eval-agent-loop-design.json"
+  "tier_2_pivot": "If n=20 post-iter-1 shows ΔD3<0.05 AND ΔD1<0.10, activate loop architecture experiments (EXP-BUNDLE-EXPAND, EXP-JUDGE-SWAP) per eval-agent-loop-design.json",
+  "production_calibration": {
+    "provider": "cursor-sdk/claude-sonnet-4-6",
+    "status": "complete",
+    "eval_round": 8,
+    "eval_report": ".harness/evals/eval-iter-1.json",
+    "verdict": "PASS",
+    "production_gate_ready": false,
+    "n20_complete": true,
+    "n20_run": "output/runs/2026-06-10_17-12-55_real_n20",
+    "claude_scores": {
+      "n5": {"D1": 0.8, "D3": 0.0, "D6": 0.8, "run": "2026-06-10_16-45-28_real_n5"},
+      "commit_smoke": {"D1": 1.0, "D3": 0.25, "D6": 1.0, "run": "2026-06-10_16-51-19_real_n3"},
+      "n20": {"D1": 0.6, "D3": 0.2, "D6": 0.85, "run": "2026-06-10_17-12-55_real_n20"}
+    },
+    "vs_ollama_n20": {"D1_delta": 0.1, "D3_delta": -0.4, "D6_delta": -0.0625},
+    "interim_targets_met": true,
+    "full_gate_met": false,
+    "note": "D3 Ollama-vs-Claude gap documented in eval report; not a contract FAIL"
+  }
 }

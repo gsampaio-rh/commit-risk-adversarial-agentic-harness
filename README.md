@@ -10,34 +10,21 @@ An agent is the LLM inside the harness: it reasons over the context bundle the o
 
 ### What is a long-running agent?
 
-A long-running agent operates at **batch scale over extended periods** — not a single prompt-response interaction. This agent processes hundreds of commits sequentially, each taking 30–70 seconds. A 100-commit evaluation run takes ~90 minutes and costs ~$0.30. Long-running agents need infrastructure that single-shot agents don't: cost governance (per-commit and per-run budgets), checkpoint persistence, error resilience (one failure can't crash a 2-hour run), progress tracking, and reproducible artifacts per run.
+A long-running agent operates at **batch scale over extended periods** — not a single prompt-response interaction. This agent processes hundreds of commits sequentially, each taking 30–70 seconds. A 100-commit evaluation run takes ~90 minutes and costs ~$0.30. Long-running agents need infrastructure that single-shot agents don't: cost governance, checkpoint persistence, error resilience, progress tracking, and reproducible artifacts.
 
 ### What is a harness?
 
-A harness is the **deterministic infrastructure that produces the best possible investigation** — everything that isn't the LLM reasoning itself. The harness owns routing (which commits need investigation), context construction (what the agent sees), schema validation (what the agent must output), quality gates (whether the output is sufficient), follow-up triggers (forcing deeper investigation), budget enforcement (how much it can spend), and artifact persistence (where results go). The harness never sees ground truth — it enforces investigation quality through structural pressure, not by knowing the answer.
-
-Evaluation is a **separate process** that measures agent loop output against ground truth after production. See [docs/harness.md Definitions](docs/harness.md#definitions) for the full distinction (harness / agent loop / evaluation / improvement cycle).
+A harness is the **deterministic infrastructure that produces the best possible investigation** — everything that isn't the LLM reasoning itself. It owns routing, context construction, schema validation, quality gates, follow-up triggers, budget enforcement, and artifact persistence. The harness never sees ground truth.
 
 ### What is adversarial evaluation?
 
-Adversarial evaluation means the evaluation framework **actively tries to catch the agent being bad** — comparing output against ground truth the agent never saw. Six dimensions probe different failure modes: is the prediction correct (D1)? does it point to the right files (D2)? does the reasoning match the actual bug root cause, or is it generic boilerplate (D3)? An LLM-as-judge scores the agent's reasoning against JIRA tickets. Automated grounding checks (D6) catch agents that classify correctly but cite no real evidence.
-
-See [docs/harness.md](docs/harness.md) for the operational design and [ARCHITECTURE.md](ARCHITECTURE.md) for system identity.
+Adversarial evaluation means the evaluation framework **actively tries to catch the agent being bad** — comparing output against ground truth the agent never saw. Six dimensions probe different failure modes: is the prediction correct (D1)? does it point to the right files (D2)? does the reasoning match the actual root cause (D3)? An LLM-as-judge scores reasoning against JIRA tickets. Automated grounding checks (D6) catch agents that classify correctly but cite no real evidence.
 
 ## Why agents?
 
 Most commit-risk tooling stops at **classification**: a model outputs "buggy" or "clean" and a probability. That's useful but insufficient for a reviewer who needs to know *where* the risk is and *why*.
 
-An agent adds value in the **gray zone** — commits where a classifier has medium confidence (0.3–0.7). For those, the agent reads the diff, examines file history, checks author patterns, and produces a structured investigation report. For clear-cut commits (very low or very high risk), an XGBoost router handles them at zero LLM cost.
-
-### Where agents are used in this system
-
-| Component | Role | What it does |
-|-----------|------|-------------|
-| XGBoost router | Pre-harness | Scores all commits on numeric features. Zero LLM cost. Decides who enters the harness. |
-| **AgentOrchestrator** | **Harness** | Runs the investigation: context assembly, LLM calls, quality gates, follow-up triggers, schema validation, report assembly. |
-| LLM (inside orchestrator) | **Agent** | Reasons over context bundle, fills structured schema. Does not control turns, context, or routing. |
-| ReasoningJudge | Evaluation (only) | LLM-as-judge that scores agent reasoning against JIRA ground truth. Never runs during investigation. |
+An agent adds value in the **gray zone** — commits where a classifier has medium confidence (0.3–0.7). For those, the agent reads the diff, examines file history, checks author patterns, and produces a structured investigation report. For clear-cut commits, an XGBoost router handles them at zero LLM cost.
 
 ### How the agent works
 
@@ -97,17 +84,18 @@ python -m commit_investigator.run_eval --max-evals 20 --mock
 
 | Document | Purpose |
 |----------|---------|
-| [docs/harness.md](docs/harness.md) | Operational design: agent loop, model strategy, eval framework, improvement cycle, control plane |
-| [docs/experiment-context.md](docs/experiment-context.md) | Thesis, eval dimensions, cost governance, oracle isolation |
-| [docs/datasets.md](docs/datasets.md) | ApacheJIT splits, ground truth chain, replication package |
+| [docs/architecture.md](docs/architecture.md) | System identity, design philosophy, investigation method, trust boundaries |
+| [docs/harness.md](docs/harness.md) | Deterministic infrastructure: routing, budget, schema, control plane, improvement cycle |
+| [docs/agent-loop.md](docs/agent-loop.md) | Investigation process: flow, validation, quality gates, model strategy |
 | [docs/evaluation.md](docs/evaluation.md) | Six-dimension framework, acceptance thresholds, results |
-| [docs/spike-investigation-harness.md](docs/spike-investigation-harness.md) | Research spike: failure analysis, prompt recommendation for iter-1 |
+| [docs/experiment-context.md](docs/experiment-context.md) | Research thesis, oracle isolation rationale |
+| [docs/datasets.md](docs/datasets.md) | ApacheJIT splits, ground truth chain, download instructions |
 
-System design: [ARCHITECTURE.md](ARCHITECTURE.md)
+Research spikes (archived): [.harness/archive/docs/](.harness/archive/docs/)
 
 ## Acceptance Thresholds
 
-Defined before the n=100 eval run. All six GATE thresholds must pass on a stratified eval (n >= 50, 50/50 buggy/clean) for V1 delivery.
+All six GATE thresholds must pass on a stratified eval (n >= 50, 50/50 buggy/clean) for V1 delivery.
 
 | Dimension | GATE | TARGET | STRETCH |
 |-----------|------|--------|---------|
@@ -118,8 +106,6 @@ Defined before the n=100 eval run. All six GATE thresholds must pass on a strati
 | D5 Recommendations | >= 0.25 | >= 0.40 | >= 0.55 |
 | D6 Evidence grounding | >= 0.60 | >= 0.70 | >= 0.80 |
 
-Full methodology and results: [docs/evaluation.md](docs/evaluation.md)
-
 ## Package Layout
 
 ```
@@ -127,11 +113,15 @@ Full methodology and results: [docs/evaluation.md](docs/evaluation.md)
 ├── data/apachejit/            # Train/test CSVs + replication zip (gitignored)
 ├── data/repos/                # Local git clones of Camel + Hadoop (gitignored)
 ├── scripts/                   # Data download and repo clone scripts
-├── docs/                      # Experiment, eval, harness, and dataset docs
+├── docs/                      # Architecture, harness, agent loop, evaluation, datasets
 ├── output/runs/               # Timestamped eval run artifacts (gitignored)
 └── .harness/                  # Adversarial verification harness state
 ```
 
 ## Status
 
-All 11 V1 tasks complete. Data leakage fix applied (buggy/fix labels removed from agent context). Clean n=5 eval: D1=0.40 (FAIL gate), D6=0.85 (PASS), D3=0.13 (FAIL). 3/6 gates fail — prompt engineering needed for D1/D3. See [docs/evaluation.md](docs/evaluation.md).
+**Phase:** investigation-quality. iter-1 verified with Claude Sonnet 4.6 production data.
+
+**iter-1 results (Claude n=20):** D1=0.60 (+0.20 from baseline), D3=0.20 (+0.07), D6=0.85 (stable). 5/6 gates pass at n=20. D1 at 0.60 vs 0.70 full gate — needs iter-2 validation at n=50.
+
+**Next:** EXP-FORENSICS-TAG (classify D3 failure modes), then iter-2. 86 tests passing.
