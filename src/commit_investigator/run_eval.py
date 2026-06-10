@@ -30,7 +30,7 @@ from commit_investigator.git_context import GitContextProvider, GitRepoNotFoundE
 from commit_investigator.ground_truth import GroundTruthGraph
 from commit_investigator.jira_client import JiraClient
 from commit_investigator.llm import CursorSDKProvider, MockLLMProvider, get_provider
-from commit_investigator.orchestrator import AgentOrchestrator
+from commit_investigator.orchestrator import AgentOrchestrator, InvalidInvestigationResponseError
 from commit_investigator.report import CommitInvestigationReport
 from commit_investigator.router import Route, XGBoostRouter
 
@@ -90,6 +90,32 @@ def _git_rev() -> str:
         ).strip()
     except Exception:
         return "unknown"
+
+
+def _investigate_with_retry(
+    orchestrator: AgentOrchestrator,
+    *,
+    commit_id: str,
+    project: str,
+    context,
+    max_attempts: int = 2,
+) -> CommitInvestigationReport:
+    """Investigate with one retry on empty/invalid LLM output (AC-12)."""
+    last_error: InvalidInvestigationResponseError | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return orchestrator.investigate(
+                commit_id=commit_id,
+                project=project,
+                context=context,
+            )
+        except InvalidInvestigationResponseError as exc:
+            last_error = exc
+            if attempt >= max_attempts:
+                raise
+            _log(f"  Retry {attempt}/{max_attempts - 1} after invalid LLM response: {exc}")
+            time.sleep(2.0 * attempt)
+    raise last_error  # pragma: no cover
 
 
 def _save_investigation(
@@ -337,7 +363,8 @@ def main() -> None:
         context.router_route = decision.route.value
 
         t0 = time.time()
-        report = orchestrator.investigate(
+        report = _investigate_with_retry(
+            orchestrator,
             commit_id=decision.commit_id,
             project=project_lower,
             context=context,

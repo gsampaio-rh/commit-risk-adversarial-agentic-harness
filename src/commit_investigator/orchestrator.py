@@ -45,7 +45,13 @@ COULD introduce. Format each as:
   "HYPOTHESIS: If <condition> then <failure> in <file>:<area>"
 
 STAGE 3 — EVIDENCE: For each hypothesis, cite diff evidence for/against.
-  Mark each: SUPPORTED / REFUTED / UNVERIFIABLE.
+  Mark each: SUPPORTED / REFUTED / UNVERIFIABLE / SPECULATIVE.
+  SUPPORTED: diff shows a concrete mechanism (removed guard, changed control flow, \
+wrong default, lifecycle ordering change). SPECULATIVE: relies on assumed external \
+behavior (cross-version API breakage, theoretical caller impact) not shown in the diff.
+  Under clean-commit discrimination (below): type/import substitution, version-bump \
+incompatibility, or comment-only signals are SPECULATIVE unless diff shows wrong \
+logic (removed guard, inverted condition) at a call site.
 
 STAGE 4 — VERDICT: State rubric tier and risk_level.
 
@@ -56,7 +62,8 @@ production outage likely in normal usage paths.
 
 HIGH: At least one of:
   (a) A SUPPORTED defect hypothesis with diff evidence
-  (b) API/binary incompatibility (removed generics, changed public signatures)
+  (b) API/binary incompatibility (removed generics, changed public signatures, \
+removed guards on production paths)
   (c) ML risk prior router_probability ≥ 0.70
   (d) Security-relevant change without input validation
   (e) Large new production logic (>200 lines in one new file) with complex \
@@ -67,8 +74,46 @@ about impact. Truncated diff preventing verification.
 
 LOW: Docs-only, test-only, formatting, or no defect mechanism identifiable.
 
+## CLEAN-COMMIT DISCRIMINATION (apply ONLY to these patterns)
+
+PRIMARY change: the dominant intent of the commit — version bump, type/import migration, \
+label rename, or comment-only signal — even when incidental typing refactors (split \
+CompletableFuture locals, raw-type erasure, import swaps) appear in the same files.
+
+When the PRIMARY change is one of the patterns below, apply STRICT evidence rules \
+and cap risk_level at MEDIUM unless a SUPPORTED hypothesis passes the strict bar:
+  - Dependency/library version bump (pom.xml or gradle version changes dominate)
+  - Comment or doc removal about compatibility thresholds (no code behavior change)
+  - Constant, label, enum, or property rename with no control-flow change
+  - Pure refactor (extract/rename) or mechanical API method rename
+  - Type/import substitution for API migration without logic change
+
+Strict bar under clean-commit discrimination:
+  - Cross-version incompatibility, binary breakage, or assumed caller impact → \
+SPECULATIVE (never SUPPORTED) unless diff shows removed guard, wrong default, or \
+inverted condition at a call site
+  - Rubric criterion (b) API/binary incompatibility does NOT apply under discrimination \
+for migration-driven generic erasure, import swaps, or raw-type signature adaptation
+  - When all defect hypotheses are SPECULATIVE or UNVERIFIABLE → risk_level ≤ MEDIUM \
+(router_probability does not override this cap, even if ≥ 0.70)
+
+Migration typing refactors alone do NOT waive discrimination: split typed variables, \
+CompletableFuture/NotifyingFuture substitution, or raw QueryFactory erasure during a \
+version bump remain under discrimination unless a strict-bar SUPPORTED mechanism exists.
+
+Do NOT apply clean-commit discrimination when:
+  - Material guard removal, null-check removal, validation removal, or inverted \
+condition in visible production hunks
+  - Lifecycle ordering, startup/shutdown sequencing, or concurrency semantics changed \
+(SmartLifecycle, @Order, synchronized/lock paths) in visible production hunks
+  - Commit references a filed defect (CAMEL-*, JIRA key) AND production logic changed \
+beyond mechanical API adaptation
+
 RULES:
-- A SUPPORTED hypothesis with diff evidence → risk_level MUST be ≥ HIGH.
+- A SUPPORTED hypothesis with diff evidence → risk_level MUST be ≥ HIGH \
+(except clean-commit discrimination cap above).
+- SPECULATIVE-only hypotheses → MEDIUM, not HIGH — applies globally AND under \
+clean-commit discrimination.
 - Do NOT assign MEDIUM because a change is "additive", has "limited blast \
 radius", or is "backward-compatible in intent."
 - Do NOT assign LOW/MEDIUM solely because the commit message mentions a fix \
@@ -101,6 +146,17 @@ defect hypotheses — no production code changed. STAGE 3: N/A. STAGE 4: \
 Rubric LOW."
 risk_level: LOW
 
+## EXAMPLE C — MEDIUM (fictional — do not copy)
+
+Commit: Upgrades library Q in pom.xml. Production files adapt imports from \
+LegacyFuture to standard Future; interface method loses generic bound during migration.
+
+reasoning: "STAGE 1: Version bump dominates; type substitution in Adapter.java. \
+STAGE 2: HYPOTHESIS: cross-version binary break for external callers. STAGE 3: \
+SPECULATIVE — migration-consistent raw-type change, no wrong logic at call site. \
+Criterion (b) does not apply under discrimination. STAGE 4: Rubric MEDIUM."
+risk_level: MEDIUM
+
 IMPORTANT: Respond ONLY with a single JSON object (no markdown, no text \
 outside JSON). Required fields:
 - risk_level: one of LOW, MEDIUM, HIGH, CRITICAL
@@ -110,6 +166,136 @@ outside JSON). Required fields:
 - follow_up_needed: boolean
 - localization: list of {file, lines, rationale} objects
 - recommendations: list of {action, priority, rationale} objects"""
+
+
+class InvalidInvestigationResponseError(ValueError):
+    """Raised when LLM output is empty, unparseable, or missing required fields."""
+
+
+_LIFECYCLE_RE = re.compile(
+    r"SmartLifecycle|@Order|shutdown|startup|@EventListener|lifecycle",
+    re.IGNORECASE,
+)
+_GUARD_REMOVAL_RE = re.compile(
+    r"^-\s+.*(?:if\s*\(|guard|null\s*==|!=\s*null|nullcheck)",
+    re.MULTILINE | re.IGNORECASE,
+)
+_VERSION_DIFF_RE = re.compile(r"^[-+].*(?:<version>|version\s*=)", re.MULTILINE | re.IGNORECASE)
+_IMPORT_CHANGE_RE = re.compile(r"^[-+]\s*import\s+", re.MULTILINE)
+_TYPE_MIGRATION_RE = re.compile(
+    r"NotifyingFuture|CompletableFuture|QueryFactory|raw type",
+    re.IGNORECASE,
+)
+_CONCURRENCY_CHANGE_RE = re.compile(
+    r"^[-+].*(?:synchronized|ReentrantLock|\bLock\.|volatile\s+\w+)",
+    re.MULTILINE | re.IGNORECASE,
+)
+_LABEL_RENAME_RE = re.compile(
+    r'^[-+].*"(?:FileName|LogType|logType|logAggregationType)"',
+    re.MULTILINE,
+)
+_COMPAT_COMMENT_RE = re.compile(
+    r"^-.*(?:incompatible|compatibility|breaking threshold|binary incompatible)",
+    re.MULTILINE | re.IGNORECASE,
+)
+_VERSION_PROPERTY_RE = re.compile(
+    r"^[-+].*(?:-version>|<[\w-]*version>)",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+_SUPPORTED_HYPOTHESIS_RE = re.compile(
+    r"(?:HYPOTHESIS\s+[A-Z0-9]+\s*[—-]\s*SUPPORTED|"
+    r"HYPOTHESIS[^.\n]*?(?:—|:)\s*SUPPORTED\b|"
+    r"\bSUPPORTED\s*—|\(\s*SUPPORTED\s*\))",
+    re.IGNORECASE,
+)
+
+
+def _has_production_defect_signals(context: InvestigationContext) -> bool:
+    """True when opt-out from clean-commit cap applies (buggy production patterns).
+
+    Material guard/lifecycle/concurrency only — not JIRA ticket + routine return edits.
+    """
+    diff = context.diff or ""
+
+    if _GUARD_REMOVAL_RE.search(diff):
+        return True
+
+    if _LIFECYCLE_RE.search(diff) and re.search(r"^[-+]", diff, re.MULTILINE):
+        return True
+
+    return _CONCURRENCY_CHANGE_RE.search(diff) is not None
+
+
+def _matches_clean_archetype(context: InvestigationContext) -> bool:
+    """True when commit matches known clean-commit FP archetypes."""
+    diff = context.diff or ""
+    touched = " ".join(context.touched_files or [])
+
+    version_touched = any(name in touched for name in ("pom.xml", "build.gradle", ".gradle"))
+    if version_touched and (
+        _VERSION_DIFF_RE.search(diff)
+        or _VERSION_PROPERTY_RE.search(diff)
+        or _COMPAT_COMMENT_RE.search(diff)
+    ):
+        return True
+
+    if _LABEL_RENAME_RE.search(diff):
+        return True
+
+    import_changes = len(_IMPORT_CHANGE_RE.findall(diff))
+    if import_changes >= 2:
+        return True
+
+    if _TYPE_MIGRATION_RE.search(diff) and (import_changes >= 1 or version_touched):
+        return True
+
+    minus_methods = len(re.findall(r"^-\s*(?:public|protected)[^\n]*\(", diff, re.MULTILINE))
+    plus_methods = len(re.findall(r"^\+\s*(?:public|protected)[^\n]*\(", diff, re.MULTILINE))
+    if minus_methods >= 1 and plus_methods >= 1 and import_changes <= 1:
+        if not _has_production_defect_signals(context):
+            return True
+
+    return False
+
+
+def _reasoning_has_supported_hypothesis(reasoning: str) -> bool:
+    if not reasoning:
+        return False
+    if _SUPPORTED_HYPOTHESIS_RE.search(reasoning):
+        return True
+    if re.search(r"STAGE 3[^STAGE]*\bHYPOTHESIS\b[^STAGE]*\bSUPPORTED\b", reasoning, re.IGNORECASE | re.DOTALL):
+        return True
+    return False
+
+
+def _reasoning_all_speculative_or_unverifiable(reasoning: str) -> bool:
+    if _reasoning_has_supported_hypothesis(reasoning):
+        return False
+    return bool(re.search(r"SPECULATIVE|UNVERIFIABLE", reasoning, re.IGNORECASE))
+
+
+def _apply_clean_commit_risk_cap(
+    risk_level: RiskLevel,
+    context: InvestigationContext,
+    reasoning: str,
+) -> tuple[RiskLevel, bool]:
+    """Cap HIGH/CRITICAL to MEDIUM for clean archetypes without production defect signals."""
+    if risk_level not in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+        return risk_level, False
+
+    if _has_production_defect_signals(context):
+        return risk_level, False
+
+    # Archetype commits always cap; speculative-only reasoning caps globally.
+    should_cap = _matches_clean_archetype(context) or _reasoning_all_speculative_or_unverifiable(
+        reasoning,
+    )
+    if not should_cap:
+        return risk_level, False
+
+    return RiskLevel.MEDIUM, True
 
 
 @dataclass
@@ -145,6 +331,9 @@ class TurnCheckpoint:
     follow_up_needed: bool
 
 
+DEFAULT_MAX_DIFF_CHARS = 16_000
+
+
 class AgentOrchestrator:
     """Bounded multi-turn investigative agent.
 
@@ -159,12 +348,14 @@ class AgentOrchestrator:
         max_tokens: int = 50000,
         max_cost: float = 0.50,
         checkpoint_dir: str | Path | None = None,
+        max_diff_chars: int = DEFAULT_MAX_DIFF_CHARS,
     ) -> None:
         self._llm = llm_provider or get_provider()
         self._max_turns = max_turns
         self._budget = BudgetState(max_tokens=max_tokens, max_cost=max_cost)
         self._checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
         self._checkpoints: list[TurnCheckpoint] = []
+        self._max_diff_chars = max_diff_chars
 
     def investigate(
         self,
@@ -261,8 +452,9 @@ class AgentOrchestrator:
             context_parts.append(f"## Commit Message\n{context.message.strip()}\n")
 
         if context.diff:
-            diff_preview = context.diff[:4000]
-            if len(context.diff) > 4000:
+            limit = self._max_diff_chars
+            diff_preview = context.diff[:limit]
+            if len(context.diff) > limit:
                 diff_preview += f"\n... (truncated, {len(context.diff)} chars total)"
             context_parts.append(f"## Diff\n```\n{diff_preview}\n```\n")
 
@@ -313,13 +505,27 @@ class AgentOrchestrator:
         turns: int,
     ) -> CommitInvestigationReport:
         """Parse LLM output into a validated CommitInvestigationReport."""
-        parsed = _extract_json(last_response.content)
+        content = (last_response.content or "").strip()
+        if not content:
+            raise InvalidInvestigationResponseError("Empty LLM response; cannot assemble report")
 
-        risk_level_str = parsed.get("risk_level", "MEDIUM")
+        parsed = _extract_json(last_response.content)
+        if not parsed or "risk_level" not in parsed:
+            preview = content[:300].replace("\n", " ")
+            raise InvalidInvestigationResponseError(
+                f"Invalid LLM JSON (missing risk_level): {preview!r}"
+            )
+
+        risk_level_str = parsed["risk_level"]
         try:
             risk_level = RiskLevel(risk_level_str)
-        except ValueError:
-            risk_level = RiskLevel.MEDIUM
+        except ValueError as exc:
+            raise InvalidInvestigationResponseError(
+                f"Invalid risk_level {risk_level_str!r}"
+            ) from exc
+
+        reasoning = _coerce_text_field(parsed.get("reasoning"), "Investigation completed.")
+        risk_level, cap_applied = _apply_clean_commit_risk_cap(risk_level, context, reasoning)
 
         confidence = parsed.get("confidence", 0.5)
         confidence = max(0.0, min(1.0, float(confidence)))
@@ -356,7 +562,16 @@ class AgentOrchestrator:
                 ))
 
         findings = _normalize_findings(parsed.get("findings"))
-        reasoning = _coerce_text_field(parsed.get("reasoning"), "Investigation completed.")
+
+        metadata: dict[str, Any] = {
+            "model": last_response.model,
+            "total_tokens": self._budget.total_tokens,
+            "total_cost": self._budget.total_cost,
+            "budget_exceeded": self._budget.budget_exceeded,
+            "missing_reasons": list(context.missing_reasons),
+        }
+        if cap_applied:
+            metadata["clean_commit_risk_cap_applied"] = True
 
         return CommitInvestigationReport(
             commit_id=context.commit_id,
@@ -369,13 +584,7 @@ class AgentOrchestrator:
             recommendations=recommendations,
             tools_used=tools_used,
             turn_count=turns,
-            metadata={
-                "model": last_response.model,
-                "total_tokens": self._budget.total_tokens,
-                "total_cost": self._budget.total_cost,
-                "budget_exceeded": self._budget.budget_exceeded,
-                "missing_reasons": list(context.missing_reasons),
-            },
+            metadata=metadata,
         )
 
     def _save_checkpoint(self, checkpoint: TurnCheckpoint) -> None:

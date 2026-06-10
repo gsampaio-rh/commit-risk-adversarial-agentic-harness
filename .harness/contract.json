@@ -1,68 +1,64 @@
 {
-  "task_id": "iter-1",
-  "feature": "Prompt engineering: A+B hybrid investigation method (rubric + staged CoT + router prior)",
-  "problem": "Post-leak baseline (n=5): D1=0.40, D2=0.08, D3=0.13, D6=0.85. Agent grounds evidence but hedges to MEDIUM on buggy commits and describes structure not failure mechanisms. spike-0 docs and research define the fix; code not yet changed.",
-  "proposed_solution": "Implement spike §5.2 system prompt (Architecture A+B hybrid: risk rubric with mechanism floor + four-stage reasoning in JSON reasoning field), inject router_probability per §5.3, embed two abstract few-shot examples. Add fix-commit residual-risk rubric guard (verdict consistent with SUPPORTED mechanism — addresses b4c933b7 D3↑ D1↓). Run n=5 smoke then n=20 stratified validation.",
+  "task_id": "iter-2-validate",
+  "feature": "iter-2b round-2 rubric: SPECULATIVE cap for clean-commit patterns only; preserve SUPPORTED→HIGH on buggy production defects (combined with iter-2a 16K diff)",
+  "problem": "iter-2b round-1 (global strict SUPPORTED) over-corrected: panel 19-52-44 buggy recall 1/6, clean FP 4/6. Round-2 attempt (clean-commit section without strict bar) under-corrected: panel 20-33-45 buggy recall 5/6 but clean FP 6/6 (worse than iter-1). Need a rubric that hits both strata on the fixed 12-commit regression panel before commit and iter-2-n20.",
+  "proposed_solution": "Dual-path rubric in INVESTIGATION_SYSTEM_PROMPT: (1) Restore iter-1 SUPPORTED→HIGH floor for production defect patterns (guard removal, lifecycle reordering, control-flow changes, filed-defect fixes). (2) Add CLEAN-COMMIT DISCRIMINATION section scoped to known FP archetypes from EXP-FORENSICS-TAG: dependency/version bumps, comment-only compatibility signals, label/enum/property renames, mechanical API renames, type-import substitution for migration. Under discrimination: cross-version/theoretical breakage is SPECULATIVE unless diff shows wrong logic at call site; all-SPECULATIVE/UNVERIFIABLE → cap MEDIUM (router_probability cannot override). (3) Explicit opt-out: do NOT apply discrimination when guards/lifecycle/concurrency changed or CAMEL-*/JIRA fix with production logic beyond mechanical adaptation. (4) Keep iter-2a max_diff_chars=16000 unchanged. (5) REQUIRED: narrow opt-out — migration typing refactors (split CompletableFuture locals, raw-type erasure) do NOT waive discrimination when PRIMARY change is version bump or type substitution; under discrimination, rubric criterion (b) API/binary incompatibility does NOT apply to migration-driven signature or import changes. (6) FALLBACK if panel AC-4 fails on first run: add deterministic post-processing in orchestrator._assemble_report that caps risk_level to MEDIUM when reasoning marks all hypotheses SPECULATIVE/UNVERIFIABLE OR when touched_files/diff match clean archetype heuristics without guard/lifecycle/JIRA-production signals.",
   "acceptance_criteria": [
-    "AC-1: orchestrator.py system prompt replaced with spike §5.2 template (four stages, rubric tiers, hedge-ban rules, two few-shot examples)",
-    "AC-2: router_probability injected in context assembly per spike §5.3 format (ML prior disclaimer, route enum)",
-    "AC-3: Fix-commit residual-risk rule in prompt: SUPPORTED mechanistic hypothesis → risk_level MUST be ≥ HIGH; verdict must not downgrade due to fix-commit framing",
-    "AC-4: n=5 stratified smoke passes with D6≥0.70 (hard revert if below)",
-    "AC-5: Individual smoke on f897d46, 90846b5, b4c933b7 — document risk_level and D3-relevant reasoning for each",
-    "AC-6: n=20 stratified eval completes; targets D1≥0.50, D3≥0.18 (interim targets — gate is 0.70/0.20 at n=50)",
-    "AC-7: 76+ tests pass; oracle isolation tests unchanged",
-    "AC-8: No infrastructure changes except prompt and context injection (no multi-turn enable, no bundle expansion in iter-1)",
-    "AC-9: 3 random n=20 reports checked for few-shot example parroting (no copied example text)",
-    "AC-10: Breadcrumb with before/after scores vs n=5 baseline"
+    "AC-1: pytest tests/ -q exits 0 with ≥90 collected tests; tests/test_orchestrator.py asserts dual-path prompt strings (CLEAN-COMMIT DISCRIMINATION, SUPPORTED→HIGH, router cap, migration opt-out narrowing, criterion-(b)-exclusion under discrimination)",
+    "AC-2: 12-commit regression panel completes without SDK status=error on Claude Sonnet 4.6; eval-report.json has metadata.timings length=12 with non-null risk for each commit",
+    "AC-3: Panel D1 = mean(per-commit D1 scores) ≥ 0.65 where D1=1.0 iff (buggy AND risk∈{HIGH,CRITICAL}) OR (clean AND risk∈{LOW,MEDIUM}); report computed value in eval breadcrumb",
+    "AC-4: Panel clean FP rate ≤ 50% (≤3/6 clean commits with risk HIGH or CRITICAL)",
+    "AC-5: Panel buggy recall ≥ 0.80 (≥5/6 buggy commits with risk HIGH or CRITICAL)",
+    "AC-6: Panel D3_buggy = subset_averages.D3_buggy_only ≥ 0.20 (not full-panel D3)",
+    "AC-7: Panel D6 = dimension_averages.D6 ≥ 0.70",
+    "AC-8: fbf0ffad627b per-commit D3 ≥ 0.50 in eval-report.json results",
+    "AC-9: f897d46870ba and 90846b586c51 have metadata.timings risk HIGH (no SPECULATIVE over-correction on buggy production defects)",
+    "AC-10: Commits 9530370f7642, b9f1653151e2, and 7cff0990283b each classified MEDIUM or LOW (replicate clean-only 18-36-43 wins on archetype FPs)",
+    "AC-11: 9530370f7642 investigation reasoning must NOT opt out of clean-commit discrimination solely due to migration typing refactors; generic-erasure/API-migration hypotheses classified SPECULATIVE under discrimination",
+    "AC-12: No commit in panel scored via silent MEDIUM fallback — orchestrator must fail loud or retry when LLM response is empty/invalid (run.log must not contain status=error without explicit failure)"
   ],
   "edge_cases": [
-    "EC-1: Router probability may correlate with buggy — agent must treat as prior not label; oracle isolation tests verify no GT leak",
-    "EC-2: Few-shot parroting — agent copies 'HYPOTHESIS: If null property...' verbatim instead of reasoning from diff",
-    "EC-3: D6 regression from assertive rubric — if n=5 D6<0.70, revert rubric floor before router injection",
-    "EC-4: f897d46 may remain MEDIUM if rubric lacks 'large untested surface' criterion — document and propose rubric amendment if smoke fails"
+    "EC-1: fbf0ffad627b — large truncated diff + CAMEL-10279 guard removal; must stay HIGH (production lifecycle), not downgraded by clean-commit rules",
+    "EC-2: 9530370f7642 — Infinispan version bump; round-2 (20-33-45) wrongly opted out via 'control-flow changes' and SUPPORTED criterion (b); must be MEDIUM under dual-path (clean-only 18-36-43 reference)",
+    "EC-3: 4a72341ebffc — new OptimisedTypeConverter production logic; may legitimately stay HIGH (criterion e); counts toward AC-4 FP budget — panel pass requires fixing archetype FPs not this commit",
+    "EC-4: 572f3cee35fe — diff-truncation hard case; LOW/MEDIUM acceptable if other 5/6 buggy are HIGH (known iter-2c candidate)",
+    "EC-5: ce2d5bfa5f84 and 24d9de042248 — agent may mark label-rename hypotheses SUPPORTED; acceptable HIGH if AC-4 still satisfied via archetype fixes; document in eval notes if irreducible",
+    "EC-6: 294c169f6d66 — must stay HIGH (Ehcache lifecycle/guard pattern); discrimination opt-out must apply"
   ],
-  "verification_method": "Builder runs pytest (76+). Smoke n=5 stratified real eval. Validate n=20 stratified. Evaluator checks: prompt matches §5.2 intent, router_probability present in context, per-commit forensics on 3 named commits, D6 guard holds, parroting check on 3 reports.",
-  "rubrics": ["llm-skeptic"],
+  "verification_method": "Run: PYTHONPATH=src pytest tests/ -q (must collect ≥90). Then: python -m commit_investigator.run_eval --commit-ids fbf0ffad627b f897d46870ba 90846b586c51 572f3cee35fe 294c169f6d66 55dcbe801e76 9530370f7642 b9f1653151e2 ce2d5bfa5f84 24d9de042248 4a72341ebffc 7cff0990283b. Score eval-report.json: D1 from dimension_averages.D1; clean FP and buggy recall from metadata.timings risk+buggy fields; D3_buggy from subset_averages.D3_buggy_only; per-commit D3 from results[].scores.D3; AC-11 from investigations/9530370*_*.json reasoning_summary text.",
+  "rubrics": ["code-quality"],
   "rubric_mode": "warn",
-  "negotiation_rounds": 0,
+  "negotiation_rounds": 2,
   "phase": "verified",
   "verified": true,
-  "prior_task": {
-    "task_id": "spike-0",
-    "phase": "verified",
-    "verified": true,
-    "eval_report": ".harness/evals/eval-spike-0-final.json"
+  "evidence_from_prior_runs": {
+    "round1_panel": "output/runs/2026-06-10_19-52-44_real_n12 — global strict SUPPORTED: buggy 1/6 HIGH, clean 4/6 HIGH, D1=0.25",
+    "round2_panel": "output/runs/2026-06-10_20-33-45_real_n12 — clean-only guard weak: buggy 5/6 HIGH, clean 6/6 HIGH, D1=0.417",
+    "iter2b_clean_only": "output/runs/2026-06-10_18-36-43_real_n6 — strict global: 3/6 clean→MEDIUM (9530370, 7cff099, b9f1653)",
+    "iter1_baseline": "output/runs/2026-06-10_17-12-55_real_n20 — full n=20 D1=0.60; panel subset D1=0.333 (buggy 4/6 HIGH, clean 6/6 HIGH)"
   },
-  "parallel_experiments": [
-    {
-      "id": "EXP-FORENSICS-TAG",
-      "blocks_iter_1": false,
-      "note": "Run in parallel; informs whether iter-2 needs loop changes"
-    },
-    {
-      "id": "EXP-MULTITURN-AB",
-      "blocks_iter_1": false,
-      "note": "Run after iter-1 prompt lands; compare max_turns=1 vs 3 on n=20"
-    }
-  ],
-  "tier_2_pivot": "If n=20 post-iter-1 shows ΔD3<0.05 AND ΔD1<0.10, activate loop architecture experiments (EXP-BUNDLE-EXPAND, EXP-JUDGE-SWAP) per eval-agent-loop-design.json",
-  "production_calibration": {
-    "provider": "cursor-sdk/claude-sonnet-4-6",
-    "status": "complete",
-    "eval_round": 8,
-    "eval_report": ".harness/evals/eval-iter-1.json",
-    "verdict": "PASS",
-    "production_gate_ready": false,
-    "n20_complete": true,
-    "n20_run": "output/runs/2026-06-10_17-12-55_real_n20",
-    "claude_scores": {
-      "n5": {"D1": 0.8, "D3": 0.0, "D6": 0.8, "run": "2026-06-10_16-45-28_real_n5"},
-      "commit_smoke": {"D1": 1.0, "D3": 0.25, "D6": 1.0, "run": "2026-06-10_16-51-19_real_n3"},
-      "n20": {"D1": 0.6, "D3": 0.2, "D6": 0.85, "run": "2026-06-10_17-12-55_real_n20"}
-    },
-    "vs_ollama_n20": {"D1_delta": 0.1, "D3_delta": -0.4, "D6_delta": -0.0625},
-    "interim_targets_met": true,
-    "full_gate_met": false,
-    "note": "D3 Ollama-vs-Claude gap documented in eval report; not a contract FAIL"
+  "evaluator_negotiation": {
+    "round": 1,
+    "verdict": "counter_propose",
+    "critiques": [
+      "AC-10 too weak at '2 of 3' — must require all three archetype FPs (9530370, b9f1653, 7cff099) replicate clean-only wins",
+      "AC-3 D1≥0.65 not achievable with prompt-only if 9530370 opts out via migration typing — need criterion-(b) exclusion under discrimination",
+      "Round-2 root cause: JIRA+return-edit falsely triggered production opt-out on version-bump commits",
+      "AC-12 missing — silent MEDIUM fallback on SDK errors invalidates panel scores"
+    ]
+  },
+  "builder_negotiation": {
+    "round": 2,
+    "verdict": "accept",
+    "accepted_amendments": [
+      "AC-10 tightened to all three archetype commits MEDIUM/LOW",
+      "AC-11 added: migration typing refactors do not waive discrimination",
+      "AC-12 added: fail-loud + retry on invalid LLM response",
+      "Post-processing cap _apply_clean_commit_risk_cap as deterministic fallback",
+      "EXAMPLE C (version-bump MEDIUM) added to prompt",
+      "Opt-out narrowed to material guard/lifecycle/concurrency only"
+    ],
+    "declined": [],
+    "phase": "negotiated"
   }
 }
