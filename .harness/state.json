@@ -1,216 +1,259 @@
 {
-  "project": "exp19b-harness-predictive-validation",
-  "created": "2026-06-09T23:00:00Z",
+  "project": "exp19b-commit-risk-investigator",
+  "created": "2026-06-09T23:30:00Z",
   "schema_version": 2,
-  "vision": "Experiment #19b tests whether harness engineering — checkpoints, stage gates, evolution levels, adversarial verification, minimum capable component — produces a measurable predictive instrument when the fixed 9-stage pipeline is applied to adjacent-domain failure labels (ApacheJIT, 28K bug-inducing commits, Tier B). The deliverable is not 'an adapter that parses CSV rows' but evidence answering: does the harness instantiation correlate pipeline risk signals with ground truth better than random? Which dimensions carry signal under semantic gap? What does completeness dominance look like in numbers? What can and cannot be claimed for P1 vs P2 ITSM validation?",
-  "direction": "Treat the pipeline (stages 1–9, L1/L2) as the fixed artifact under test — no stage or CRBundle changes. Build three harness layers on top: (1) context construction — ApacheJIT adapter mapping CSV rows to CRBundle with resolved D1–D4 decisions; (2) predictive validation instrument — run L1 pipeline per commit, persist checkpoints, track ground-truth labels alongside, extract per-dimension signals (completeness, historical pattern, synthesis recommendation), compare against random and degenerate baselines; (3) thesis interpretation — quantify semantic gap, minimum-capable-component outcome, and honest claim boundaries in docs. P0 architecture validation (BPI 2014) is done. This phase is P1 predictive validation via harness measurement, not pipeline engineering.",
+  "vision": "Experiment #19b (rewrite): build an investigative AI agent that examines real code commits — gathering diff, message, and repository evidence — and produces structured risk assessments with explanations. ApacheJIT is the test bed not because we need another classifier, but because its replication package provides a rare 5-dimensional validation chain (bug-inducing commit → fixing commit → JIRA issue) covering 100% of 28K positives. The deliverable is a solid, verifiable investigation harness that proves harness engineering (context construction, routing, verification, cost governance) matters more than raw model quality — with optional XGBoost routing demonstrating when to skip, flag, or investigate.",
+  "direction": "Complete rewrite: delete the ITSM 9-stage pipeline (`src/cr_analyzer/`, `tests/`, `fixtures/`, pipeline docs). Keep `data/apachejit/`, `scripts/download_apachejit.sh`, `.harness/` structure, git history. New Python package (name TBD in scaffold task) with framework-agnostic interfaces: GroundTruthGraph, GitContextProvider, InvestigationReport schema, AgentOrchestrator (bounded multi-turn loop), ToolRegistry, XGBoostRouter, and FiveDimensionEvalHarness. V1 uses local git clones of 2 Apache projects (Camel + Hadoop), real diffs/messages, LLM reasoning inside a deterministic orchestrator. Ground truth richness is first-class: load commit_links + JIRA linkage from replication package; JIRA API for eval dimensions 3–5 only. Cost governance: XGBoost scores all commits free; LLM investigates only routed gray-zone samples within budget tiers. Framework choice (LangGraph vs minimal) deferred to post-V1 spike.",
   "cleanup": {
-    "when": "Executed by planner at phase reframe (2026-06-09)",
-    "archive_to": ".harness/archive/phases/apachejit-v1/",
+    "when": "Executed by planner at complete-rewrite reframe (2026-06-09)",
+    "archive_to": ".harness/archive/phases/itsm-pipeline/",
     "actions": [
-      "Copy prior `state.json` → `archive/phases/apachejit-v1/state.json` (pipeline-build framing: adapter→eval→docs)",
-      "Keep chore-0 and feat-1 verified status — work is committed and valid under new framing",
-      "Delete `contract.json` from `.harness/` root if present (fresh contract per next pending task)",
-      "Do NOT truncate breadcrumbs.jsonl — append planner reframe entry; prior trail documents feat-1 completion",
-      "Do NOT archive or delete src/, tests/, or downloaded data/"
+      "Copy prior state.json → archive/phases/itsm-pipeline/state.json (exp19b-harness-predictive-validation: pipeline-adapter framing)",
+      "Delete contract.json from .harness/ root if present (fresh contract per next task)",
+      "Do NOT truncate breadcrumbs.jsonl — append planner rewrite entry",
+      "chore-0 will DELETE: src/cr_analyzer/, tests/, fixtures/, docs/ (pipeline-specific), scripts/download_bpi2014.sh, output/eval/",
+      "chore-0 will REWRITE: README.md, ARCHITECTURE.md, pyproject.toml (new package name/deps)",
+      "chore-0 will KEEP: data/apachejit/, scripts/download_apachejit.sh, .harness/, .gitignore (adapt), .cursor/rules/"
     ],
     "keep_at_root": [
       "state.json (this file)",
       "breadcrumbs.jsonl",
       "archive/"
     ],
-    "rationale": "Prior state.json framed work as 'build adapter, run pipeline, measure precision/recall.' New state reframes as harness-engineering experiment. feat-1 download work remains valid; task IDs and scope below are redesigned."
+    "rationale": "Prior codebase was an ITSM batch pipeline forced onto ApacheJIT via adapter — wrong abstraction for commit investigation. Ground truth discovery (commit_links + JIRA chain) justifies a purpose-built investigative agent. Pipeline code is archived in git history and .harness/archive/, not evolved."
   },
   "trade_offs": [
     {
-      "decision": "D1: risk_category = flat `medium` for all ApacheJIT bundles",
-      "alternative": "Derive risk from LA/LD/NF metrics or project tier",
-      "reasoning": "CSV has no ITSM risk assessment. Fabricating risk signals from commit metrics would conflate adapter invention with pipeline measurement. Flat medium keeps the field inert so eval measures pipeline dimensions, not adapter heuristics."
+      "decision": "Investigative agent, not classifier — primary output is structured investigation report with evidence and reasoning",
+      "alternative": "XGBoost/ML classifier on numeric features only",
+      "reasoning": "ApacheJIT's rich ground truth enables 5-dimension validation (prediction, localization, diagnosis, severity, recommendations) that no classifier output supports. ML router is a harness component, not the product."
     },
     {
-      "decision": "D2: incident_history capped at 50 most recent prior buggy commits; export `history_total_prior_buggy` as adapter metadata",
-      "alternative": "Unbounded history or file-level overlap via GitHub API",
-      "reasoning": "HP stage thresholds activate at 2/5 incidents — unbounded project history would saturate every commit in mature projects. Cap preserves signal gradient. Metadata preserves full count for analysis without overloading the port."
+      "decision": "Bounded multi-turn agent loop (max 3 turns V1) with explicit follow-up triggers",
+      "alternative": "Single-pass (gather → reason → output) or unbounded ReAct",
+      "reasoning": "Investigation requires following evidence (e.g., file history after seeing risky diff), but unbounded loops are unbounded cost. V1: turn 1 = diff+message+features+initial scan; turns 2–3 = targeted dig (file history, author stats) only when confidence < threshold or explicit uncertainty flagged."
     },
     {
-      "decision": "D3: change_category = commit `year` (not `project`)",
-      "alternative": "Use project name as change_category",
-      "reasoning": "Project-as-category would collapse all history into one bucket per service, causing HP saturation to constant blocker on active projects. Year buckets create temporal granularity that activates HP thresholds without fabricating semantic categories."
+      "decision": "Orchestrator + LLM reasoning steps — LLM is not the entire system",
+      "alternative": "End-to-end LLM agent with no deterministic layer",
+      "reasoning": "Harness thesis requires deterministic context construction, budget gates, schema validation, routing, and checkpointing around LLM calls. Orchestrator owns tool dispatch, turn limits, and report assembly; LLM owns reasoning over assembled context."
     },
     {
-      "decision": "D4: Split-aware history — test_large sees train only; test_small sees train + chronologically prior test_large rows",
-      "alternative": "All splits see full corpus history",
-      "reasoning": "Strict temporal ordering prevents future leakage. test_small is a temporal subset evaluable with richer history context. Matches ApacheJIT's intended train/test protocol."
+      "decision": "V1 git access: local clones of 2 projects (Camel, Hadoop) via git CLI",
+      "alternative": "Clone all 15 repos upfront; GitHub API on-demand for all diffs",
+      "reasoning": "Camel has ~14K commits (largest); Hadoop provides second-project generalization. Local git enables blame/log/diff without API rate limits. All-15-repo clone is multi-GB and blocks V1; GitHub API alone cannot do blame/log efficiently. Expand to more projects in V2."
     },
     {
-      "decision": "Pipeline and CRBundle are fixed artifacts — adapter adapts to the port",
-      "alternative": "Add completeness bypass flag or ApacheJIT-specific stage logic",
-      "reasoning": "Changing the pipeline would invalidate P0 architecture validation and confound harness thesis measurement. Completeness will dominate full-pipeline recommendations on partial bundles — that degeneracy is a measurable harness finding, not a bug to patch."
+      "decision": "V1 context bundle: unified diff + commit message + CSV numeric features + last-3 file commits + precomputed author project stats",
+      "alternative": "Diff+message only (too thin); full blame + live JIRA + all file history (too expensive)",
+      "reasoning": "LLM needs more than metrics but less than exhaustive archaeology. Numeric features ground the agent in ApacheJIT's signal without replacing investigation. Author stats precomputed from train split (no leakage). JIRA fetched at eval time, not investigation time — prevents oracle leakage during agent runs."
     },
     {
-      "decision": "L1-only for predictive eval (deterministic, $0, reproducible)",
-      "alternative": "Include L2 embedding/LLM paths in eval harness",
-      "reasoning": "P1 harness thesis requires reproducible overnight runs at 106K scale. L1 establishes minimum-capable-component baseline. L2 comparison is a future evolution-level task after L1 numbers exist and only if L1 shows any signal worth advancing."
+      "decision": "XGBoost router: P<0.3 SAFE (skip LLM), P>0.7 HIGH (flag, optional light LLM confirm), 0.3≤P≤0.7 INVESTIGATE (full agent)",
+      "alternative": "LLM-investigate everything; router-only without agent",
+      "reasoning": "Proves harness routing thesis at scale. 106K commits × LLM is infeasible. Router trained on train split numeric features only (fair baseline). Agent eval focuses on gray zone where investigation adds value."
     },
     {
-      "decision": "ApacheJIT as P1 test bed accepting semantic gap (bug-inducing commit ≠ ITSM incident)",
-      "alternative": "Wait for enterprise ITSM data or BPI outcome linkage (n=25 P1/P2)",
-      "reasoning": "No public ITSM corpus has statistical power. ApacheJIT provides 28K Tier B labels with temporal splits. Semantic gap is explicit — we measure correlation under gap, not claim ITSM CAB causation."
+      "decision": "Default eval budget tier: $50 (~300 LLM investigations at ~$0.15/commit)",
+      "alternative": "$10 smoke (50 commits) or $100 deep (1000 commits)",
+      "reasoning": "$10 sufficient for CI smoke. $50 balances statistical power on gray-zone buggy/clean mix with cost discipline. $100 for manual deep runs. Budget is a harness governance knob, not an afterthought."
     },
     {
-      "decision": "Predictive harness reports multiple signal views + random baseline (not single precision/recall number)",
-      "alternative": "Single AUC on recommendation ordinal only",
-      "reasoning": "Full-pipeline recommendation will be degenerate (100% reject via completeness). Harness thesis requires per-dimension signal decomposition, completeness-excluded scores, HP-only signal, and random baseline to answer 'does minimum capable component beat chance?'"
+      "decision": "Framework-agnostic AgentRunner protocol; LangGraph/CrewAI decision deferred",
+      "alternative": "Pick LangGraph upfront",
+      "reasoning": "User explicitly deferred framework. V1 builds against interfaces (AgentRunner, Tool, CheckpointStore). Spike after working V1 compares LangGraph vs 100-line custom loop on same tools."
     },
     {
-      "decision": "Incident severity = P3 for all adapter-constructed incidents",
-      "alternative": "Map buggy label to P1/P2 severity",
-      "alternative_note": "Tier B labels are binary clean/buggy, not operational severity tiers",
-      "reasoning": "Fabricating P1/P2 from binary labels would misrepresent HP severity thresholds. P3 keeps severity honest; HP activation comes from incident count thresholds, not inflated severity."
+      "decision": "Five-dimension eval with tiered automation: D1-D2 deterministic; D3-D5 LLM-as-judge with rubric + human audit sample",
+      "alternative": "Human-only eval for all dimensions",
+      "reasoning": "D1 (prediction vs buggy label) and D2 (localization vs fix diff files) are automatable. D3–D5 (diagnosis, severity, recommendations vs JIRA) need semantic judgment — LLM-as-judge scales with documented rubric; 20-commit human audit catches judge drift."
     },
     {
-      "decision": "Separate predictive_eval module from architecture evaluate.py",
-      "alternative": "Extend evaluate.py with ApacheJIT mode",
-      "reasoning": "Architecture eval (BPI CAB windows, disposition, L1 vs L2 stage comparison) and predictive eval (ground truth, signal correlation, baselines) answer different research questions. Separation prevents regressing P0 harness."
+      "decision": "No JIRA/oracle data in agent investigation context — reserved for eval comparison only",
+      "alternative": "Give agent the fix commit and JIRA issue during investigation",
+      "reasoning": "Would trivialize the task and invalidate claims about investigative capability. Agent sees what a reviewer would see at commit time; eval compares output to oracle after the fact."
     }
   ],
   "open_questions": [
-    "Primary continuous score for threshold sweep: HP-only finding count, completeness-excluded weighted score, or recommendation ordinal? Report all three initially?",
-    "Default eval scale: test_small (~7.5K, CI-friendly) with test_large (~30K) as documented manual overnight run?",
-    "If L1 signal ≈ random on all views, is that a publishable negative result for harness thesis or evidence the semantic gap is too wide for this pipeline shape?",
-    "Should adapter metadata (history_total_prior_buggy, pr_scope_flags metrics) be included in eval-side feature analysis even though pipeline stages don't consume them today?",
-    "GitHub commit-message enrichment: worth a follow-up spike or permanently out of scope for CSV-only reproducibility?",
-    "Evolution trigger: what L1 recall threshold would justify an L2 HP embedding experiment on this domain given D3 year-as-category limits L2 value?"
+    "Package name: `commit_investigator`, `jit_agent`, or keep repo name aligned? Builder decides in scaffold task.",
+    "Replication package layout: exact paths for commit_links_{PROJECT}.csv and {PROJECT}.csv inside zip — feat-2 must verify user's 100% chain claim on real extracted files.",
+    "Localization GT granularity: file-level from fix diff vs line-level via GumTree mappings in replication package — line-level is higher value but may be a V2 eval dimension.",
+    "LLM provider/model for V1: need API key strategy and model lock for reproducibility (temperature=0, pinned model ID).",
+    "Diagnosis eval (D3): embed JIRA description vs agent reasoning — semantic similarity threshold or structured rubric checklist?",
+    "Severity mapping: JIRA priority/severity enums vary by project — need normalization table before D4 scoring.",
+    "Camel+Hadoop sufficient for V1 claims, or must include a third project before any generalization statement?",
+    "When to train XGBoost: after agent V1 works standalone, or parallel? Current plan: feat-6 after feat-5 so agent is independently demonstrable.",
+    "Human audit protocol for D3–D5: who reviews the 20-commit sample and where are rubrics documented?"
   ],
+  "risks": [
+    {
+      "risk": "100% ground truth chain claim may not hold on all extracted files",
+      "mitigation": "feat-2 emits coverage report: chain completeness %, broken links, orphan commits before any eval claims",
+      "severity": "high"
+    },
+    {
+      "risk": "Git clone size and clone script reliability for Apache repos",
+      "mitigation": "Shallow clones (--depth=1 insufficient for history; use full clone with progress, cache in data/repos/, document disk budget ~2-5GB for 2 projects)",
+      "severity": "medium"
+    },
+    {
+      "risk": "LLM non-determinism undermines eval reproducibility",
+      "mitigation": "temperature=0, pinned model, persist full prompts/responses in eval artifacts, report confidence intervals across 2 runs on 10-commit sample",
+      "severity": "medium"
+    },
+    {
+      "risk": "D3–D5 LLM-as-judge circularity (LLM judges LLM)",
+      "mitigation": "Separate judge model from agent model; 20-commit human audit; report judge-agent agreement rate",
+      "severity": "medium"
+    },
+    {
+      "risk": "Agent degeneracy: generic boilerplate reasoning without diff-specific evidence",
+      "mitigation": "Eval requires ≥1 evidence item citing specific file/hunk; schema validation rejects empty evidence; adversarial evaluator tests evasion",
+      "severity": "high"
+    },
+    {
+      "risk": "Cost overrun on multi-turn loops",
+      "mitigation": "Hard turn cap (3), per-commit token budget, per-run dollar cap enforced by orchestrator; breadcrumb cost telemetry",
+      "severity": "medium"
+    },
+    {
+      "risk": "Deleting 147 tests removes safety net — new suite must build before agent is trusted",
+      "mitigation": "feat-8 tests gate feat-9 eval run; git history preserves old tests for reference",
+      "severity": "low"
+    }
+  ],
+  "architectural_decisions": {
+    "agent_loop": "Bounded multi-turn (max 3 turns V1). Orchestrator decides follow-up vs finalize.",
+    "llm_role": "Reasoning engine inside orchestrator — not the outer control plane.",
+    "git_access": "Local clones, 2 projects V1 (Camel, Hadoop). git CLI for diff/log/blame.",
+    "routing": "XGBoost on numeric features. Thresholds 0.3/0.7. Implemented after standalone agent.",
+    "scale_cost": "Tiered budgets: $10/50/100. LLM only on routed samples. XGBoost scores full splits free.",
+    "framework": "Deferred. Interface-first V1.",
+    "context_per_commit": "Diff + message + CSV features + file history (3) + author stats (precomputed).",
+    "output_schema": "CommitInvestigationReport — see feat-4 scope.",
+    "ground_truth": "First-class GroundTruthGraph: bug_hash → fix_hash → issue_key → JIRA metadata. Eval-only oracle access.",
+    "deferred": [
+      "Framework selection (LangGraph vs minimal vs CrewAI)",
+      "All 15 project clones",
+      "Line-level localization GT via GumTree",
+      "Live JIRA during investigation (not eval)",
+      "L2 embedding / retrieval augmentation",
+      "Production deployment or API server"
+    ]
+  },
   "tasks": [
     {
       "id": "chore-0",
-      "name": "Harness cleanup for apachejit v1 phase",
+      "name": "Legacy deletion and harness phase reset",
       "type": "chore",
-      "status": "verified",
-      "scope": "Archive prior phase artifacts, reset contract.json, preserve breadcrumbs archive. Completed and committed.",
+      "status": "done",
+      "scope": "Delete src/cr_analyzer/, tests/, fixtures/, docs/, scripts/download_bpi2014.sh, output/eval/. Delete contract.json if present. Verify data/apachejit/ and scripts/download_apachejit.sh remain. Do NOT delete .harness/archive/. Commit is separate user action.",
       "depends_on": []
     },
     {
       "id": "feat-1",
-      "name": "ApacheJIT data acquisition",
+      "name": "Project scaffold and documentation shell",
       "type": "feature",
-      "status": "verified",
-      "scope": "Download script, data/apachejit/ gitignored, docs/datasets.md entry. Three CSVs present (train 44,834 / test_large 30,111 / test_small 7,526). Completed and committed.",
+      "status": "pending",
+      "scope": "New src/ package (investigator), pyproject.toml (rename from cr-analyzer, add deps: pydantic, httpx for JIRA, xgboost, scikit-learn; optional dev: pytest, mypy). README.md and ARCHITECTURE.md rewritten for investigative agent thesis. docs/ recreated minimally: experiment-context.md (updated thesis), datasets.md (ApacheJIT ground truth chain section), evaluation.md (5-dimension framework stub). No agent logic yet.",
       "depends_on": ["chore-0"]
     },
     {
-      "id": "feat-docs",
-      "name": "Experiment thesis documentation reframe",
-      "type": "feature",
-      "status": "pending",
-      "scope": "Commit and finalize docs that reframe repo as experiment #19b harness-engineering validation, not a pipeline product. Covers README experiment blurb, docs/experiment-context.md (thesis, H/O/E/N/C, P0/P1/P2, harness component mapping), ARCHITECTURE.md experiment context section + cross-links. Draft exists uncommitted. Does NOT duplicate datasets.md research content.",
-      "depends_on": ["chore-0"],
-      "acceptance_criteria": [
-        "README states experiment #19b framing and links to experiment-context.md",
-        "docs/experiment-context.md documents harness thesis, agent-fit scoring, validation phases",
-        "ARCHITECTURE.md experiment context section links experiment-context.md and states P1 in progress",
-        "P0/P1/P2 claim separation explicit — no commercial or ITSM causation claims",
-        "No src/ or pipeline stage changes"
-      ]
-    },
-    {
       "id": "feat-2",
-      "name": "ApacheJIT adapter — context construction port",
+      "name": "Ground truth graph loader",
       "type": "feature",
       "status": "pending",
-      "scope": "Implement src/cr_analyzer/adapters/apachejit.py following BPI adapter pattern. Maps CSV rows to CRBundle + external ground-truth label (buggy bool). Enforces D1–D4: flat medium risk, year-as-change_category, P3 severity, 50-incident cap with history_total_prior_buggy metadata, split-aware chronological history. Map project→affected_services, author_date→scheduled_window, metrics→pr_scope_flags, commit_id→change_id, structured synthetic description. Expose load_apachejit(data_dir, split) → list[tuple[CRBundle, bool, dict]] where dict carries adapter metadata. Stages 4–7 artifacts remain None. Does NOT modify pipeline stages or CRBundle schema.",
-      "depends_on": ["feat-1"],
-      "acceptance_criteria": [
-        "Adapter parses real downloaded CSVs without error",
-        "Every CRBundle passes pydantic validation",
-        "D1: all bundles have risk_category=medium",
-        "D2: incident_history ≤50 entries; metadata exports history_total_prior_buggy",
-        "D3: incident change_category = commit year string",
-        "D4: test_large history from train only; test_small from train + prior test_large",
-        "Ground truth buggy label paired externally, not embedded in bundle schema",
-        "BPI adapter unchanged; 147 existing tests still pass"
-      ]
+      "scope": "Extract and index replication package linkage files: commit_links_{PROJECT}.csv (fix_hash→bug_hash), {PROJECT}.csv (issue_key→commit_id). Build GroundTruthGraph resolving bug-inducing commit → fixing commit → JIRA issue. JIRA API client (public Apache JIRA) for issue summary, description, priority, components, resolution — with disk cache. Emit coverage report validating chain completeness on train+test splits. This is the foundation for all 5 eval dimensions.",
+      "depends_on": ["feat-1"]
     },
     {
       "id": "feat-3",
-      "name": "Predictive validation harness — measurement instrument",
+      "name": "Git access layer and context builder",
       "type": "feature",
       "status": "pending",
-      "scope": "Add src/cr_analyzer/eval/predictive_eval.py. For each ApacheJIT test commit: run L1 pipeline (ingest→normalize→completeness→historical_pattern→risk_synthesis), persist per-stage checkpoints, capture recommendation/risk_level/per-dimension findings alongside ground truth. Compute: task completion rate, schema compliance, full-pipeline recommendation metrics (expected degenerate), completeness-excluded signal scores, HP-only signal, random baseline, precision/recall/F1/AUC per signal view. Emit predictive-report.json + predictive-report.md with methodology section. CLI with --split test_small|test_large. Does NOT modify evaluate.py or pipeline stages.",
-      "depends_on": ["feat-2"],
-      "acceptance_criteria": [
-        "Harness runs end-to-end on test_small without crash",
-        "Report includes task completion and schema compliance (harness reliability metrics)",
-        "Report includes full-pipeline baseline with explicit completeness-dominance note",
-        "Report includes ≥2 signal views beyond full-pipeline recommendation",
-        "Report includes random baseline comparison on same split",
-        "Report includes precision, recall, F1, confusion matrix, and AUC (or PR-AUC) per signal view",
-        "L1 only — zero LLM API calls",
-        "BPI architecture eval (evaluate.py) unchanged"
-      ]
+      "scope": "scripts/clone_apache_repos.sh for Camel and Hadoop (configurable, cached under data/repos/). GitContextProvider: get_diff(commit_id), get_commit_message, get_file_history(path, n=3), get_touched_files. CommitContextBuilder assembles investigation context bundle from git + CSV row + precomputed author stats index (built from train split). Handle missing commits gracefully (skip with reason).",
+      "depends_on": ["feat-1"]
     },
     {
       "id": "feat-4",
-      "name": "Harness verification tests",
+      "name": "Investigation report schema",
       "type": "feature",
       "status": "pending",
-      "scope": "Add tests/test_apachejit_adapter.py (inline CSV fixtures, D1–D4 assertions, no-leakage ordering, split loading) and tests/test_predictive_eval.py (tiny synthetic bundle+label set, metric computation, report structure, random baseline). Full-dataset tests skip when data/apachejit/ absent. All 147 existing tests must remain green.",
-      "depends_on": ["feat-2", "feat-3"],
-      "acceptance_criteria": [
-        "Adapter tests pass with fixture CSV only (no download required for CI)",
-        "Tests verify D3 year-as-category and D4 split-aware history no-leakage",
-        "Tests verify D2 incident cap and metadata export",
-        "Predictive eval tests verify confusion matrix, F1, and random baseline on known input",
-        "pytest full suite green (147+ tests)",
-        "Integration tests skip gracefully when data/apachejit/ missing"
-      ]
+      "scope": "Pydantic models: EvidenceItem (type, source, content, relevance), LocalizationClaim (file, lines, rationale), Recommendation (action, priority, rationale), RiskAssessment (level: LOW|MEDIUM|HIGH|CRITICAL, confidence 0-1), CommitInvestigationReport (commit_id, project, risk_assessment, evidence[], findings[], localization[], reasoning_summary, recommendations[], tools_used[], turn_count, metadata). JSON schema export. Validation rejects reports with zero evidence items.",
+      "depends_on": ["feat-1"]
     },
     {
       "id": "feat-5",
-      "name": "First harness eval run + thesis findings",
+      "name": "Agent investigation loop V1",
       "type": "feature",
       "status": "pending",
-      "scope": "Execute predictive harness on test_small (minimum) and test_large if runtime acceptable. Record results in docs/evaluation.md Predictive Validation section. Write harness thesis interpretation: does L1 beat random? which dimensions carry signal? what does completeness dominance quantify? what is provable vs not under semantic gap? Update docs/evaluation.md status from 'not measured' to measured. Honest negative results are success — document why, don't hide degenerate metrics.",
-      "depends_on": ["feat-3", "feat-4", "feat-docs"],
-      "acceptance_criteria": [
-        "predictive-report.json generated from real ApacheJIT data (test_small minimum)",
-        "docs/evaluation.md updated with measured numbers and harness reliability metrics",
-        "Findings section answers: L1 vs random, per-dimension signal, completeness dominance effect",
-        "≥5 provable claims and ≥5 non-provable claims stated explicitly",
-        "No over-claiming of ITSM CAB causation or P2 full-pipeline validation",
-        "If metrics are null or degenerate, root cause documented (not suppressed)"
-      ]
+      "scope": "Framework-agnostic AgentOrchestrator: ToolRegistry (git tools, feature lookup), bounded multi-turn loop (max 3), LLM reasoning step (pluggable provider), budget tracking (tokens + estimated cost), checkpoint persistence per turn. CLI: investigate --commit <id> --project <name>. Output: CommitInvestigationReport JSON. No routing yet — every invocation runs full investigation.",
+      "depends_on": ["feat-3", "feat-4"]
+    },
+    {
+      "id": "feat-6",
+      "name": "XGBoost routing layer",
+      "type": "feature",
+      "status": "pending",
+      "scope": "Train XGBoost on apachejit_train.csv numeric features (LA, LD, NF, ND, NS, ENT, NDEV, AGE, EXP, REXP, SEXP, etc.). Router classifies: SAFE (<0.3), INVESTIGATE (0.3-0.7), HIGH (>0.7). CLI: route --split test_small|test_large emits routing manifest. Integrate with orchestrator: INVESTIGATE/HIGH run agent; SAFE skips. Persist router model + metrics (AUC, calibration) for harness comparison.",
+      "depends_on": ["feat-5"]
+    },
+    {
+      "id": "feat-7",
+      "name": "Five-dimension evaluation harness",
+      "type": "feature",
+      "status": "pending",
+      "scope": "EvalHarness sampling strategy: stratified sample from routed commits within budget tier (default $50/300 LLM calls). Score D1 prediction (risk level vs buggy label), D2 localization (agent files vs fix diff files, Jaccard + optional line overlap), D3 diagnosis (agent reasoning vs JIRA description, LLM-as-judge rubric), D4 severity calibration (agent risk vs JIRA priority, normalized mapping), D5 recommendation relevance (agent rec vs actual fix pattern, LLM-as-judge). Emit eval-report.json + eval-report.md. Include router-only baseline (no LLM) for comparison.",
+      "depends_on": ["feat-2", "feat-6"]
+    },
+    {
+      "id": "feat-8",
+      "name": "Test suite for new codebase",
+      "type": "feature",
+      "status": "pending",
+      "scope": "tests/ rebuilt from scratch: ground truth graph parsing (fixture CSVs), context builder (mock git), report schema validation, router train/predict (tiny fixture), eval metric computation (synthetic reports), agent loop smoke (mock LLM). Integration tests skip when data/apachejit/ or data/repos/ absent. No dependency on deleted cr_analyzer code.",
+      "depends_on": ["feat-2", "feat-4", "feat-6", "feat-7"]
+    },
+    {
+      "id": "feat-9",
+      "name": "First investigation eval run and findings",
+      "type": "feature",
+      "status": "pending",
+      "scope": "Execute Tier 2 ($50) eval on Camel+Hadoop commits from test_small gray zone. Record results in docs/evaluation.md. Document: agent vs router-only vs random baselines per dimension, cost actuals, chain coverage, honest failure modes. State ≥3 provable claims and ≥3 non-provable claims. Negative results (agent ≈ router) are valid if documented.",
+      "depends_on": ["feat-7", "feat-8"]
+    },
+    {
+      "id": "spike-1",
+      "name": "Framework comparison spike (post-V1)",
+      "type": "spike",
+      "status": "pending",
+      "scope": "After feat-9, prototype same agent in LangGraph and minimal custom loop. Compare: lines of code, checkpoint fidelity, tool dispatch clarity, debuggability. Recommend framework for V2. No production dependency on spike outcome.",
+      "depends_on": ["feat-9"]
     }
   ],
   "session_handoff": {
-    "for_new_chat": "Read .harness/state.json. Project: exp19b-harness-predictive-validation. Reframed 2026-06-09: this is harness-engineering experiment #19b, not 'build adapter measure PR.' Pipeline is fixed artifact under test. chore-0 and feat-1 verified+committed. Next: feat-docs (draft uncommitted), then feat-2 adapter with D1–D4. Do NOT modify src/cr_analyzer/stages/ or CRBundle models. L1 only. 147 tests must stay green.",
-    "prior_phases_completed": [
-      "Pipeline build (feat-1–feat-10) — 9-stage L1/L2 pipeline, BPI 2014 P0 architecture validation, 147 tests",
-      "Dataset research v2 — ApacheJIT ranked #1 for P1 predictive validation",
-      "apachejit v1 harness cleanup + data acquisition (chore-0, feat-1) — committed"
+    "for_new_chat": "Read .harness/state.json. Project: exp19b-commit-risk-investigator. COMPLETE REWRITE from ITSM pipeline. Prior plan archived to .harness/archive/phases/itsm-pipeline/. Next: chore-0 (delete legacy code). Do NOT evolve src/cr_analyzer/. Keep data/apachejit/ and download script. V1 = investigative agent with real git diffs, 2 projects, bounded multi-turn loop, XGBoost routing, 5-dimension eval. Framework deferred.",
+    "prior_phases_archived": [
+      "pipeline-build — 9-stage ITSM pipeline, BPI 2014 P0 validation, 147 tests",
+      "dataset-research-v2 — ApacheJIT ranked #1",
+      "apachejit-v1 — harness cleanup + data download (script + CSVs)",
+      "itsm-pipeline — exp19b-harness-predictive-validation (adapter-on-fixed-pipeline framing, abandoned)"
     ],
-    "resolved_decisions": {
-      "D1": "risk_category = flat medium",
-      "D2": "incident_history cap 50 + history_total_prior_buggy metadata",
-      "D3": "change_category = year (not project)",
-      "D4": "test_large history from train; test_small from train + prior test_large"
-    },
-    "key_docs": [
-      "docs/experiment-context.md — harness thesis, P0/P1/P2 phases",
-      "docs/datasets.md — ApacheJIT mapping, semantic gap analysis",
-      "docs/evaluation.md — P0 results; P1 section to be populated by feat-5",
-      "ARCHITECTURE.md — pipeline stages (fixed), adapter layer, experiment context",
-      "src/cr_analyzer/adapters/bpi2014.py — adapter pattern reference",
-      "src/cr_analyzer/eval/evaluate.py — P0 architecture eval (do not conflate)"
+    "preserved_assets": [
+      "data/apachejit/ (train, test_large, test_small CSVs + replication zip)",
+      "scripts/download_apachejit.sh",
+      ".harness/archive/ (all prior phases)",
+      "git history"
     ],
     "data_facts": {
-      "train": "44,834 rows, 2003-2016, 50% buggy",
-      "test_large": "30,111 rows, 2017-2019, 19% buggy",
-      "test_small": "7,526 rows, subset of test_large",
+      "train": "44,834 rows, 2003-2016",
+      "test_large": "30,111 rows, 2017-2019",
+      "test_small": "7,526 rows",
+      "buggy_total": "~28,239",
       "projects": 15,
-      "csv_columns": "commit_id, project, buggy, fix, year, author_date, la, ld, nf, nd, ns, ent, ndev, age, nuc, aexp, arexp, asexp",
-      "missing": "commit message, file paths, CMDB, runbooks"
+      "v1_projects": ["camel", "hadoop"],
+      "ground_truth_chain": "bug_hash → fix_hash (commit_links) → issue_key (project CSV) → JIRA metadata (API)",
+      "csv_features": "la, ld, nf, nd, ns, ent, ndev, age, nuc, aexp, arexp, asexp"
     }
   }
 }
