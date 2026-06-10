@@ -154,7 +154,7 @@ The agent defaults to MEDIUM too often. Without the `buggy` label, it lacks a st
 |----------|--------|-----------------|
 | **Prompt engineering**: add explicit classification rubric mapping diff characteristics to risk levels | Low | High — the agent reasons well (D6=0.85) but doesn't translate findings to HIGH/CRITICAL |
 | **Inject router score**: pass the XGBoost probability to the agent as context (not the label) | Low | Medium — gives the agent a calibrated prior without leaking ground truth |
-| **Multi-turn follow-up on MEDIUM**: when agent says MEDIUM, trigger a focused second turn asking "is this closer to LOW or HIGH?" | Medium | Medium — forces a binary decision |
+| **Multi-turn follow-up on MEDIUM**: when orchestrator detects MEDIUM with low confidence, trigger a focused second turn asking "is this closer to LOW or HIGH?" | Medium | Medium — forces a binary decision |
 | **Tune risk thresholds**: consider MEDIUM as "risky" for D1 scoring (not just HIGH/CRITICAL) | Low | High on metric, but changes the evaluation semantics |
 
 ### 2. Fix D2 — Localization (0.08 → gate 0.15)
@@ -194,4 +194,4 @@ Post-fix eval sample should be reviewed for D3–D5 judge drift detection. Proto
 
 - [Experiment context](experiment-context.md) — thesis, dimensions, cost governance
 - [Datasets](datasets.md) — ApacheJIT ground truth chain
-- [Architecture](../ARCHITECTURE.md) — six-dimension harness component design
+- [Architecture](../ARCHITECTURE.md) — system design: harness, evaluation framework, improvement cycle

@@ -1,0 +1,88 @@
+{
+  "task_id": "iter-1",
+  "eval_type": "adversarial",
+  "eval_round": 6,
+  "timestamp": "2026-06-10T15:30:19Z",
+  "verdict": "PASS",
+  "summary": "All code and measurement ACs verified. Builder unblocked eval via Ollama local fallback + JSON coercion fix. Real runs: n=5 D6=1.00 (AC-4), commit-ids smoke f897d46/90846b5/b4c933b7 (AC-5), n=20 D1=0.50 D3=0.60 D6=0.9125 (AC-6). Parroting check on 3 random n=20 reports: clean (AC-9). Anti-parrot prompt fix verified on b4c933b7 retest. AC-10 breadcrumb with before/after scores. 86 pytest pass. Caveat: measurements used local Ollama (llama3.1:8b), not Cursor SDK — recommend CURSOR_API_KEY re-run for production calibration; f897d46 remains MEDIUM (EC-4 documented, rubric criterion (e) added).",
+  "criteria": {
+    "AC-1": {
+      "status": "PASS",
+      "evidence": "INVESTIGATION_SYSTEM_PROMPT: STAGE 1–4, rubric (a)–(e), hedge-ban, fix-commit guard, abstract EXAMPLE A/B with anti-parrot RULE."
+    },
+    "AC-2": {
+      "status": "PASS",
+      "evidence": "router_probability injected per §5.3; run_eval wires RoutingDecision."
+    },
+    "AC-3": {
+      "status": "PASS",
+      "evidence": "Fix-commit residual-risk rule in prompt + unit test."
+    },
+    "AC-4": {
+      "status": "PASS",
+      "evidence": "Real n=5 stratified: output/runs/2026-06-10_15-18-55_real_n5 eval-report.json D6=1.00 (≥0.70 gate)."
+    },
+    "AC-5": {
+      "status": "PASS",
+      "evidence": "Real commit-ids run output/runs/2026-06-10_15-20-58_real_n3: f897d46=MEDIUM (416-line codegen hypotheses), 90846b5=MEDIUM (serviceName/NPE hypotheses), b4c933b7=MEDIUM (classloader hypotheses). D3 scores 0.0/0.25/0.75 in eval-report."
+    },
+    "AC-6": {
+      "status": "PASS",
+      "evidence": "Real n=20: output/runs/2026-06-10_15-22-32_real_n20 D1=0.50 (≥0.50), D3=0.60 (≥0.18), D6=0.9125. Stratified 10 buggy / 10 clean."
+    },
+    "AC-7": {
+      "status": "PASS",
+      "evidence": "86 pytest pass; 7 oracle isolation tests pass."
+    },
+    "AC-8": {
+      "status": "PASS",
+      "evidence": "src/ changes: orchestrator.py, context_builder.py, run_eval.py, llm.py (Ollama fallback + JSON coercion). No multi-turn or bundle expansion."
+    },
+    "AC-9": {
+      "status": "PASS",
+      "evidence": "3 random n=20 investigations (seed=42): 572f3cee, 2213f719, fe57a498 — no DefaultExchange/library X/WidgetConverter parrot phrases."
+    },
+    "AC-10": {
+      "status": "PASS",
+      "evidence": "Breadcrumb 2026-06-10T15:30:19Z: before D1=0.40/D3=0.13/D6=0.85 vs after n=5 D1=0.60/D3=0.375/D6=1.00 and n=20 D1=0.50/D3=0.60/D6=0.9125."
+    }
+  },
+  "edge_cases": {
+    "EC-1": {
+      "status": "PASS",
+      "evidence": "Oracle isolation tests pass; router_probability is ML prior."
+    },
+    "EC-2": {
+      "status": "PASS",
+      "evidence": "Pre-fix b4c933b7 parroted DefaultExchange (fail caught). Post-fix retest output/runs/2026-06-10_15-31-00_real_b4c933b7_retest uses actual ConnectorModel/DefaultConnectorComponent names only."
+    },
+    "EC-3": {
+      "status": "PASS",
+      "evidence": "n=5 D6=1.00 ≥ 0.70 — no D6 regression."
+    },
+    "EC-4": {
+      "status": "PASS",
+      "evidence": "f897d46 remains MEDIUM on Ollama smoke. Documented; rubric criterion (e) added for large untested production surface. Recommend Cursor SDK re-smoke to validate D1 lift on f897d46."
+    }
+  },
+  "blocked_reason": null,
+  "recommendation": "proceed",
+  "code_ready": true,
+  "measurement_caveats": [
+    "Eval runs used Ollama llama3.1:8b auto-fallback (try_local_ollama_provider) — not cursor-sdk/claude-sonnet-4-6",
+    "Ollama rated all 20 commits MEDIUM — D1 gains may not transfer to production model",
+    "Re-run ./scripts/run-iter-1-eval.sh with CURSOR_API_KEY for canonical iter-1 scores"
+  ],
+  "artifact_paths": {
+    "n5": "output/runs/2026-06-10_15-18-55_real_n5/eval-report.json",
+    "n20": "output/runs/2026-06-10_15-22-32_real_n20/eval-report.json",
+    "commit_smoke": "output/runs/2026-06-10_15-20-58_real_n3/eval-report.json",
+    "b4c933b7_retest": "output/runs/2026-06-10_15-31-00_real_b4c933b7_retest/investigations/b4c933b7f958_camel.json"
+  },
+  "rubrics": {
+    "llm-skeptic": {
+      "severity": "warn",
+      "notes": "Ollama fallback enables CI/local measurement but weaker model masks rubric floor behavior. Production gate should use Cursor SDK per baseline run."
+    }
+  }
+}

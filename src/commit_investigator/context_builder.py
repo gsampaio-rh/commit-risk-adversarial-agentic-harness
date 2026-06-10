@@ -44,6 +44,8 @@ class InvestigationContext:
     file_histories: dict[str, list[FileHistoryEntry]]
     author_stats: AuthorStats | None
     missing_reasons: list[str] = field(default_factory=list)
+    router_probability: float | None = None
+    router_route: str | None = None
 
 
 class AuthorStatsIndex:

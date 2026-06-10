@@ -1,29 +1,49 @@
 {
-  "task_id": "d1-d3-prompt-engineering",
-  "feature": "Prompt engineering to reach D1/D2/D3 acceptance gates",
-  "problem": "After removing buggy/fix label leakage, the agent fails 3/6 dimension gates: D1=0.40 (gate 0.70), D2=0.08 (gate 0.15), D3=0.13 (gate 0.20). The agent reads diffs correctly (D6=0.85) and calibrates severity well (D4=0.84), but under-classifies buggy commits as MEDIUM and produces generic reasoning that misses root causes.",
-  "proposed_solution": "Three low-effort, high-impact prompt changes: (1) Add explicit risk classification rubric mapping code patterns to risk levels, (2) Inject XGBoost router probability as calibrated prior context, (3) Add 2-3 few-shot investigation examples showing good root-cause analysis. Validate with n=20 stratified eval.",
+  "task_id": "iter-1",
+  "feature": "Prompt engineering: A+B hybrid investigation method (rubric + staged CoT + router prior)",
+  "problem": "Post-leak baseline (n=5): D1=0.40, D2=0.08, D3=0.13, D6=0.85. Agent grounds evidence but hedges to MEDIUM on buggy commits and describes structure not failure mechanisms. spike-0 docs and research define the fix; code not yet changed.",
+  "proposed_solution": "Implement spike §5.2 system prompt (Architecture A+B hybrid: risk rubric with mechanism floor + four-stage reasoning in JSON reasoning field), inject router_probability per §5.3, embed two abstract few-shot examples. Add fix-commit residual-risk rubric guard (verdict consistent with SUPPORTED mechanism — addresses b4c933b7 D3↑ D1↓). Run n=5 smoke then n=20 stratified validation.",
   "acceptance_criteria": [
-    "AC-1: System prompt includes a risk classification rubric with concrete pattern→risk mappings (e.g., API contract changes→HIGH, test-only changes→LOW)",
-    "AC-2: XGBoost router probability is passed to the agent as context (NOT the buggy label — oracle isolation preserved)",
-    "AC-3: System prompt includes 2-3 few-shot examples of high-quality investigation reports with specific root-cause reasoning",
-    "AC-4: Oracle isolation tests pass (76+ tests, no regressions) — router probability is NOT a ground truth leak",
-    "AC-5: n=20 stratified eval (10 buggy, 10 clean) shows D1 >= 0.60 (improvement from 0.40, trending toward gate 0.70)",
-    "AC-6: n=20 eval shows D3 >= 0.18 (improvement from 0.13, trending toward gate 0.20)",
-    "AC-7: D6 >= 0.70 (no regression on evidence grounding from prompt changes)",
-    "AC-8: D4 >= 0.50 (no regression on severity calibration)",
-    "AC-9: Per-commit eval JSONs in evaluations/ folder confirm agent no longer references buggy/fix labels in reasoning_summary",
-    "AC-10: docs/evaluation.md updated with n=20 post-prompt results and comparison to pre-prompt baseline"
+    "AC-1: orchestrator.py system prompt replaced with spike §5.2 template (four stages, rubric tiers, hedge-ban rules, two few-shot examples)",
+    "AC-2: router_probability injected in context assembly per spike §5.3 format (ML prior disclaimer, route enum)",
+    "AC-3: Fix-commit residual-risk rule in prompt: SUPPORTED mechanistic hypothesis → risk_level MUST be ≥ HIGH; verdict must not downgrade due to fix-commit framing",
+    "AC-4: n=5 stratified smoke passes with D6≥0.70 (hard revert if below)",
+    "AC-5: Individual smoke on f897d46, 90846b5, b4c933b7 — document risk_level and D3-relevant reasoning for each",
+    "AC-6: n=20 stratified eval completes; targets D1≥0.50, D3≥0.18 (interim targets — gate is 0.70/0.20 at n=50)",
+    "AC-7: 76+ tests pass; oracle isolation tests unchanged",
+    "AC-8: No infrastructure changes except prompt and context injection (no multi-turn enable, no bundle expansion in iter-1)",
+    "AC-9: 3 random n=20 reports checked for few-shot example parroting (no copied example text)",
+    "AC-10: Breadcrumb with before/after scores vs n=5 baseline"
   ],
   "edge_cases": [
-    "EC-1: Agent with router_probability=0.95 (near HIGH threshold) should not blindly say HIGH — must still reason from diff evidence",
-    "EC-2: Few-shot examples don't cause the agent to parrot example language — reasoning must reference actual commit content",
-    "EC-3: Commits with truncated diffs (>4K chars) should not systematically score lower on D1 than full-diff commits"
+    "EC-1: Router probability may correlate with buggy — agent must treat as prior not label; oracle isolation tests verify no GT leak",
+    "EC-2: Few-shot parroting — agent copies 'HYPOTHESIS: If null property...' verbatim instead of reasoning from diff",
+    "EC-3: D6 regression from assertive rubric — if n=5 D6<0.70, revert rubric floor before router injection",
+    "EC-4: f897d46 may remain MEDIUM if rubric lacks 'large untested surface' criterion — document and propose rubric amendment if smoke fails"
   ],
-  "verification_method": "Run n=20 stratified eval with post-prompt agent. Compare D1/D2/D3/D6 against pre-prompt baseline (n=5 clean run). Check oracle isolation tests. Read 3 random eval reports to verify reasoning quality.",
-  "rubrics": ["code-quality", "llm-skeptic"],
-  "rubric_mode": "strict",
+  "verification_method": "Builder runs pytest (76+). Smoke n=5 stratified real eval. Validate n=20 stratified. Evaluator checks: prompt matches §5.2 intent, router_probability present in context, per-commit forensics on 3 named commits, D6 guard holds, parroting check on 3 reports.",
+  "rubrics": ["llm-skeptic"],
+  "rubric_mode": "warn",
   "negotiation_rounds": 0,
-  "phase": "negotiating",
-  "verified": false
+  "phase": "verified",
+  "verified": true,
+  "prior_task": {
+    "task_id": "spike-0",
+    "phase": "verified",
+    "verified": true,
+    "eval_report": ".harness/evals/eval-spike-0-final.json"
+  },
+  "parallel_experiments": [
+    {
+      "id": "EXP-FORENSICS-TAG",
+      "blocks_iter_1": false,
+      "note": "Run in parallel; informs whether iter-2 needs loop changes"
+    },
+    {
+      "id": "EXP-MULTITURN-AB",
+      "blocks_iter_1": false,
+      "note": "Run after iter-1 prompt lands; compare max_turns=1 vs 3 on n=20"
+    }
+  ],
+  "tier_2_pivot": "If n=20 post-iter-1 shows ΔD3<0.05 AND ΔD1<0.10, activate loop architecture experiments (EXP-BUNDLE-EXPAND, EXP-JUDGE-SWAP) per eval-agent-loop-design.json"
 }

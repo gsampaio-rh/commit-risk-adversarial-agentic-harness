@@ -323,10 +323,30 @@ class OpenAIProvider(LLMProvider):
         )
 
 
-def get_provider(prefer_real: bool = True) -> LLMProvider:
-    """Factory: return real provider if API key available, otherwise mock.
+def try_local_ollama_provider() -> LLMProvider | None:
+    """Return an OpenAI-compatible provider backed by local Ollama if reachable."""
+    if os.environ.get("DISABLE_LOCAL_LLM", "").lower() in ("1", "true", "yes"):
+        return None
 
-    Priority: CURSOR_API_KEY (Cursor SDK) → OPENAI_API_KEY (OpenAI) → Mock.
+    base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
+    health_url = base_url.replace("/v1", "").rstrip("/") + "/api/tags"
+    try:
+        import httpx
+
+        response = httpx.get(health_url, timeout=2.0)
+        if response.status_code != 200 or not response.json().get("models"):
+            return None
+    except Exception:
+        return None
+
+    model = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
+    return OpenAIProvider(api_key="ollama", base_url=base_url, model=model)
+
+
+def get_provider(prefer_real: bool = True) -> LLMProvider:
+    """Factory: return real provider if available, otherwise mock.
+
+    Priority: CURSOR_API_KEY → OPENAI_API_KEY (+ OPENAI_BASE_URL) → local Ollama → Mock.
     """
     if prefer_real:
         cursor_key = os.environ.get("CURSOR_API_KEY")
@@ -335,6 +355,12 @@ def get_provider(prefer_real: bool = True) -> LLMProvider:
 
         openai_key = os.environ.get("OPENAI_API_KEY")
         if openai_key:
-            return OpenAIProvider(api_key=openai_key)
+            base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+            return OpenAIProvider(api_key=openai_key, base_url=base_url, model=model)
+
+        local = try_local_ollama_provider()
+        if local is not None:
+            return local
 
     return MockLLMProvider()

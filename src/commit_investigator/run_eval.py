@@ -138,7 +138,79 @@ def _log(msg: str) -> None:
     logger.info(msg)
 
 
+def _load_dotenv(path: str | Path = ".env") -> None:
+    """Load KEY=VALUE pairs from .env into os.environ (only unset keys)."""
+    env_path = Path(path)
+    if not env_path.is_file():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def _resolve_commit_id(prefix: str, csv_rows: dict[str, dict[str, str]]) -> str | None:
+    """Match a short commit prefix to a full commit_id in the CSV."""
+    prefix = prefix.strip().lower()
+    if prefix in csv_rows:
+        return prefix
+    matches = [cid for cid in csv_rows if cid.lower().startswith(prefix)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _select_by_commit_ids(
+    decisions: list,
+    csv_rows: dict[str, dict[str, str]],
+    git_providers: dict[str, GitContextProvider],
+    commit_id_prefixes: list[str],
+) -> tuple[list, dict[str, int]]:
+    """Evaluate explicit commit IDs (AC-5 individual smoke)."""
+    decision_by_id = {d.commit_id: d for d in decisions}
+    selected: list = []
+    missing: list[str] = []
+
+    for prefix in commit_id_prefixes:
+        full_id = _resolve_commit_id(prefix, csv_rows)
+        if full_id is None:
+            missing.append(prefix)
+            continue
+        row = csv_rows[full_id]
+        project = _normalize_project(row.get("project", ""))
+        if project not in git_providers:
+            missing.append(prefix)
+            continue
+        decision = decision_by_id.get(full_id)
+        if decision is None:
+            missing.append(prefix)
+            continue
+        selected.append(decision)
+
+    if missing:
+        raise ValueError(
+            f"Could not resolve commit(s) for evaluation: {', '.join(missing)}. "
+            "Ensure IDs exist in the test CSV, have git clones, and were routed."
+        )
+
+    stats = {
+        "v1_routed": len(selected),
+        "buggy_with_chain": 0,
+        "clean": 0,
+        "buggy_partial": 0,
+        "commit_ids_mode": 1,
+        "requested_ids": commit_id_prefixes,
+    }
+    return selected, stats
+
+
 def main() -> None:
+    _load_dotenv()
     parser = argparse.ArgumentParser(description="Run evaluation on test split")
     parser.add_argument("--train", default="data/apachejit/apachejit_train.csv")
     parser.add_argument("--test", default="data/apachejit/apachejit_test_small.csv")
@@ -148,16 +220,23 @@ def main() -> None:
     parser.add_argument("--output-dir", default=None, help="Override run dir (default: auto-timestamped)")
     parser.add_argument("--runs-base", default="output/runs", help="Base directory for timestamped runs")
     parser.add_argument("--mock", action="store_true", help="Use mock LLM provider")
+    parser.add_argument(
+        "--commit-ids",
+        nargs="+",
+        metavar="COMMIT",
+        help="Evaluate specific commit ID prefixes (overrides stratified selection)",
+    )
     args = parser.parse_args()
 
     repos_dir = Path(args.repos_dir)
 
     eval_mode = "mock" if args.mock else "real"
+    run_count = len(args.commit_ids) if args.commit_ids else args.max_evals
     if args.output_dir:
         run_dir = Path(args.output_dir)
         run_dir.mkdir(parents=True, exist_ok=True)
     else:
-        run_dir = _build_run_dir(args.runs_base, eval_mode, args.max_evals)
+        run_dir = _build_run_dir(args.runs_base, eval_mode, run_count)
 
     file_handler = _setup_logging(run_dir)
     inv_dir = run_dir / "investigations"
@@ -190,19 +269,25 @@ def main() -> None:
     git_providers = _init_git_providers(repos_dir)
     _log(f"  Available: {sorted(git_providers.keys())}")
 
-    target_commits, strat_stats = _select_stratified_commits(
-        gray_zone + high_zone,
-        csv_rows,
-        gt,
-        git_providers,
-        buggy_lookup,
-        args.max_evals,
-    )
-    _log(
-        f"  Gray zone: {len(gray_zone)}, High: {len(high_zone)}, "
-        f"V1 stratified: {strat_stats['v1_routed']}, evaluating: {len(target_commits)} "
-        f"(buggy_chain={strat_stats['buggy_with_chain']}, clean={strat_stats['clean']})"
-    )
+    if args.commit_ids:
+        target_commits, strat_stats = _select_by_commit_ids(
+            decisions, csv_rows, git_providers, args.commit_ids,
+        )
+        _log(f"  Commit-ids mode: evaluating {len(target_commits)} requested commit(s)")
+    else:
+        target_commits, strat_stats = _select_stratified_commits(
+            gray_zone + high_zone,
+            csv_rows,
+            gt,
+            git_providers,
+            buggy_lookup,
+            args.max_evals,
+        )
+        _log(
+            f"  Gray zone: {len(gray_zone)}, High: {len(high_zone)}, "
+            f"V1 stratified: {strat_stats['v1_routed']}, evaluating: {len(target_commits)} "
+            f"(buggy_chain={strat_stats['buggy_with_chain']}, clean={strat_stats['clean']})"
+        )
 
     if args.mock:
         llm = MockLLMProvider()
@@ -210,8 +295,9 @@ def main() -> None:
         llm = get_provider(prefer_real=True)
         if isinstance(llm, MockLLMProvider):
             _log(
-                "ERROR: Real eval requested but no CURSOR_API_KEY or OPENAI_API_KEY set. "
-                "Export an API key or pass --mock for methodology testing."
+                "ERROR: Real eval requested but no LLM provider available. "
+                "Set CURSOR_API_KEY or OPENAI_API_KEY, configure Ollama locally, "
+                "or pass --mock for methodology testing."
             )
             sys.exit(1)
     _log(f"LLM provider: {llm.model_name} (eval_mode={eval_mode})")
@@ -247,6 +333,8 @@ def main() -> None:
 
         builder = CommitContextBuilder(git_provider, author_stats)
         context = builder.build(decision.commit_id, project_lower, csv_row)
+        context.router_probability = decision.probability
+        context.router_route = decision.route.value
 
         t0 = time.time()
         report = orchestrator.investigate(

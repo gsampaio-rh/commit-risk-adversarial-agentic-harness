@@ -2,7 +2,12 @@
 
 from commit_investigator.context_builder import InvestigationContext
 from commit_investigator.llm import MockLLMProvider
-from commit_investigator.orchestrator import AgentOrchestrator
+from commit_investigator.orchestrator import (
+    INVESTIGATION_SYSTEM_PROMPT,
+    AgentOrchestrator,
+    _coerce_text_field,
+    _normalize_findings,
+)
 from commit_investigator.report import CommitInvestigationReport, RiskLevel
 
 
@@ -17,6 +22,45 @@ def _mock_context() -> InvestigationContext:
         file_histories={},
         author_stats=None,
     )
+
+
+class TestInvestigationPrompt:
+    def test_system_prompt_has_four_stages_and_rubric(self):
+        assert "STAGE 1" in INVESTIGATION_SYSTEM_PROMPT
+        assert "STAGE 4" in INVESTIGATION_SYSTEM_PROMPT
+        assert "SUPPORTED hypothesis with diff evidence" in INVESTIGATION_SYSTEM_PROMPT
+        assert "limited blast radius" in INVESTIGATION_SYSTEM_PROMPT
+        assert "EXAMPLE A" in INVESTIGATION_SYSTEM_PROMPT
+        assert "EXAMPLE B" in INVESTIGATION_SYSTEM_PROMPT
+
+    def test_system_prompt_has_fix_commit_residual_risk_rule(self):
+        assert "commit message mentions a fix" in INVESTIGATION_SYSTEM_PROMPT
+        assert "SUPPORTED mechanism exists" in INVESTIGATION_SYSTEM_PROMPT
+
+    def test_coerce_structured_llm_fields(self):
+        reasoning = _coerce_text_field({"STAGE 1": "summary"}, "default")
+        assert "STAGE 1" in reasoning
+        findings = _normalize_findings([{"hypothesis": "If X then Y"}, "plain string"])
+        assert len(findings) == 2
+        assert "hypothesis" in findings[0]
+        assert findings[1] == "plain string"
+
+    def test_router_probability_injected_in_user_message(self):
+        orchestrator = AgentOrchestrator(llm_provider=MockLLMProvider())
+        context = _mock_context()
+        context.router_probability = 0.652
+        context.router_route = "INVESTIGATE"
+        messages = orchestrator._build_initial_messages(context)
+        user_content = messages[1].content
+        assert "router_probability=0.652" in user_content
+        assert "route=INVESTIGATE" in user_content
+        assert "prior, not a defect label" in user_content
+
+    def test_router_probability_omitted_when_unset(self):
+        orchestrator = AgentOrchestrator(llm_provider=MockLLMProvider())
+        messages = orchestrator._build_initial_messages(_mock_context())
+        user_content = messages[1].content
+        assert "ML Risk Prior" not in user_content
 
 
 class TestAgentOrchestrator:

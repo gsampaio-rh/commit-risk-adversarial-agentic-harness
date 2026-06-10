@@ -30,6 +30,88 @@ from commit_investigator.report import (
 from commit_investigator.tools import ToolRegistry, build_default_registry
 
 
+INVESTIGATION_SYSTEM_PROMPT = """\
+You are a commit risk investigator. Analyze the provided commit context and \
+produce a risk assessment grounded in diff evidence.
+
+## INVESTIGATION METHOD
+
+Structure your "reasoning" field in four stages:
+
+STAGE 1 — CHANGE SUMMARY: What changed, which files, stated intent.
+
+STAGE 2 — DEFECT HYPOTHESES: List 2–3 specific failure modes this change \
+COULD introduce. Format each as:
+  "HYPOTHESIS: If <condition> then <failure> in <file>:<area>"
+
+STAGE 3 — EVIDENCE: For each hypothesis, cite diff evidence for/against.
+  Mark each: SUPPORTED / REFUTED / UNVERIFIABLE.
+
+STAGE 4 — VERDICT: State rubric tier and risk_level.
+
+## RISK CLASSIFICATION RUBRIC
+
+CRITICAL: Credential exposure, injection vulnerability, data loss, or \
+production outage likely in normal usage paths.
+
+HIGH: At least one of:
+  (a) A SUPPORTED defect hypothesis with diff evidence
+  (b) API/binary incompatibility (removed generics, changed public signatures)
+  (c) ML risk prior router_probability ≥ 0.70
+  (d) Security-relevant change without input validation
+  (e) Large new production logic (>200 lines in one new file) with complex \
+behavior and no tests added in the same commit
+
+MEDIUM: Risk indicators exist but no SUPPORTED hypothesis. Uncertainty \
+about impact. Truncated diff preventing verification.
+
+LOW: Docs-only, test-only, formatting, or no defect mechanism identifiable.
+
+RULES:
+- A SUPPORTED hypothesis with diff evidence → risk_level MUST be ≥ HIGH.
+- Do NOT assign MEDIUM because a change is "additive", has "limited blast \
+radius", or is "backward-compatible in intent."
+- Do NOT assign LOW/MEDIUM solely because the commit message mentions a fix \
+or the change appears corrective. Residual risk from an incomplete fix or \
+regression elsewhere still requires ≥ HIGH when a SUPPORTED mechanism exists.
+- router_probability is an ML prior (0.0–1.0), NOT ground truth.
+- findings[] must list only SUPPORTED hypotheses with file paths.
+- localization[] must list files where a SUPPORTED hypothesis points, NOT all \
+touched files.
+- NEVER reuse names, phrases, or scenarios from EXAMPLE A/B (e.g. \
+WidgetConverter.java, library Z) — reason only from the actual diff provided.
+
+## EXAMPLE A — HIGH (fictional placeholder names only — do not copy)
+
+Commit: Bumps dependency Z in multiple modules. Diff removes null-check on \
+conversion path in WidgetConverter.java.
+
+reasoning: "STAGE 1: ... STAGE 2: HYPOTHESIS: If null input on Boolean \
+conversion, removed guard returns null causing NPE in WidgetConverter.java:142. \
+STAGE 3: SUPPORTED — diff removes guard at line 142. STAGE 4: Rubric HIGH, \
+criterion (a)."
+risk_level: HIGH
+
+## EXAMPLE B — LOW (fictional — do not copy)
+
+Commit: Fixes test assertion order in one unit test file.
+
+reasoning: "STAGE 1: Single test file, assertion order fix. STAGE 2: No \
+defect hypotheses — no production code changed. STAGE 3: N/A. STAGE 4: \
+Rubric LOW."
+risk_level: LOW
+
+IMPORTANT: Respond ONLY with a single JSON object (no markdown, no text \
+outside JSON). Required fields:
+- risk_level: one of LOW, MEDIUM, HIGH, CRITICAL
+- confidence: float 0.0 to 1.0
+- reasoning: string with all four stages
+- findings: list of strings (SUPPORTED hypotheses only)
+- follow_up_needed: boolean
+- localization: list of {file, lines, rationale} objects
+- recommendations: list of {action, priority, rationale} objects"""
+
+
 @dataclass
 class BudgetState:
     """Tracks token usage and cost across turns."""
@@ -173,21 +255,6 @@ class AgentOrchestrator:
 
     def _build_initial_messages(self, context: InvestigationContext) -> list[LLMMessage]:
         """Construct the initial prompt with investigation context."""
-        system_prompt = (
-            "You are a commit risk investigator. Analyze the provided commit context "
-            "and produce a risk assessment with evidence. Be specific: cite file paths, "
-            "diff hunks, and metrics. If you need more information, use the available tools.\n\n"
-            "IMPORTANT: Respond ONLY with a single JSON object (no markdown, no explanation "
-            "outside the JSON). The JSON must contain these fields:\n"
-            "- risk_level: one of LOW, MEDIUM, HIGH, CRITICAL\n"
-            "- confidence: float 0.0 to 1.0\n"
-            "- reasoning: string explaining your assessment\n"
-            "- findings: list of strings with specific observations\n"
-            "- follow_up_needed: boolean\n"
-            "- localization: list of {file, lines, rationale} objects\n"
-            "- recommendations: list of {action, priority, rationale} objects"
-        )
-
         context_parts = [f"## Commit: {context.commit_id}\n## Project: {context.project}\n"]
 
         if context.message:
@@ -200,19 +267,28 @@ class AgentOrchestrator:
             context_parts.append(f"## Diff\n```\n{diff_preview}\n```\n")
 
         if context.touched_files:
-            context_parts.append(f"## Touched Files\n" + "\n".join(f"- {f}" for f in context.touched_files))
+            context_parts.append("## Touched Files\n" + "\n".join(f"- {f}" for f in context.touched_files))
 
         if context.csv_features:
             feat_str = ", ".join(f"{k}={v}" for k, v in sorted(context.csv_features.items()))
             context_parts.append(f"\n## Numeric Features\n{feat_str}")
 
+        if context.router_probability is not None:
+            route = context.router_route or "UNKNOWN"
+            context_parts.append(
+                f"\n## ML Risk Prior\n"
+                f"router_probability={context.router_probability:.3f} (route={route})\n"
+                "Note: This is an ML model score from change metrics. It is a prior, not a "
+                "defect label. Use it as one input to the rubric, especially criterion (c)."
+            )
+
         if context.missing_reasons:
-            context_parts.append(f"\n## Missing Context\n" + "\n".join(f"- {r}" for r in context.missing_reasons))
+            context_parts.append("\n## Missing Context\n" + "\n".join(f"- {r}" for r in context.missing_reasons))
 
         user_content = "\n".join(context_parts)
 
         return [
-            LLMMessage(role="system", content=system_prompt),
+            LLMMessage(role="system", content=INVESTIGATION_SYSTEM_PROMPT),
             LLMMessage(role="user", content=user_content),
         ]
 
@@ -279,14 +355,17 @@ class AgentOrchestrator:
                     rationale=rec.get("rationale", ""),
                 ))
 
+        findings = _normalize_findings(parsed.get("findings"))
+        reasoning = _coerce_text_field(parsed.get("reasoning"), "Investigation completed.")
+
         return CommitInvestigationReport(
             commit_id=context.commit_id,
             project=context.project,
             risk_assessment=RiskAssessment(level=risk_level, confidence=confidence),
             evidence=evidence_items,
-            findings=parsed.get("findings", ["Investigation completed"]),
+            findings=findings,
             localization=localization,
-            reasoning_summary=parsed.get("reasoning", "Investigation completed."),
+            reasoning_summary=reasoning,
             recommendations=recommendations,
             tools_used=tools_used,
             turn_count=turns,
@@ -380,3 +459,25 @@ def _extract_json(text: str) -> dict[str, Any]:
             pass
 
     return {}
+
+
+def _coerce_text_field(value: Any, default: str) -> str:
+    """Normalize LLM output to a string (some models return nested JSON objects)."""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list)):
+        return json.dumps(value)
+    return str(value)
+
+
+def _normalize_findings(raw: Any) -> list[str]:
+    """Ensure findings is a list of strings for schema validation."""
+    if not raw:
+        return ["Investigation completed"]
+    if not isinstance(raw, list):
+        return [_coerce_text_field(raw, "Investigation completed")]
+    findings = [_coerce_text_field(item, "") for item in raw]
+    findings = [f for f in findings if f.strip()]
+    return findings or ["Investigation completed"]

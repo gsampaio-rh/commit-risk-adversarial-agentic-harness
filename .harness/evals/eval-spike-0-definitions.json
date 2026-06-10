@@ -1,0 +1,146 @@
+{
+  "task_id": "spike-0-definitions",
+  "eval_type": "terminology_audit",
+  "timestamp": "2026-06-10T18:00:00Z",
+  "verdict": "fail",
+  "summary": "The Definitions table in docs/harness.md is clear and correct, but it is undermined by contradictions in the same file (opening paragraph, 'eval harness' prose) and by README.md's Definitions section, which directly conflates harness with evaluation and misstates agent control. ARCHITECTURE.md mostly separates the three legs but still lists adversarial evaluation under harness engineering and assigns GT-based scoring to the harness responsibility table.",
+  "inconsistencies": [
+    {
+      "file": "docs/harness.md",
+      "location": "Line 3, opening paragraph",
+      "text": "The harness is the system. It is everything around the LLM that makes investigation reliable, measurable, and improvable at scale. ... With it, you have a closed loop that produces verifiable results and knows when it's failing.",
+      "issue": "Conflates the whole closed-loop system (harness + evaluation + improvement cycle) with the harness alone. Per Definitions, measurability against ground truth and 'knowing when it's failing' are evaluation responsibilities, not harness responsibilities.",
+      "fix": "The system is a closed loop of harness, evaluation, and improvement. The harness is the investigation production layer — everything around the LLM that produces the best possible investigation at commit time. Evaluation measures output against ground truth; the improvement cycle changes the investigation method between runs."
+    },
+    {
+      "file": "docs/harness.md",
+      "location": "Line 252, Four-stage enforcement",
+      "text": "The orchestrator and eval harness expect every investigation to follow this arc.",
+      "issue": "'Eval harness' is ambiguous prose that blurs investigation-time enforcement (orchestrator/harness) with post-hoc GT scoring (evaluation). The four-stage arc is enforced during production by the harness; evaluation scores it afterward.",
+      "fix": "The orchestrator enforces this arc during investigation (via prompt, schema, and quality gates). Evaluation scores how well each stage succeeded post-hoc against ground truth."
+    },
+    {
+      "file": "docs/harness.md",
+      "location": "Line 285, Evaluation Framework intro",
+      "text": "The eval harness exists to diagnose *how* the agent fails, not just *whether* it fails.",
+      "issue": "Uses 'eval harness' as if it were the investigation harness. Per Definitions, this process is Evaluation — a separate leg that never runs during investigation.",
+      "fix": "Evaluation exists to diagnose *how* the agent fails, not just *whether* it fails."
+    },
+    {
+      "file": "docs/harness.md",
+      "location": "Line 259, Four-stage enforcement table (Stage 4)",
+      "text": "D1 classification matches mechanism findings",
+      "issue": "D1 is an evaluation dimension requiring ground truth. The harness enforces verdict consistency at runtime without GT access; referencing D1 in the harness enforcement table implies the harness judges against oracle.",
+      "fix": "Risk level is consistent with supported mechanism findings (scored as D1 during evaluation)."
+    },
+    {
+      "file": "ARCHITECTURE.md",
+      "location": "Line 9, §1 What This System Is",
+      "text": "harness engineering (routing, context assembly, schema enforcement, adversarial evaluation, cost governance)",
+      "issue": "Lists adversarial evaluation as part of harness engineering. Per Definitions, evaluation is a separate process that runs after production and has oracle access.",
+      "fix": "harness engineering (routing, context assembly, schema enforcement, cost governance) and a separate evaluation framework (six-dimension adversarial scoring against ground truth)"
+    },
+    {
+      "file": "ARCHITECTURE.md",
+      "location": "Line 38, Harness owns control table",
+      "text": "| Whether output is good | Eval harness + judge | — |",
+      "issue": "Assigns GT-based quality judgment to the harness column. 'Whether output is good' against ground truth is evaluation; the harness only enforces runtime quality gates (schema, follow-up triggers) without oracle access.",
+      "fix": "Split responsibilities: harness row → 'Whether investigation meets runtime quality gates (schema, follow-up triggers)'; add an Evaluation row → 'Whether output matches ground truth (D1–D6, ReasoningJudge)'."
+    },
+    {
+      "file": "ARCHITECTURE.md",
+      "location": "Line 35, Harness owns control table",
+      "text": "| When to stop | Turn cap, budget | Can request follow-up |",
+      "issue": "Implies the agent controls follow-up turns. Per Definitions, the agent fills the schema; the orchestrator/harness decides follow-up based on deterministic triggers.",
+      "fix": "| When to stop / follow-up | Turn cap, budget, follow-up triggers | Signals uncertainty via output fields (confidence, localization, reasoning) |"
+    },
+    {
+      "file": "ARCHITECTURE.md",
+      "location": "Line 62, §3.3 Classification rules",
+      "text": "Operational enforcement — prompt gates, schema validation, eval scoring — is in docs/harness.md",
+      "issue": "Groups eval scoring (GT-based, post-production) with harness enforcement (commit-time, no GT) as a single operational enforcement bucket.",
+      "fix": "Operational enforcement — prompt gates and schema validation (harness, commit-time); dimension scoring (evaluation, post-hoc) — see docs/harness.md and docs/evaluation.md."
+    },
+    {
+      "file": "ARCHITECTURE.md",
+      "location": "Line 7–8, §1 What This System Is",
+      "text": "This is a verifiable investigation harness ... The harness is the product",
+      "issue": "Uses 'harness' as the name for the entire system/product, which conflicts with the narrow Definitions sense where harness is only the investigation production leg. A new reader may not distinguish system name from component name.",
+      "fix": "Clarify naming: 'This is a verifiable commit investigation system whose core is an investigation harness (production) plus evaluation and improvement cycle.' Or rename product references to 'system' and reserve 'harness' for the production leg."
+    },
+    {
+      "file": "README.md",
+      "location": "Line 3, tagline",
+      "text": "through a six-dimension adversarial evaluation harness",
+      "issue": "'Evaluation harness' is ambiguous compound terminology. Per key rules, prose should use 'evaluation framework' for the eval system and 'harness' (or 'investigation harness') for production.",
+      "fix": "through a six-dimension adversarial evaluation framework"
+    },
+    {
+      "file": "README.md",
+      "location": "Line 17, What is a harness?",
+      "text": "The harness owns routing ..., budget enforcement ..., evaluation (how we measure quality), and artifact persistence",
+      "issue": "Directly contradicts harness.md Definitions: evaluation is a separate process that measures harness output after production. The harness never compares against ground truth.",
+      "fix": "The harness owns routing, context construction, schema validation, budget enforcement, and artifact persistence. Evaluation (a separate process) measures harness output against ground truth. See docs/harness.md Definitions."
+    },
+    {
+      "file": "README.md",
+      "location": "Line 21, What is adversarial evaluation?",
+      "text": "Adversarial evaluation means the harness actively tries to catch the agent being bad",
+      "issue": "Attributes GT-based adversarial scoring to the harness. Adversarial evaluation is the evaluation framework's job; the harness enforces structural quality during production without oracle access.",
+      "fix": "Adversarial evaluation means the evaluation framework actively tries to catch the agent being bad — comparing output against ground truth the agent never saw."
+    },
+    {
+      "file": "README.md",
+      "location": "Line 9, What is an agent?",
+      "text": "reads diffs, calls tools (git log, file history, blame), reasons over what it finds, and decides whether to dig deeper or finalize its assessment ... investigates it autonomously",
+      "issue": "Overstates agent autonomy and control. Per harness.md Definitions, the agent is the LLM call that reasons over assembled context and fills the schema. The orchestrator dispatches context/tools, triggers follow-up, and controls turns — the agent does not decide routing, context, turns, or dig-deeper logic.",
+      "fix": "The agent is the LLM inside the harness: it reasons over the context bundle the orchestrator assembles and fills the structured schema. Follow-up turns, tool/context injection, and turn caps are orchestrator decisions — not agent decisions."
+    },
+    {
+      "file": "README.md",
+      "location": "Line 36, Where agents are used table",
+      "text": "| **AgentOrchestrator** | **Yes** | Bounded multi-turn investigation loop ... |",
+      "issue": "Misidentifies AgentOrchestrator as the agent. AgentOrchestrator is the orchestrator (harness component). The agent is the LLM call inside it.",
+      "fix": "| **AgentOrchestrator** | **No** (orchestrator) | Runs the harness: context assembly, LLM calls, follow-up triggers, schema validation, report assembly. The LLM inside is the agent. |"
+    },
+    {
+      "file": "README.md",
+      "location": "Line 123, Package Layout",
+      "text": "# Agent, orchestrator, eval harness, router",
+      "issue": "'eval harness' in prose is ambiguous. EvalHarness is a valid class name but the comment reads as if it were 'the harness'.",
+      "fix": "# Agent, orchestrator, evaluation framework (EvalHarness), router"
+    },
+    {
+      "file": "docs/evaluation.md",
+      "location": "Line 197, Related Documents",
+      "text": "Architecture — six-dimension harness component design",
+      "issue": "Labels the six-dimension panel as a harness component. Per Definitions, D1–D6 scoring belongs to evaluation, not the investigation harness.",
+      "fix": "Architecture — six-dimension evaluation framework design"
+    },
+    {
+      "file": "docs/evaluation.md",
+      "location": "Line 157, Next Steps table",
+      "text": "Multi-turn follow-up on MEDIUM: when agent says MEDIUM, trigger a focused second turn",
+      "issue": "Minor agent/orchestrator conflation: follow-up is triggered by the orchestrator based on deterministic harness rules (confidence, localization, uncertainty signals), not by the agent choosing to continue.",
+      "fix": "When the orchestrator detects MEDIUM with low confidence or uncertainty signals, trigger a focused second turn asking 'is this closer to LOW or HIGH?'"
+    },
+    {
+      "file": "docs/spike-investigation-harness.md",
+      "location": "Title + throughout (informational only — frozen doc)",
+      "text": "Spike: Optimal Investigation Harness Design",
+      "issue": "Research doc does not define the harness/evaluation/improvement-cycle separation. Title and framing treat 'investigation harness design' as the deliverable without distinguishing evaluation as a separate leg. Not blocking (frozen), but a new reader starting here may miss the three-way split now canonical in harness.md.",
+      "fix": "No edit required (frozen). If referenced, add a note in harness.md or README pointing readers to Definitions before the spike doc."
+    }
+  ],
+  "terms_validated": [
+    "harness",
+    "evaluation",
+    "improvement cycle",
+    "investigation method",
+    "agent",
+    "orchestrator",
+    "ground truth",
+    "router"
+  ],
+  "recommendation": "fix_and_retest"
+}
