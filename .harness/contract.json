@@ -1,64 +1,30 @@
 {
-  "task_id": "iter-2-validate",
-  "feature": "iter-2b round-2 rubric: SPECULATIVE cap for clean-commit patterns only; preserve SUPPORTED→HIGH on buggy production defects (combined with iter-2a 16K diff)",
-  "problem": "iter-2b round-1 (global strict SUPPORTED) over-corrected: panel 19-52-44 buggy recall 1/6, clean FP 4/6. Round-2 attempt (clean-commit section without strict bar) under-corrected: panel 20-33-45 buggy recall 5/6 but clean FP 6/6 (worse than iter-1). Need a rubric that hits both strata on the fixed 12-commit regression panel before commit and iter-2-n20.",
-  "proposed_solution": "Dual-path rubric in INVESTIGATION_SYSTEM_PROMPT: (1) Restore iter-1 SUPPORTED→HIGH floor for production defect patterns (guard removal, lifecycle reordering, control-flow changes, filed-defect fixes). (2) Add CLEAN-COMMIT DISCRIMINATION section scoped to known FP archetypes from EXP-FORENSICS-TAG: dependency/version bumps, comment-only compatibility signals, label/enum/property renames, mechanical API renames, type-import substitution for migration. Under discrimination: cross-version/theoretical breakage is SPECULATIVE unless diff shows wrong logic at call site; all-SPECULATIVE/UNVERIFIABLE → cap MEDIUM (router_probability cannot override). (3) Explicit opt-out: do NOT apply discrimination when guards/lifecycle/concurrency changed or CAMEL-*/JIRA fix with production logic beyond mechanical adaptation. (4) Keep iter-2a max_diff_chars=16000 unchanged. (5) REQUIRED: narrow opt-out — migration typing refactors (split CompletableFuture locals, raw-type erasure) do NOT waive discrimination when PRIMARY change is version bump or type substitution; under discrimination, rubric criterion (b) API/binary incompatibility does NOT apply to migration-driven signature or import changes. (6) FALLBACK if panel AC-4 fails on first run: add deterministic post-processing in orchestrator._assemble_report that caps risk_level to MEDIUM when reasoning marks all hypotheses SPECULATIVE/UNVERIFIABLE OR when touched_files/diff match clean archetype heuristics without guard/lifecycle/JIRA-production signals.",
+  "task_id": "state-reorder-audit",
+  "feature": "state.json task ordering and dependency restructure for iter-3-first track",
+  "problem": "Previous ordering had iter-2-n20 as priority 1 blocker and FIX-JUDGE-INFRA/EXP-JUDGE-SWAP as priorities 1-2. None of these block any iter-3 refactor step. The real work (architectural redesign) was buried at priority 4+.",
+  "proposed_solution": "iter-3a-extract becomes priority 1 with no deps. Judge scoring infra (FIX-JUDGE-INFRA + EXP-JUDGE-SWAP) deferred to after iter-3e, depends_on iter-3e. iter-2-n20 demoted to optional conditional (priority 16, no blocker).",
   "acceptance_criteria": [
-    "AC-1: pytest tests/ -q exits 0 with ≥90 collected tests; tests/test_orchestrator.py asserts dual-path prompt strings (CLEAN-COMMIT DISCRIMINATION, SUPPORTED→HIGH, router cap, migration opt-out narrowing, criterion-(b)-exclusion under discrimination)",
-    "AC-2: 12-commit regression panel completes without SDK status=error on Claude Sonnet 4.6; eval-report.json has metadata.timings length=12 with non-null risk for each commit",
-    "AC-3: Panel D1 = mean(per-commit D1 scores) ≥ 0.65 where D1=1.0 iff (buggy AND risk∈{HIGH,CRITICAL}) OR (clean AND risk∈{LOW,MEDIUM}); report computed value in eval breadcrumb",
-    "AC-4: Panel clean FP rate ≤ 50% (≤3/6 clean commits with risk HIGH or CRITICAL)",
-    "AC-5: Panel buggy recall ≥ 0.80 (≥5/6 buggy commits with risk HIGH or CRITICAL)",
-    "AC-6: Panel D3_buggy = subset_averages.D3_buggy_only ≥ 0.20 (not full-panel D3)",
-    "AC-7: Panel D6 = dimension_averages.D6 ≥ 0.70",
-    "AC-8: fbf0ffad627b per-commit D3 ≥ 0.50 in eval-report.json results",
-    "AC-9: f897d46870ba and 90846b586c51 have metadata.timings risk HIGH (no SPECULATIVE over-correction on buggy production defects)",
-    "AC-10: Commits 9530370f7642, b9f1653151e2, and 7cff0990283b each classified MEDIUM or LOW (replicate clean-only 18-36-43 wins on archetype FPs)",
-    "AC-11: 9530370f7642 investigation reasoning must NOT opt out of clean-commit discrimination solely due to migration typing refactors; generic-erasure/API-migration hypotheses classified SPECULATIVE under discrimination",
-    "AC-12: No commit in panel scored via silent MEDIUM fallback — orchestrator must fail loud or retry when LLM response is empty/invalid (run.log must not contain status=error without explicit failure)"
+    "AC-1: iter-3a-extract has priority=1 and depends_on=[]",
+    "AC-2: iter-3a-spike has priority=2 and depends_on=[iter-3a-extract]",
+    "AC-3: iter-3b-wire-gates has priority=3 and depends_on=[iter-3a-extract, iter-3a-spike]",
+    "AC-4: iter-3c-bundle-inject has priority=4 and depends_on=[iter-3a-extract]",
+    "AC-5: iter-3d-smart-diff has priority=5 and depends_on=[iter-3a-extract]",
+    "AC-6: iter-3e-decompose-prompt has priority=6 and depends_on=[iter-3b, iter-3c, iter-3d]",
+    "AC-7: FIX-JUDGE-INFRA has depends_on=[iter-3e-decompose-prompt] — NOT depends_on=[]",
+    "AC-8: EXP-JUDGE-SWAP has depends_on=[iter-3e-decompose-prompt] — NOT depends_on=[]",
+    "AC-9: iter-3-validate depends_on includes FIX-JUDGE-INFRA AND EXP-JUDGE-SWAP AND iter-3e (no duplicate key)",
+    "AC-10: iter-2-n20 has status=conditional, trigger contains 'NOT a blocker', depends_on=[]",
+    "AC-11: No circular dependencies in the depends_on graph",
+    "AC-12: direction field reflects iter-3 as main track and judge infra as post-iter-3e"
   ],
   "edge_cases": [
-    "EC-1: fbf0ffad627b — large truncated diff + CAMEL-10279 guard removal; must stay HIGH (production lifecycle), not downgraded by clean-commit rules",
-    "EC-2: 9530370f7642 — Infinispan version bump; round-2 (20-33-45) wrongly opted out via 'control-flow changes' and SUPPORTED criterion (b); must be MEDIUM under dual-path (clean-only 18-36-43 reference)",
-    "EC-3: 4a72341ebffc — new OptimisedTypeConverter production logic; may legitimately stay HIGH (criterion e); counts toward AC-4 FP budget — panel pass requires fixing archetype FPs not this commit",
-    "EC-4: 572f3cee35fe — diff-truncation hard case; LOW/MEDIUM acceptable if other 5/6 buggy are HIGH (known iter-2c candidate)",
-    "EC-5: ce2d5bfa5f84 and 24d9de042248 — agent may mark label-rename hypotheses SUPPORTED; acceptable HIGH if AC-4 still satisfied via archetype fixes; document in eval notes if irreducible",
-    "EC-6: 294c169f6d66 — must stay HIGH (Ehcache lifecycle/guard pattern); discrimination opt-out must apply"
+    "EC-1: iter-3-validate must not have a duplicate depends_on key (JSON duplicate key silently drops first value)",
+    "EC-2: Both FIX-JUDGE-INFRA and EXP-JUDGE-SWAP must have the same priority value (8) — if they have different priorities the parallel_with relationship is misleading"
   ],
-  "verification_method": "Run: PYTHONPATH=src pytest tests/ -q (must collect ≥90). Then: python -m commit_investigator.run_eval --commit-ids fbf0ffad627b f897d46870ba 90846b586c51 572f3cee35fe 294c169f6d66 55dcbe801e76 9530370f7642 b9f1653151e2 ce2d5bfa5f84 24d9de042248 4a72341ebffc 7cff0990283b. Score eval-report.json: D1 from dimension_averages.D1; clean FP and buggy recall from metadata.timings risk+buggy fields; D3_buggy from subset_averages.D3_buggy_only; per-commit D3 from results[].scores.D3; AC-11 from investigations/9530370*_*.json reasoning_summary text.",
-  "rubrics": ["code-quality"],
+  "verification_method": "Read state.json and verify each AC against the actual JSON values. Check for duplicate keys. Trace the depends_on graph for cycles. Verify the direction field narrative matches the task ordering.",
+  "rubrics": ["architecture"],
   "rubric_mode": "warn",
-  "negotiation_rounds": 2,
-  "phase": "verified",
-  "verified": true,
-  "evidence_from_prior_runs": {
-    "round1_panel": "output/runs/2026-06-10_19-52-44_real_n12 — global strict SUPPORTED: buggy 1/6 HIGH, clean 4/6 HIGH, D1=0.25",
-    "round2_panel": "output/runs/2026-06-10_20-33-45_real_n12 — clean-only guard weak: buggy 5/6 HIGH, clean 6/6 HIGH, D1=0.417",
-    "iter2b_clean_only": "output/runs/2026-06-10_18-36-43_real_n6 — strict global: 3/6 clean→MEDIUM (9530370, 7cff099, b9f1653)",
-    "iter1_baseline": "output/runs/2026-06-10_17-12-55_real_n20 — full n=20 D1=0.60; panel subset D1=0.333 (buggy 4/6 HIGH, clean 6/6 HIGH)"
-  },
-  "evaluator_negotiation": {
-    "round": 1,
-    "verdict": "counter_propose",
-    "critiques": [
-      "AC-10 too weak at '2 of 3' — must require all three archetype FPs (9530370, b9f1653, 7cff099) replicate clean-only wins",
-      "AC-3 D1≥0.65 not achievable with prompt-only if 9530370 opts out via migration typing — need criterion-(b) exclusion under discrimination",
-      "Round-2 root cause: JIRA+return-edit falsely triggered production opt-out on version-bump commits",
-      "AC-12 missing — silent MEDIUM fallback on SDK errors invalidates panel scores"
-    ]
-  },
-  "builder_negotiation": {
-    "round": 2,
-    "verdict": "accept",
-    "accepted_amendments": [
-      "AC-10 tightened to all three archetype commits MEDIUM/LOW",
-      "AC-11 added: migration typing refactors do not waive discrimination",
-      "AC-12 added: fail-loud + retry on invalid LLM response",
-      "Post-processing cap _apply_clean_commit_risk_cap as deterministic fallback",
-      "EXAMPLE C (version-bump MEDIUM) added to prompt",
-      "Opt-out narrowed to material guard/lifecycle/concurrency only"
-    ],
-    "declined": [],
-    "phase": "negotiated"
-  }
+  "negotiation_rounds": 0,
+  "phase": "evaluating",
+  "verified": true
 }

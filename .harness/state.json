@@ -2,204 +2,301 @@
   "project": "exp19b-commit-risk-adversarial-agentic-harness",
   "phase": "investigation-quality",
   "created": "2026-06-10T14:00:00Z",
-  "updated": "2026-06-10T21:30:00Z",
-  "schema_version": 2,
+  "updated": "2026-06-10T23:20:00Z",
+  "schema_version": 3,
 
-  "vision": "Pass all six evaluation gates on a stratified n=20 run with Claude Sonnet 4.6, using forensics-driven iteration — not projected subset scores. iter-2a (16K diff) and iter-2b (SPECULATIVE rubric) are promising but unvalidated on a combined sample. The real blockers are D1 (clean false positives) and D3 (buggy diagnosis at the gate floor). Wrong-mechanism failures (37.5% of low-D3 buggy commits) are unlikely to yield to prompt tweaks alone; smart diff assembly and judge-infra fixes are higher-leverage next bets than multi-turn or model swaps.",
+  "vision": "Deliver a verifiable commit investigation system where every quality claim is backed by deterministic infrastructure — not LLM policy. The iter-2 win (D1=0.75, D3=0.292 on n=12 panel) confirms the method works; the iter-3 redesign makes it trustworthy at scale. Script controls risk policy and quality gates; LLM generates hypotheses; Pydantic enforces schema; adversarial eval with a separate judge measures output honesty.",
 
-  "direction": "Validate → measure → branch. (1) Combined n=5 smoke on iter-2a+b. (2) n=20 confirmation — the iteration gate. (3) Only if a dimension fails: apply the smallest targeted fix mapped to forensics tags (smart diff for truncation survivors, rubric round-2 for clean FPs, hypothesis-ranking prompt for wrong-mechanism, judge fallback for empty JIRA). Cut EXP-MULTITURN-AB and cost optimization until n=20 passes. EXP-JUDGE-SWAP runs in parallel for n=50 confidence, not as a blocker to n=20. n=50 remains the delivery-confidence gate per docs/evaluation.md.",
+  "direction": "iter-3 is the main track. Sequence: (1) extract archetype + risk_policy + quality_gate stub; (2) evidence_tagger feasibility spike; (3) wire deterministic gates; (4) fix context bundle [parallel: smart-diff]; (5) decompose monolith into HypothesisEngine; (6) THEN fix eval scoring infra (FIX-JUDGE-INFRA ∥ EXP-JUDGE-SWAP); (7) validate + n=20. Judge scoring infra is not a blocker for any refactor step — only needed before iter-3-validate D3/D5.",
 
-  "strategy_assessment": {
-    "what_we_can_control": [
-      "Diff presentation: char limit, per-file prioritization, truncation metadata surfaced to agent",
-      "Investigation prompt: SUPPORTED/SPECULATIVE tiers, hypothesis count, wrong-mechanism anti-anchoring rules",
-      "Context bundle: file histories (already collected but not injected into prompt), test files, blame snippets",
-      "Judge model and rubric: cross-model judge, fix-diff-only fallback when JIRA description empty",
-      "Router prior injection (already done)",
-      "Multi-turn and model tier (expensive, weak forensic evidence — last resort)"
+  "conditional_task_semantics": {
+    "depends_on_rule": "All depends_on tasks must be committed or verified before a task may start",
+    "trigger_rule": "Conditional tasks additionally require the trigger condition from forensics — depends_on alone is insufficient"
+  },
+
+  "architecture_decisions": {
+    "pipeline": [
+      "STAGE 0  — Script: CommitContextBuilder (smart-diff, file_histories + author_stats injected)",
+      "STAGE 0b — Script: archetype.detect() + has_production_defect_signals()",
+      "STAGE 1  — LLM Call 1: HypothesisEngine → HypothesisArtifact{summary, hypotheses[{mechanism, evidence_quote}]}",
+      "STAGE 2  — Script-first: evidence_tagger.tag() → TaggedHypothesis[SUPPORTED|SPECULATIVE|REFUTED|UNVERIFIABLE]",
+      "STAGE 3  — Script: risk_policy.evaluate_risk() → PolicyVerdict{risk_level, cap_applied, cap_reason, applied_rules[]}",
+      "GATE     — Script: quality_gate.evaluate_gate() → deterministic follow_up_needed (NOT LLM self-report)",
+      "ASSEMBLY — Script: CommitInvestigationReport with PolicyVerdict + per_stage metadata"
     ],
-    "what_we_cannot_control": [
-      "Ground truth ambiguity: clean commits that contain plausible defect patterns (3/6 FPs may be irreducible without runtime/test evidence)",
-      "Same-commit analysis ceiling: agent cannot know if a 'bug-like' pattern was actually exercised in production",
-      "ApacheJIT JIRA quality: empty descriptions make D3 unscorable (f897d46870ba — judge-infra, not agent failure)",
-      "Wrong-mechanism when agent has full diff: agent finds A real bug, not THE bug (409664582f53) — requires domain oracle or fix-commit visibility",
-      "Statistical noise: n=20 gate has ~±0.10 confidence interval on D1/D3 — a pass/fail can flip on sample luck",
-      "Judge variance: LLM-as-judge D3/D5 scores drift ±0.25 per commit"
+    "llm_calls_default": 1,
+    "removed": [
+      "INVESTIGATION_SYSTEM_PROMPT monolith (rubric + discrimination + examples in one prompt)",
+      "_apply_clean_commit_risk_cap() post-hoc regex override",
+      "follow_up_needed field as LLM-controlled gate",
+      "Risk rubric HIGH/MEDIUM/LOW tiers inside the LLM prompt"
     ],
-    "minimum_path_to_six_gates_n20": {
-      "summary": "iter-2a+b may already suffice if projections hold. If not, one more targeted iteration (2c or 2d) before expensive experiments.",
-      "by_dimension": {
-        "D1": "Need 14/20 correct (iter-1: 12/20). iter-2b fixes ~3 clean FPs → projected 15/20 (0.75). Floor risk: 3 stubborn clean FPs with genuinely SUPPORTED-looking mechanisms. Fallback: require ≥2 independent SUPPORTED hypotheses OR downgrade corrective-commit patterns.",
-        "D2": "At gate floor (0.15). Clean stratum scores 0.00 — not a current blocker. Monitor for regression; defer dedicated D2 work unless n=20 fails here.",
-        "D3": "At gate floor (0.20). Six buggy commits at D3=0.0 dominate. iter-2a lifts fbf0ffad627b (0→0.75). 572f3cee35fe unchanged at 16K — needs smart diff, not more chars. Exclude judge-infra commit from D3 aggregate or apply fix-diff fallback (+0.02 lift). Wrong-mechanism (3 commits) unlikely fixed by prompt alone.",
-        "D4": "Comfortably passing (0.90). No action.",
-        "D5": "Passing (0.37). No action unless iter-2 prompt changes regress.",
-        "D6": "Strong (0.85). Hard regression guard ≥0.70 on every change."
-      },
-      "estimated_cost_to_gate": "~$0.15 (n=5 validate + n=20 confirm). +~$0.05 if iter-2c/2d needed. Total <$0.25 before declaring n=20 pass."
+    "multi_turn": {
+      "status": "frozen — max_turns=1 everywhere",
+      "reactivation": "ALL: (1) quality_gate wired + tested; (2) A/B ΔD3≥0.25 on ≥3 hard commits; (3) cost/commit ≤2× baseline"
     },
-    "experiments_verdict": {
-      "keep": {
-        "EXP-JUDGE-SWAP": "Low cost (~$0.02), high value for n=50 delivery claim. Run in parallel with n=20 — does NOT block iteration gate.",
-        "EXP-BUNDLE-EXPAND": "Repurpose: run ONLY on n=20 failure subset (90846b architectural-depth, 572f3cee if smart diff fails). Not a blind n=5 experiment.",
-        "EXP-HARD-SUBSET-MODEL": "Keep as contingency if wrong-mechanism + truncation fixes exhaust prompt/context options on ≥3 hard commits."
+    "risk_policy_interface": {
+      "function": "risk_policy.evaluate_risk(archetype, hypotheses: list[TaggedHypothesis], router_prior, production_defect_signals, context: RiskPolicyContext) → PolicyVerdict",
+      "verdict_fields": ["risk_level", "cap_applied", "cap_reason", "applied_rules[]", "supported_count"],
+      "rules": {
+        "CRITICAL": ["credential_exposure", "injection_vulnerability", "data_loss", "outage_in_normal_paths"],
+        "HIGH": [
+          "supported_count >= 1 AND NOT capped",
+          "production_defect_signals AND signature_or_guard_change",
+          "router_prior >= 0.70 AND NOT capped",
+          "security_change AND NOT validation_added",
+          "new_production_lines > 200 AND NOT tests_added"
+        ],
+        "cap_to_MEDIUM": [
+          "clean_archetype AND NOT production_defect_signals",
+          "supported_count == 0 AND speculative_count > 0 AND NOT defect_signals"
+        ]
       },
-      "cut_or_defer": {
-        "EXP-MULTITURN-AB": "CUT. Zero forensic evidence. Multi-turn adds cost/latency without addressing identified failure modes. Revisit only if smart diff + rubric round-2 fail AND agent explicitly sets follow_up_needed on hard commits.",
-        "EXP-COST-MODEL-MATRIX": "DEFER until n=20 gates pass. Optimizing cost of a failing system is waste.",
-        "iter-2-n50": "DEFER until n=20 passes AND EXP-JUDGE-SWAP clears same-model bias concern."
-      },
-      "add": {
-        "iter-2c-smart-diff": "Per-file diff assembly: ensure each touched file has ≥1 hunk visible before global truncation. Addresses 572f3cee35fe (16K linear truncation hides XmppGroupChatProducer.java).",
-        "iter-2d-wrong-mechanism": "Prompt: require hypothesis coverage of ALL production files in touched_files; rank by diff delta size; forbid anchoring on first interesting pattern.",
-        "FIX-JUDGE-INFRA": "D3 fallback when JIRA description empty: score against fix-commit message + fix diff only. Prevents f897d46870ba from anchoring D3 at 0.",
-        "REGRESSION-PANEL": "Fixed 12-commit panel (6 known buggy + 6 known clean FPs) for fast iteration instead of random n=5 smoke."
-      }
+      "constraint": "Single source of risk_level. Zero logic in LLM prompt. Zero post-hoc override."
     },
-    "n20_vs_n50_tension": "docs/evaluation.md defines delivery gate at n≥50. Current iteration uses n=20 as a fast gate with acceptance thresholds held constant. Honest stance: n=20 pass = 'ready for n=50 confirmation'; n=20 fail = 'keep iterating'. Do not declare V1 delivery on n=20 alone."
+    "quality_gate_interface": {
+      "function": "quality_gate.evaluate_gate(artifact: HypothesisArtifact, context) → GateResult{follow_up_needed, signals[], reason}",
+      "triggers": [
+        "supported_count == 0 AND production_defect_signals == True",
+        "localization == [] AND diff_truncated AND archetype == AMBIGUOUS",
+        "HypothesisArtifact Pydantic validation fails",
+        "findings == ['Investigation completed'] (masked empty output)"
+      ],
+      "deferred": "confidence < 0.6 — requires structured confidence in HypothesisArtifact, not LLM self-report; activate post-iter-3e"
+    },
+    "judge_policy": {
+      "constraint": "judge_model != investigator_model for D3/D5 scoring",
+      "sequencing": "EXP-JUDGE-SWAP runs parallel with FIX-JUDGE-INFRA, after iter-3e. Decision applied before iter-3-validate + iter-3-n20. iter-3a–3e regression panels may use same-model judge."
+    },
+    "divergences_resolved": [
+      {"id": "D1-multi-turn", "resolution": "max_turns=1 frozen everywhere; iter-3f-multiturn-ab conditional with 3-AND threshold"},
+      {"id": "D2-pipeline-stages", "resolution": "1 LLM call default; Script tiers archetype + evidence + risk; evidence_tagger feasibility spike before shipping"},
+      {"id": "D3-refactor-velocity", "resolution": "strangler-fig: extract → feasibility spike → wire gates (D1 gate HERE) → bundle → decompose prompt"},
+      {"id": "D4-risk-policy-interface", "resolution": "pure function + frozen dataclasses; no OOP RiskPolicy class"}
+    ]
   },
 
   "acceptance_thresholds": {
-    "defined_at": "2026-06-10T11:45:00Z",
-    "min_eval_size_iteration": 20,
-    "min_eval_size_delivery": 50,
+    "n_iteration": 20,
+    "n_delivery": 50,
     "stratification": "50/50 buggy/clean",
-    "gate": {
-      "description": "All six must pass simultaneously. n=20 = iteration gate; n=50 = delivery gate (per docs/evaluation.md).",
-      "D1": 0.70, "D2": 0.15, "D3": 0.20, "D4": 0.60, "D5": 0.25, "D6": 0.60
-    },
-    "target": {
-      "description": "Quality bar for an acceptable deliverable.",
-      "D1": 0.80, "D2": 0.25, "D3": 0.35, "D4": 0.75, "D5": 0.40, "D6": 0.70
-    },
-    "stretch": {
-      "description": "Excellence tier.",
-      "D1": 0.90, "D2": 0.40, "D3": 0.50, "D4": 0.85, "D5": 0.55, "D6": 0.80
-    }
+    "gate":   {"D1": 0.70, "D2": 0.15, "D3": 0.20, "D4": 0.60, "D5": 0.25, "D6": 0.60},
+    "target": {"D1": 0.80, "D2": 0.25, "D3": 0.35, "D4": 0.75, "D5": 0.40, "D6": 0.70},
+    "stretch":{"D1": 0.90, "D2": 0.40, "D3": 0.50, "D4": 0.85, "D5": 0.55, "D6": 0.80},
+    "note": "n=20 = iteration gate. n=50 = delivery gate per docs/evaluation.md. Do not declare V1 delivery on n=20 alone."
   },
 
   "baselines": {
-    "iter_1_claude_n20": {
+    "iter_1_n20": {
       "run": "output/runs/2026-06-10_17-12-55_real_n20",
-      "provider": "cursor-sdk/claude-sonnet-4-6",
-      "status": "committed",
+      "commit": null,
       "scores": {"D1": 0.60, "D2": 0.15, "D3": 0.20, "D4": 0.90, "D5": 0.37, "D6": 0.85},
-      "strata": {
-        "buggy": {"D1": 0.80, "D2": 0.30, "D3": 0.20, "D6": 0.90, "_count": 10},
-        "clean": {"D1": 0.40, "D6": 0.80, "_count": 10}
-      },
-      "vs_gate": {"D1": "FAIL", "D2": "PASS", "D3": "PASS", "D4": "PASS", "D5": "PASS", "D6": "PASS"},
       "clean_fp_rate": 0.60,
-      "buggy_recall": 0.80
+      "buggy_recall": 0.80,
+      "vs_gate": {"D1": "FAIL", "D2": "PASS", "D3": "PASS", "D4": "PASS", "D5": "PASS", "D6": "PASS"}
     },
-    "iter_2_projected": {
-      "note": "UNVALIDATED. Derived from targeted subset reruns on overlapping commits — NOT a combined stratified sample. Treat as hypothesis, not baseline.",
-      "projected_scores": {"D1": 0.75, "D2": 0.17, "D3": 0.25, "D4": 0.90, "D5": 0.37, "D6": 0.87},
-      "confidence": "low",
-      "vs_gate": {"D1": "PASS (projected)", "D2": "PASS", "D3": "PASS", "D4": "PASS", "D5": "PASS", "D6": "PASS"}
+    "iter_2_panel_n12": {
+      "run": "output/runs/2026-06-10_21-07-21_real_n12",
+      "commit": "ed5bfe6",
+      "scores": {"D1": 0.75, "D3_buggy": 0.292, "D6": 0.833},
+      "clean_fp": "2/6", "buggy_recall": "5/6",
+      "note": "Panel validation (n=12 fixed set). Not stratified n=20 gate."
     }
   },
 
   "completed_tasks": [
-    {
-      "id": "spike-0",
-      "name": "Research spike: investigation harness design",
-      "status": "committed",
-      "summary": "ARCHITECTURE.md + harness.md rewritten. Agent loop, investigation method, eval framework defined."
-    },
-    {
-      "id": "iter-1",
-      "name": "Prompt engineering: rubric + CoT + router prior",
-      "status": "committed",
-      "summary": "D1 0.40→0.60, D3 0.13→0.20, D6 stable at 0.85. Claude Sonnet 4.6 n=20 validated.",
-      "production_run": "output/runs/2026-06-10_17-12-55_real_n20"
-    },
-    {
-      "id": "EXP-FORENSICS-TAG",
-      "name": "Classify D3 failure modes",
-      "status": "completed",
-      "summary": "50% missing-context (3 diff-truncation + 1 arch-depth), 37.5% wrong-mechanism, 12.5% judge-infra. 60% clean-FP rate.",
-      "eval_report": ".harness/evals/exp-forensics-tag.json"
-    },
-    {
-      "id": "iter-2a",
-      "name": "Diff char limit 4000→16000",
-      "status": "completed_not_committed",
-      "summary": "Configurable max_diff_chars. D3 on 3 truncation commits: 0.083→0.333. fbf0ffad627b D3 0.0→0.75. 572f3cee35fe unchanged."
-    },
-    {
-      "id": "iter-2b",
-      "name": "Clean-commit rubric: SUPPORTED vs SPECULATIVE",
-      "status": "completed_not_committed",
-      "summary": "SPECULATIVE evidence tier. Clean FP rate 6/6→3/6 on targeted reruns. Projected D1 ~0.75."
-    }
+    {"id": "spike-0",       "commit": null,      "summary": "Architecture + harness design. Agent loop, eval framework defined."},
+    {"id": "iter-1",        "commit": null,      "summary": "Rubric + staged CoT + router prior. D1=0.60, D3=0.20, D6=0.85 (n=20).", "run": "output/runs/2026-06-10_17-12-55_real_n20"},
+    {"id": "EXP-FORENSICS-TAG", "commit": null,  "summary": "D3 failure taxonomy: 50% missing-context, 37.5% wrong-mechanism, 12.5% judge-infra. 60% clean-FP rate.", "report": ".harness/evals/exp-forensics-tag.json"},
+    {"id": "iter-2a",       "commit": "ed5bfe6", "summary": "Diff limit 4K→16K. D3 truncation commits 0.083→0.333. fbf0ff D3=0.75."},
+    {"id": "iter-2b",       "commit": "ed5bfe6", "summary": "Dual-path rubric: SUPPORTED→HIGH + CLEAN-COMMIT DISCRIMINATION + _apply_clean_commit_risk_cap(). Panel: D1=0.75, buggy 5/6, clean FP 2/6."},
+    {"id": "iter-2-validate","commit": "ed5bfe6","summary": "12-commit panel 12/12 AC PASS. D1=0.75, D3_buggy=0.292, D6=0.833.", "run": "output/runs/2026-06-10_21-07-21_real_n12", "report": ".harness/evals/eval-iter-2-validate.json"},
+    {"id": "arch-debate",   "commit": null,      "summary": "Builder+evaluator 2-round debate on 6 anti-patterns. Agreed iter-3 redesign. state.json v3 + docs rewritten (agent-loop, harness, architecture) and evaluator-verified."}
   ],
 
   "tasks": [
     {
-      "id": "iter-2-validate",
-      "name": "Combined validation on regression panel + n=5 smoke",
-      "type": "validation",
-      "status": "verified",
-      "scope": "Run fixed 12-commit regression panel (6 buggy + 6 clean from iter-1 n=20) with iter-2a+b applied, then random n=5 stratified smoke. Compare all 6 dimensions vs iter-1 baseline.",
-      "rationale": "Projections are from non-overlapping targeted subsets. Must confirm combined effect before committing or declaring victory.",
-      "depends_on": [],
-      "priority": 1,
-      "validation_run": "output/runs/2026-06-10_21-07-21_real_n12",
-      "validation_result": {
-        "D1": 0.75, "D3_buggy": 0.292, "D6": 0.833,
-        "buggy_recall": "5/6 HIGH", "clean_fp": "2/6 HIGH",
-        "verdict": "PASS — contract 12/12 AC. Dual-path rubric balanced vs round-1 (buggy 1/6) and round-2 (clean 6/6 FP).",
-        "ac_pass": ["AC-1","AC-2","AC-3","AC-4","AC-5","AC-6","AC-7","AC-8","AC-9","AC-10","AC-11","AC-12"],
-        "ac_fail": [],
-        "eval_report": ".harness/evals/eval-iter-2-validate.json"
-      },
-      "regression_panel_commits": {
-        "buggy": ["fbf0ffad627b", "f897d46870ba", "90846b586c51", "572f3cee35fe", "294c169f6d66", "55dcbe801e76"],
-        "clean": ["9530370f7642", "b9f1653151e2", "ce2d5bfa5f84", "24d9de042248", "4a72341ebffc", "7cff0990283b"]
-      },
-      "acceptance_criteria": [
-        "AC-1: Regression panel (12 commits) completes with no errors on Claude Sonnet 4.6",
-        "AC-2: n=5 stratified smoke completes with no errors",
-        "AC-3: Panel D1 ≥ 0.65 (no regression from iter-1 0.60 on overlapping commits)",
-        "AC-4: Panel clean FP rate ≤ 50% (≤3/6 clean commits classified HIGH)",
-        "AC-5: Panel buggy recall ≥ 0.80 (≥5/6 buggy commits classified HIGH)",
-        "AC-6: Panel D3 ≥ 0.20 on buggy subset (no regression from iter-1)",
-        "AC-7: Panel D6 ≥ 0.70 (hard regression guard)",
-        "AC-8: fbf0ffad627b D3 ≥ 0.50 (confirms iter-2a win persists in combined run)",
-        "AC-9: f897d46870ba and 90846b586c51 still classified HIGH (no buggy recall regression from SPECULATIVE rubric)",
-        "AC-10: 89+ unit tests pass before eval"
-      ],
-      "decision_rule": "If AC-3 or AC-4 fail → do NOT commit iter-2b as-is; iterate rubric. If AC-6 fail → proceed to iter-2c before n=20."
-    },
-    {
-      "id": "iter-2-commit",
-      "name": "Commit iter-2a + iter-2b changes",
-      "type": "chore",
+      "id": "iter-3a-extract",
+      "name": "Extract behavior-preserving modules from orchestrator",
+      "type": "refactor",
       "status": "pending",
-      "scope": "Commit orchestrator.py (diff limit + SPECULATIVE rubric) and test_orchestrator.py.",
-      "rationale": "Lock in validated wins. Uncommitted code is a regression risk.",
-      "depends_on": ["iter-2-validate"],
-      "priority": 2,
+      "priority": 1,
+      "depends_on": [],
+      "note": "evidence_tagger.py NOT in this task — it requires feasibility spike (iter-3a-spike).",
+      "modules": {
+        "archetype.py": "detect_archetype() + has_production_defect_signals() — extracts _matches_clean_archetype(). NO behavior change.",
+        "risk_policy.py": "evaluate_risk() → PolicyVerdict — extracts _apply_clean_commit_risk_cap(). Behavior-preserving: regression panel identical.",
+        "quality_gate.py": "evaluate_gate() stub — delegates to existing LLM follow_up until iter-3b wires deterministic triggers."
+      },
       "acceptance_criteria": [
-        "AC-1: iter-2-validate decision_rule satisfied",
-        "AC-2: orchestrator.py and test_orchestrator.py staged; no .env or secrets",
-        "AC-3: Commit message cites iter-2a (16K diff) and iter-2b (SPECULATIVE tier) with panel score deltas",
-        "AC-4: 89+ tests pass after commit"
+        "AC-1: archetype.py, risk_policy.py, quality_gate.py exist with migrated unit tests",
+        "AC-2: orchestrator.py imports new modules; no duplicated logic",
+        "AC-3: 89+ tests pass",
+        "AC-4: orchestrator.py ≤ 450 lines",
+        "AC-5: Regression panel 12-commit: identical risk_level results to iter-2",
+        "AC-6: risk_policy.py property-based test: same input → same output ×1000",
+        "AC-7: Isolation tests for _apply_clean_commit_risk_cap() logic written BEFORE extraction"
       ]
     },
+
     {
-      "id": "iter-2-n20",
-      "name": "n=20 iteration gate (Claude Sonnet 4.6)",
+      "id": "iter-3a-spike",
+      "name": "Feasibility spike: Script evidence tier tagging",
+      "type": "spike",
+      "status": "pending",
+      "priority": 2,
+      "depends_on": ["iter-3a-extract"],
+      "acceptance_criteria": [
+        "AC-1: Fixture corpus for ≥12 panel commits with {hypothesis, evidence_quote, expected_tier}",
+        "AC-2: Prototype tag_hypothesis() achieves ≥80% tier agreement vs iter-2 panel labels",
+        "AC-3: Decision documented: pure_script | hybrid (LLM tier + Script quote⊆diff verify) | blocked",
+        "AC-4: Spike report → .harness/evals/spike-evidence-tagger.json"
+      ],
+      "decision_rule": "≥80% → evidence_tagger.py ships as Script in iter-3b. FAIL → hybrid mandatory."
+    },
+
+    {
+      "id": "iter-3b-wire-gates",
+      "name": "Wire deterministic gates + evidence_tagger + cap_reason schema",
+      "type": "feature",
+      "status": "pending",
+      "priority": 3,
+      "depends_on": ["iter-3a-extract", "iter-3a-spike"],
+      "acceptance_criteria": [
+        "AC-1: quality_gate.evaluate_gate() fires on all 4 canonical triggers (per architecture_decisions.quality_gate_interface)",
+        "AC-2: follow_up_needed in LLM output schema DEPRECATED — orchestrator ignores it",
+        "AC-3: CommitInvestigationReport.metadata has cap_applied, cap_reason, applied_rules when overridden",
+        "AC-4: _apply_clean_commit_risk_cap() removed; risk_policy.evaluate_risk() is sole risk_level source",
+        "AC-5: evidence_tagger.py created per spike decision with fixture tests",
+        "AC-6: Regression panel 12-commit: D1 ≥ 0.65, buggy recall ≥ 0.80, D6 ≥ 0.70 (Script risk policy gate)",
+        "AC-7: Unit test per gate trigger (4 tests minimum)",
+        "AC-8: 89+ tests pass"
+      ]
+    },
+
+    {
+      "id": "iter-3c-bundle-inject",
+      "name": "Fix context bundle: inject file_histories + author_stats",
+      "type": "feature",
+      "status": "pending",
+      "priority": 4,
+      "depends_on": ["iter-3a-extract"],
+      "acceptance_criteria": [
+        "AC-1: file_histories in LLM message as '## File History' OR in missing_reasons[] with impact",
+        "AC-2: author_stats in LLM message OR in missing_reasons[]",
+        "AC-3: report.metadata has per_stage[{stage, tier, tokens_in, tokens_out, latency_ms, cost_usd}]",
+        "AC-4: Integration test verifies '## File History' or missing_reasons in context output",
+        "AC-5: D6 ≥ 0.70 on n=5 smoke"
+      ]
+    },
+
+    {
+      "id": "iter-3d-smart-diff",
+      "name": "Smart per-file diff assembly",
+      "type": "feature",
+      "status": "pending",
+      "priority": 5,
+      "depends_on": ["iter-3a-extract"],
+      "acceptance_criteria": [
+        "AC-1: Per-file minimum hunk guarantee before global 16K cap",
+        "AC-2: Ranking: defect_signal_files > other_production > test > build/config",
+        "AC-3: truncation_metadata: {truncated_files[], included_files[], total_chars}",
+        "AC-4: 572f3cee35fe fixture: XmppGroupChatProducer.java hunk present in bundle",
+        "AC-5: fbf0ffad627b D3 ≥ 0.50 (no regression from iter-2a)",
+        "AC-6: Total cap unchanged at 16000 chars",
+        "AC-7: D6 ≥ 0.70 on n=5 smoke"
+      ]
+    },
+
+    {
+      "id": "iter-3e-decompose-prompt",
+      "name": "HypothesisEngine: decompose monolithic prompt",
+      "type": "feature",
+      "status": "pending",
+      "priority": 6,
+      "depends_on": ["iter-3b-wire-gates", "iter-3c-bundle-inject", "iter-3d-smart-diff"],
+      "acceptance_criteria": [
+        "AC-1: INVESTIGATION_SYSTEM_PROMPT removed or ≤60 lines (hypothesis generation only)",
+        "AC-2: Zero rubric tiers HIGH/MEDIUM/LOW in LLM prompt",
+        "AC-3: Zero CLEAN-COMMIT DISCRIMINATION block in LLM prompt",
+        "AC-4: HypothesisArtifact Pydantic schema: {summary, hypotheses[{mechanism, evidence_quote}]} with retry",
+        "AC-5: Regression panel: D1 drop vs iter-3b baseline ≤ 0.05, D3_buggy ≥ 0.20, D6 ≥ 0.70",
+        "AC-6: orchestrator.py ≤ 250 lines",
+        "AC-7: findings default 'Investigation completed' removed",
+        "AC-8: 89+ tests pass"
+      ]
+    },
+
+    {
+      "id": "FIX-JUDGE-INFRA",
+      "name": "D3 judge fallback for empty JIRA descriptions",
+      "type": "feature",
+      "status": "pending",
+      "priority": 8,
+      "depends_on": ["iter-3e-decompose-prompt"],
+      "parallel_with": ["EXP-JUDGE-SWAP"],
+      "note": "Only needed before iter-3-validate D3 scoring. Does not block any iter-3 refactor steps.",
+      "acceptance_criteria": [
+        "AC-1: eval_judge.py detects empty JIRA → fix-diff fallback rubric",
+        "AC-2: f897d46870ba D3 > 0 with fallback",
+        "AC-3: Valid-JIRA commits unaffected",
+        "AC-4: Eval metadata: judge_oracle = jira | fix-diff-fallback",
+        "AC-5: Unit test for empty-description path",
+        "AC-6: Documented in docs/evaluation.md"
+      ]
+    },
+
+    {
+      "id": "EXP-JUDGE-SWAP",
+      "name": "Cross-model judge validation",
+      "type": "experiment",
+      "status": "pending",
+      "priority": 8,
+      "cost": "~$0.02",
+      "depends_on": ["iter-3e-decompose-prompt"],
+      "parallel_with": ["FIX-JUDGE-INFRA"],
+      "note": "Only needed before iter-3-validate D3/D5 scoring. Run against iter-3e outputs. Does not block any iter-3 refactor steps.",
+      "sequencing_policy": "Decision MUST be applied before iter-3-validate + iter-3-n20 D3/D5 scoring.",
+      "acceptance_criteria": [
+        "AC-1: Re-score ≥10 buggy reports from iter-2 n=20",
+        "AC-2: Judge ≠ claude-sonnet-4-6 (Haiku, GPT-4o-mini, or llama3.1)",
+        "AC-3: Mean D3 delta (same-model minus cross-model) + per-commit deltas",
+        "AC-4: Identify gate-flipping commits",
+        "AC-5: Decision: split-judge-required | same-model-acceptable",
+        "AC-6: Report → .harness/evals/exp-judge-swap.json"
+      ],
+      "decision_rule": "Mean D3 drop ≥0.03 OR ≥2 flip → mandate split judge for iter-3-validate + n=50."
+    },
+
+    {
+      "id": "iter-3-validate",
+      "name": "Regression panel + smoke after full iter-3",
       "type": "validation",
       "status": "pending",
-      "scope": "Full n=20 stratified eval. Same sample methodology as iter-1. This is the iteration gate — not delivery declaration.",
-      "rationale": "The real iteration gate. All strategic decisions branch from this result.",
-      "depends_on": ["iter-2-commit"],
-      "priority": 3,
-      "cost_estimate": "~$0.10",
+      "priority": 7,
+      "cost": "~$0.03",
+      "depends_on": ["iter-3e-decompose-prompt", "FIX-JUDGE-INFRA", "EXP-JUDGE-SWAP"],
       "acceptance_criteria": [
-        "AC-1: n=20 stratified eval (10 buggy + 10 clean) completes",
+        "AC-1: archetype.py, risk_policy.py, quality_gate.py, evidence_tagger.py exist in src/commit_investigator/",
+        "AC-2: Regression panel 12-commit: D1 ≥ 0.65, buggy recall ≥ 0.80, D6 ≥ 0.70",
+        "AC-3: n=5 smoke: zero schema validation errors",
+        "AC-4: report.metadata has per_stage observability",
+        "AC-5: cap_reason present when cap_applied == True",
+        "AC-6: grep 'follow_up_needed' src/ → deprecated only (not active gate)",
+        "AC-7: EXP-JUDGE-SWAP decision applied to D3/D5 scoring method"
+      ]
+    },
+
+    {
+      "id": "iter-3-n20",
+      "name": "n=20 gate — post-redesign baseline",
+      "type": "validation",
+      "status": "pending",
+      "priority": 10,
+      "cost": "~$0.10",
+      "depends_on": ["iter-3-validate"],
+      "acceptance_criteria": [
+        "AC-1: n=20 stratified eval completes",
         "AC-2: D1 ≥ 0.70",
         "AC-3: D2 ≥ 0.15",
         "AC-4: D3 ≥ 0.20",
@@ -207,213 +304,145 @@
         "AC-6: D5 ≥ 0.25",
         "AC-7: D6 ≥ 0.60",
         "AC-8: All 6 gates pass simultaneously",
-        "AC-9: Clean FP rate ≤ 40% (≤4/10 clean→HIGH)",
-        "AC-10: Buggy recall ≥ 0.70 (≥7/10 buggy→HIGH)",
-        "AC-11: Per-commit forensics tag update saved to .harness/evals/",
-        "AC-12: Breadcrumb with full dimension scores vs iter-1 baseline"
+        "AC-9: Per-commit forensics tags capture pipeline stage contribution",
+        "AC-10: Breadcrumb: D1-D6 vs iter-1 n=20 baseline (iter-2-n20 optional supplementary comparison)",
+        "AC-11: judge_model documented in eval report"
       ],
-      "decision_rule": "PASS all AC → proceed to EXP-JUDGE-SWAP + iter-2-n50 planning. FAIL any gate → apply conditional task from priority_order ranks 6-8 before re-running n=20."
+      "decision_rule": "PASS → iter-n50-delivery. FAIL D3 → iter-3f-multiturn-ab. FAIL D1 → investigate FP with archetype.py tooling."
     },
+
     {
-      "id": "FIX-JUDGE-INFRA",
-      "name": "D3 judge fallback for empty JIRA descriptions",
-      "type": "feature",
-      "status": "pending",
-      "scope": "When JIRA description is empty/missing, score D3 using fix-commit message + fix diff files instead of returning 0. Tag such commits in eval metadata as judge-infra-fallback.",
-      "rationale": "Cheap eval-harness fix. Removes 1 unscorable commit from D3=0 anchor. Can run in parallel with n=20.",
-      "depends_on": [],
-      "priority": 4,
-      "parallel_with": ["iter-2-n20"],
-      "acceptance_criteria": [
-        "AC-1: eval_judge.py detects empty JIRA description and switches to fix-diff fallback rubric",
-        "AC-2: f897d46870ba re-scored with fallback produces D3 > 0 (not automatic 0)",
-        "AC-3: Commits with valid JIRA descriptions unaffected (no regression on iter-1 n=20 D3 for scored commits)",
-        "AC-4: Eval metadata includes judge_mode: jira | fix-diff-fallback",
-        "AC-5: Unit test covers empty-description fallback path",
-        "AC-6: Document in docs/evaluation.md under judge-infra handling"
-      ]
-    },
-    {
-      "id": "EXP-JUDGE-SWAP",
-      "name": "Cross-model judge validation",
+      "id": "iter-3f-multiturn-ab",
+      "name": "Multi-turn A/B on hard subset",
       "type": "experiment",
-      "status": "pending",
-      "scope": "Re-score D3/D5 on iter-2 n=20 investigation reports with a different judge model. Validates same-model bias — informs n=50 delivery claim, not n=20 iteration.",
-      "rationale": "D3 at gate floor and judged by same model that investigated. Must validate before n=50 delivery claim.",
-      "depends_on": [],
-      "priority": 5,
-      "parallel_with": ["iter-2-n20"],
-      "cost_estimate": "~$0.02",
-      "acceptance_criteria": [
-        "AC-1: Re-score ≥10 buggy investigation reports from iter-2 n=20 (or iter-1 if n=20 pending)",
-        "AC-2: Cross-model judge: Ollama llama3.1 or GPT (different from investigation model)",
-        "AC-3: Report mean D3 delta (same-model minus cross-model) and per-commit deltas",
-        "AC-4: Identify gate-flipping commits (D3 normalized crosses 0.25 per-commit threshold)",
-        "AC-5: Decision documented: split-judge-required | same-model-acceptable with evidence",
-        "AC-6: Save report to .harness/evals/exp-judge-swap.json"
-      ],
-      "decision_rule": "If mean D3 drops ≥0.03 or ≥2 commits flip below per-commit gate-equivalent → mandate split judge for n=50 delivery declaration"
-    },
-    {
-      "id": "iter-2c-smart-diff",
-      "name": "Smart per-file diff assembly",
-      "type": "feature",
       "status": "conditional",
-      "scope": "Replace linear diff truncation with per-file budget: each touched production file gets ≥1 hunk before global cap. Surfaces XmppGroupChatProducer.java in 572f3cee35fe.",
-      "rationale": "Linear char increase exhausted for 572f3cee35fe. Per-file budget ensures every file gets representation.",
-      "depends_on": ["iter-2-n20"],
-      "priority": 6,
-      "trigger": "n=20 D3 < 0.20 OR 572f3cee35fe D3 = 0",
+      "priority": 12,
+      "cost": "~$0.05",
+      "depends_on": ["iter-3-n20"],
+      "trigger": "iter-3-n20 D3 < 0.20 OR ≥3 commits D3=0 post-iter-3",
+      "reactivation": "ALL: quality_gate wired (iter-3b ✓) + ΔD3≥0.25 on ≥3 hard commits + cost ≤2× baseline",
       "acceptance_criteria": [
-        "AC-1: context_builder or orchestrator assembles diff with per-file minimum hunk guarantee",
-        "AC-2: Truncation metadata lists which files were fully vs partially included",
-        "AC-3: 572f3cee35fe targeted rerun: D3 > 0 (agent sees XmppGroupChatProducer.java changes)",
-        "AC-4: fbf0ffad627b D3 ≥ 0.50 (no regression from iter-2a win)",
-        "AC-5: D6 ≥ 0.70 on n=5 smoke",
-        "AC-6: Total diff chars cap unchanged at 16000 (reallocation, not expansion)"
+        "AC-1: Run on ≥3 hard commits with D3=0",
+        "AC-2: Turn 2 injects specific context (smart-diff missing files + blame), NOT generic string",
+        "AC-3: ΔD3 ≥ 0.25 on hard subset vs single-turn control",
+        "AC-4: Cost/commit documented",
+        "AC-5: Decision: multi-turn-activated | single-turn-maintained"
       ]
     },
+
     {
       "id": "iter-2d-wrong-mechanism",
-      "name": "Wrong-mechanism prompt: hypothesis coverage + anti-anchoring",
+      "name": "Hypothesis coverage: anti-anchoring",
       "type": "feature",
       "status": "conditional",
-      "scope": "Prompt change requiring Stage 2 to list one hypothesis per production file in touched_files (or explicit SKIP with reason). Forbid selecting first interesting pattern without checking all files.",
-      "rationale": "37.5% of D3 failures are wrong-mechanism — agent anchors on first interesting pattern and ignores other files.",
-      "depends_on": ["iter-2-n20"],
-      "priority": 7,
-      "trigger": "≥2 wrong-mechanism tags with D3≤0.25 in n=20 forensics",
+      "priority": 13,
+      "depends_on": ["iter-3-n20", "iter-3e-decompose-prompt"],
+      "trigger": "≥2 wrong-mechanism tags with D3≤0.25 in iter-3-n20 forensics",
       "acceptance_criteria": [
-        "AC-1: Prompt requires touched-file coverage in Stage 2 hypotheses",
-        "AC-2: Targeted rerun on 2213f71944ae, 409664582f53, dd6f9ba60fb4: at least 1/3 improves D3 by ≥0.25",
-        "AC-3: Clean FP rate on 3 stubborn FPs (ce2d5bfa, 24d9de04, 4a72341e) does not increase",
-        "AC-4: Buggy recall on regression panel ≥ 0.80",
+        "AC-1: HypothesisEngine prompt requires one hypothesis per production file OR explicit SKIP",
+        "AC-2: Targeted rerun 2213f71944ae, 409664582f53, dd6f9ba60fb4: ≥1/3 improves D3 by ≥0.25",
+        "AC-3: Clean FP rate on stubborn FPs does not increase",
+        "AC-4: Buggy recall panel ≥ 0.80",
         "AC-5: D6 ≥ 0.70 on n=5 smoke"
       ]
     },
+
     {
       "id": "EXP-BUNDLE-EXPAND",
-      "name": "Targeted context expansion on failure subset",
+      "name": "Context expansion on architectural-depth failures",
       "type": "experiment",
       "status": "conditional",
-      "scope": "NOT a blind n=5 experiment. Run only on commits still failing after iter-2c/2d: inject test files for touched production files and/or blame snippets. Primary target: 90846b586c51 (architectural-depth).",
-      "rationale": "Architectural-depth failures need context beyond the diff. Targeted expansion on failure subset, not blind experiment.",
-      "depends_on": ["iter-2-n20"],
-      "priority": 8,
-      "trigger": "90846b586c51 D3=0 after iter-2c OR ≥2 architectural-depth tags in n=20",
-      "cost_estimate": "~$0.02",
+      "priority": 14,
+      "cost": "~$0.02",
+      "depends_on": ["iter-3-n20"],
+      "trigger": "90846b586c51 D3=0 after iter-3 OR ≥2 architectural-depth tags in iter-3-n20",
       "acceptance_criteria": [
-        "AC-1: context_builder option to include test files associated with touched production files",
-        "AC-2: context_builder option to include git blame snippets (last 3 authors per touched file)",
-        "AC-3: Run variants ONLY on failure-subset commits (not random n=5)",
-        "AC-4: At least one variant lifts D3 ≥ 0.25 on 90846b586c51 without D6 regression",
-        "AC-5: Decision: merge winning variant into default or reject with evidence"
+        "AC-1: CommitContextBuilder option: include test files for touched production files",
+        "AC-2: CommitContextBuilder option: include git blame snippets",
+        "AC-3: Run ONLY on failure-subset (not random n=5)",
+        "AC-4: ≥1 variant lifts D3 ≥ 0.25 on 90846b586c51 without D6 regression",
+        "AC-5: Decision: merge variant | reject"
       ]
     },
+
     {
       "id": "EXP-HARD-SUBSET-MODEL",
       "name": "Sonnet vs stronger model on irreducible hard commits",
       "type": "experiment",
       "status": "conditional",
-      "scope": "Compare Sonnet vs Opus/reasoning model on commits where all prompt/context fixes fail.",
-      "rationale": "Last resort before accepting wrong-mechanism as irreducible at Sonnet tier.",
-      "depends_on": ["iter-2c-smart-diff", "iter-2d-wrong-mechanism"],
-      "priority": 9,
-      "trigger": "≥3 hard commits remain D3=0 after iter-2c+2d",
-      "cost_estimate": "~$0.10",
+      "priority": 15,
+      "cost": "~$0.10",
+      "depends_on": ["iter-2d-wrong-mechanism", "EXP-BUNDLE-EXPAND"],
+      "trigger": "≥3 commits remain D3=0 after iter-3 + iter-2d + EXP-BUNDLE-EXPAND",
       "acceptance_criteria": [
-        "AC-1: Select ≥3 commits with D3=0 and D6≥0.7 after all iter-2 fixes",
-        "AC-2: Re-run with Opus or reasoning-capable model",
+        "AC-1: ≥3 commits with D3=0 and D6≥0.7 selected",
+        "AC-2: Re-run with Opus or reasoning model",
         "AC-3: Mean ΔD3 ≥ 0.15 on hard subset vs Sonnet",
         "AC-4: Cost/commit documented",
-        "AC-5: Decision: tiered routing vs accept Sonnet ceiling"
+        "AC-5: Decision: tiered routing | accept Sonnet ceiling"
       ]
     },
+
     {
-      "id": "iter-2-n50",
+      "id": "iter-n50-delivery",
       "name": "n=50 delivery-confidence gate",
       "type": "validation",
       "status": "conditional",
-      "scope": "Full n=50 stratified eval per docs/evaluation.md delivery gate. Only after n=20 pass + EXP-JUDGE-SWAP decision.",
-      "rationale": "Delivery-confidence gate per docs/evaluation.md. n=20 pass is necessary but not sufficient.",
-      "depends_on": ["iter-2-n20", "EXP-JUDGE-SWAP"],
-      "priority": 10,
-      "trigger": "n=20 all gates pass",
-      "cost_estimate": "~$0.35",
+      "priority": 15,
+      "cost": "~$0.35",
+      "depends_on": ["iter-3-n20", "EXP-JUDGE-SWAP"],
+      "trigger": "iter-3-n20 all 6 gates pass",
       "acceptance_criteria": [
         "AC-1: n=50 stratified eval completes",
         "AC-2: All 6 gate thresholds pass at n=50",
-        "AC-3: Split judge in use if EXP-JUDGE-SWAP mandated it",
+        "AC-3: Split judge in use if EXP-JUDGE-SWAP mandated",
         "AC-4: Clean FP rate ≤ 35%",
         "AC-5: Buggy recall ≥ 0.70",
-        "AC-6: Eval report archived with comparison vs iter-1 and iter-2 n=20"
+        "AC-6: Report archived with comparison vs iter-1, iter-3 baselines (iter-2-n20 supplementary if available)"
+      ]
+    },
+
+    {
+      "id": "iter-2-n20",
+      "name": "n=20 supplementary baseline — iter-2 at scale",
+      "type": "validation",
+      "status": "conditional",
+      "priority": 16,
+      "cost": "~$0.10",
+      "depends_on": [],
+      "trigger": "Optional. Run anytime for analytical comparison; NOT a blocker for any iter-3 task.",
+      "note": "iter-1 n=20 is the primary comparison baseline for iter-3-n20. This run provides supplementary iter-2 scale data.",
+      "acceptance_criteria": [
+        "AC-1: n=20 stratified (10 buggy + 10 clean) completes without errors",
+        "AC-2: D1-D6 scores recorded",
+        "AC-3: Clean FP rate documented",
+        "AC-4: Buggy recall documented",
+        "AC-5: Breadcrumb with D1-D6 vs iter-1 baseline"
       ]
     }
   ],
 
   "cut_tasks": [
-    {
-      "id": "EXP-MULTITURN-AB",
-      "reason": "Zero forensic evidence linking multi-turn to any identified failure mode. Cost/latency increase without mapped D1/D3 lift. Wrong-mechanism and clean-FP failures occur in turn 1 with full context available."
-    },
-    {
-      "id": "EXP-COST-MODEL-MATRIX",
-      "reason": "Deferred until n=20 gates pass. Premature cost optimization."
-    }
+    {"id": "EXP-MULTITURN-AB",             "reason": "Zero forensic evidence. Replaced by iter-3f-multiturn-ab with deterministic gate prerequisite + 3-AND threshold."},
+    {"id": "EXP-COST-MODEL-MATRIX",         "reason": "Premature — optimizing cost of a pipeline under redesign. Defer to post-iter-3-n20."},
+    {"id": "iter-2c-smart-diff-conditional", "reason": "Absorbed into iter-3d-smart-diff as unconditional. 572f3cee structural problem, not edge case."},
+    {"id": "INVESTIGATION_SYSTEM_PROMPT",   "reason": "Technical debt removed in iter-3e. Monolithic prompts anti-pattern caused iter-2b round-1 fail (D1=0.25)."},
+    {"id": "_apply_clean_commit_risk_cap",  "reason": "Technical debt removed in iter-3a. Migrated to risk_policy.evaluate_risk() as single source."}
   ],
 
   "risks": [
-    {
-      "risk": "Cursor SDK instability — run status=error produces silent MEDIUM fallback",
-      "mitigation": "Detect empty/invalid LLM responses in orchestrator and fail loud; retry SDK runs; log result.status and result.result length",
-      "severity": "high",
-      "status": "active"
-    },
-      "mitigation": "iter-2-validate regression panel before commit; treat projections as hypothesis",
-      "severity": "high",
-      "status": "active"
-    },
-    {
-      "risk": "D1 gate fails because 3 clean FPs have genuinely SUPPORTED mechanisms",
-      "mitigation": "iter-2d rubric round-2 (≥2 SUPPORTED required for HIGH) or accept D1=0.65-0.70 and pursue n=50 averaging",
-      "severity": "medium",
-      "status": "active"
-    },
-    {
-      "risk": "D3 gate fails due to wrong-mechanism irreducible at Sonnet tier",
-      "mitigation": "iter-2d prompt → EXP-BUNDLE-EXPAND → EXP-HARD-SUBSET-MODEL escalation path",
-      "severity": "medium",
-      "status": "active"
-    },
-    {
-      "risk": "572f3cee35fe remains D3=0 even after smart diff",
-      "mitigation": "Accept as known hard case; evaluate whether single commit should block gate at n=20",
-      "severity": "low",
-      "status": "active"
-    },
-    {
-      "risk": "Same-model judge inflates D3 (currently at gate floor 0.20)",
-      "mitigation": "EXP-JUDGE-SWAP before n=50 delivery claim; FIX-JUDGE-INFRA removes unscorable anchor",
-      "severity": "medium",
-      "status": "active"
-    },
-    {
-      "risk": "n=20 vs n=50 gate definition confusion",
-      "mitigation": "Documented in strategy_assessment.n20_vs_n50_tension; n=20=iteration, n=50=delivery",
-      "severity": "low",
-      "status": "mitigated"
-    }
+    {"risk": "iter-3 refactor regresses behavior",           "mitigation": "89+ tests as regression contract. Regression panel after each step. Property-based test for risk_policy. Strangler-fig: extract before delete.", "severity": "high"},
+    {"risk": "risk_policy edge case on ambiguous diff",       "mitigation": "Property-based tests: archetype=None, empty hypotheses, router_prior=0.5. Panel covers 3 archetype archetypes.", "severity": "high"},
+    {"risk": "D1 regression when rubric removed from prompt", "mitigation": "D1≥0.65 gate at iter-3b BEFORE iter-3e. iter-3e AC-5: drop ≤0.05 vs iter-3b baseline.", "severity": "medium"},
+    {"risk": "D3 fails in iter-3-n20 (HypothesisEngine change)", "mitigation": "iter-3f-multiturn-ab conditional. HypothesisEngine focuses on mechanisms → better D3 material. EXP-JUDGE-SWAP removes grade inflation.", "severity": "medium"},
+    {"risk": "EXP-JUDGE-SWAP shows iter-2 gains were grade inflation", "mitigation": "Split judge applied before iter-3-n20. FIX-JUDGE-INFRA removes anchor commit.", "severity": "medium"},
+    {"risk": "572f3cee35fe remains D3=0 after smart-diff",   "mitigation": "Accept as known hard case. EXP-BUNDLE-EXPAND follow-on. Evaluate whether single commit blocks n=20 gate.", "severity": "low"},
+    {"risk": "Wrong-mechanism irreducible at Sonnet tier",    "mitigation": "iter-2d → EXP-BUNDLE-EXPAND → EXP-HARD-SUBSET-MODEL escalation. Accept ceiling if exhausted.", "severity": "medium"}
   ],
 
   "session_handoff": {
-    "for_new_chat": "iter-2-validate VERIFIED (contract 12/12 AC). Panel 21-07-21: D1=0.75, buggy 5/6, clean FP 2/6, D6=0.833. Report: .harness/evals/eval-iter-2-validate.json. NEXT: iter-2-commit (stage orchestrator.py + run_eval.py + tests), then iter-2-n20.",
-    "uncommitted_changes": ["src/commit_investigator/orchestrator.py", "tests/test_orchestrator.py", ".harness/breadcrumbs.jsonl", ".harness/state.json"],
-    "preserved_assets": [
-      "All V1 code",
-      "data/apachejit/ + data/repos/",
-      "output/runs/ (31 runs)",
-      ".harness/evals/exp-forensics-tag.json",
-      ".harness/archive/phases/v1-build/"
-    ]
+    "next": "iter-3a-extract (priority 1, no deps). Main track: iter-3a-extract → iter-3a-spike → iter-3b → [iter-3c ∥ iter-3d] → iter-3e → [FIX-JUDGE-INFRA ∥ EXP-JUDGE-SWAP] → iter-3-validate → iter-3-n20. FIX-JUDGE-INFRA and EXP-JUDGE-SWAP run in parallel with each other, both after iter-3e, both before iter-3-validate. iter-2-n20 is optional supplementary only.",
+    "uncommitted": [".harness/state.json", ".harness/contract.json", ".harness/breadcrumbs.jsonl", "docs/agent-loop.md", "docs/harness.md", "docs/architecture.md"],
+    "preserved": ["All V1 code (ed5bfe6)", "data/apachejit/ + data/repos/", "output/runs/ (31 runs)", ".harness/evals/", ".harness/archive/"]
   }
 }

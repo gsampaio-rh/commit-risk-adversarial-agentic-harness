@@ -1,0 +1,95 @@
+{
+  "task_id": "docs-rewrite-iter3",
+  "evaluated_at": "2026-06-10T23:45:00Z",
+  "evaluator": "evaluator",
+  "round": 2,
+  "prior_verdict": "CONDITIONAL PASS",
+  "verdict": "PASS",
+  "summary": "Amendments from round-1 adversarial audit applied. All 12 AC PASS. EC-1 and EC-2 RESOLVED. Docs are approved as iter-3 specification with explicit iter-2 current-state distinction.",
+  "acceptance_criteria": [
+    {
+      "id": "AC-1",
+      "result": "PASS",
+      "evidence": "agent-loop.md diagram: STAGE 0/0b/1/2/3/Gate/Assembly with Script, LLM Call 1, Script-first tier labels. Stage table L155-163 confirms."
+    },
+    {
+      "id": "AC-2",
+      "result": "PASS",
+      "evidence": "confidence<0.6 only in Deferred section (agent-loop.md L179). Quality gate table L171-176 lists 4 InvestigationQualityGate deterministic triggers including archetype==AMBIGUOUS."
+    },
+    {
+      "id": "AC-3",
+      "result": "PASS",
+      "evidence": "Multi-Turn Policy (agent-loop.md L222-237): FROZEN with operational definition, eval path max_turns=1, CLI default 3 documented, reactivation threshold 3-AND at L234-237."
+    },
+    {
+      "id": "AC-4",
+      "result": "PASS",
+      "evidence": "Control Plane Risk policy section (harness.md L182-202): risk_policy.evaluate_risk() sole source. Prohibited list L202. Known failure modes L218 correctly attributes iter-2 fix to prompt rubric + _apply_clean_commit_risk_cap with migration note — not as primary mechanism."
+    },
+    {
+      "id": "AC-5",
+      "result": "PASS",
+      "evidence": "harness.md Investigation Method section (L152-164): 5 components table (archetype, HypothesisEngine, evidence_tagger, risk_policy, quality_gate) with ship targets. Not 4-stage monolith."
+    },
+    {
+      "id": "AC-6",
+      "result": "PASS",
+      "evidence": "architecture.md §3.2 (L64-82): five conceptual stages + Stage 0/Assembly glossary. No old 4-stage prompt structure."
+    },
+    {
+      "id": "AC-7",
+      "result": "PASS",
+      "evidence": "architecture.md §7 (L246-249): archetype.py, risk_policy.py, quality_gate.py Pending (iter-3a-extract); evidence_tagger.py Pending (iter-3b-wire-gates). Aligns with state.json iter-3a scope."
+    },
+    {
+      "id": "AC-8",
+      "result": "PASS",
+      "evidence": "Cross-doc: same component names, iter-3a/3b/3c/3d/3e sequence, AMBIGUOUS archetype defined in agent-loop Stage 0b and architecture §3.2, evidence_tagger iter-3b consistent in harness roadmap + architecture §7."
+    },
+    {
+      "id": "AC-9",
+      "result": "PASS",
+      "evidence": "grep follow_up_needed in 3 docs: only deprecated/current-code contexts (agent-loop L13/L130-131) and GateResult schema (harness L126/L179). Zero live-feature LLM field references."
+    },
+    {
+      "id": "AC-10",
+      "result": "PASS",
+      "evidence": "grep INVESTIGATION_SYSTEM_PROMPT: only iter-2 current-state and removed-components table. Never as primary enforcement surface."
+    },
+    {
+      "id": "AC-11",
+      "result": "PASS",
+      "evidence": "Oracle isolation unchanged: agent-loop L199-208, harness L243, architecture L23-25 + L160 + L232."
+    },
+    {
+      "id": "AC-12",
+      "result": "PASS",
+      "evidence": "harness.md roadmap L260-267: iter-3a-extract, iter-3a-feasibility, iter-3b through iter-3-n20 all present."
+    }
+  ],
+  "edge_cases": [
+    {
+      "id": "EC-1",
+      "result": "RESOLVED",
+      "evidence": "agent-loop L76-90 Script-first + LLM escalation; harness Investigation Method L160 Script-first + LLM escalation; architecture §7 evidence_tagger LLM escalation for ambiguous."
+    },
+    {
+      "id": "EC-2",
+      "result": "RESOLVED",
+      "evidence": "agent-loop Specification vs implementation (L5-17); harness Investigation Method + Design Target headers; architecture L11-15 current code paragraph; pending annotations on Stage 0 fields."
+    }
+  ],
+  "grep_verification": {
+    "follow_up_needed_live": 0,
+    "INVESTIGATION_SYSTEM_PROMPT_primary": 0,
+    "confidence_lt_06_active": 0,
+    "confidence_lt_06_deferred_only": 1
+  },
+  "residual_suggestions": [
+    {
+      "severity": "SUGGESTION",
+      "note": "contract.json AC-7 wording still says all modules pending (iter-3a); state.json and docs now correctly split evidence_tagger to iter-3b. Update contract wording on next negotiation."
+    }
+  ]
+}
