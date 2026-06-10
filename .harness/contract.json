@@ -1,32 +1,29 @@
 {
-  "task_id": "feat-3",
-  "feature": "Git access layer and context builder",
-  "problem": "The agent needs to access real git diffs, messages, and file history for investigation. A clone script and GitContextProvider abstract git CLI access. CommitContextBuilder assembles the full investigation context bundle from git + CSV features + precomputed author stats.",
-  "proposed_solution": "Shell script for cloning Camel/Hadoop repos. GitContextProvider wrapping git CLI. CommitContextBuilder composing context bundles. AuthorStatsIndex precomputed from train split.",
+  "task_id": "feat-4",
+  "feature": "Investigation report schema (Pydantic models)",
+  "problem": "Agent output needs a well-defined schema: CommitInvestigationReport with evidence items, localization claims, recommendations, risk assessment. Schema must validate (reject zero-evidence reports) and export JSON schema for downstream tooling.",
+  "proposed_solution": "Pydantic v2 models in src/commit_investigator/report.py. JSON schema export function. Validation that rejects empty evidence.",
   "acceptance_criteria": [
-    "AC-1: scripts/clone_apache_repos.sh exists, is executable, clones Camel and Hadoop into data/repos/",
-    "AC-2: Clone script is idempotent (skip if repo already exists), supports configurable target dir",
-    "AC-3: src/commit_investigator/git_context.py exists with GitContextProvider class",
-    "AC-4: GitContextProvider.get_diff(commit_id) returns unified diff string for a commit",
-    "AC-5: GitContextProvider.get_commit_message(commit_id) returns the commit message",
-    "AC-6: GitContextProvider.get_touched_files(commit_id) returns list of file paths modified by commit",
-    "AC-7: GitContextProvider.get_file_history(path, n=3) returns last n commits touching that file",
-    "AC-8: GitContextProvider handles missing/invalid commit IDs gracefully (returns None or raises specific error, not subprocess crash)",
-    "AC-9: src/commit_investigator/context_builder.py exists with CommitContextBuilder class",
-    "AC-10: CommitContextBuilder.build(commit_id, project, csv_row) returns a structured context bundle dataclass/dict containing: diff, message, touched_files, csv_features, file_history for touched files, author_stats",
-    "AC-11: AuthorStatsIndex class exists (in context_builder.py or separate module) that precomputes per-author stats from train CSV (commit count, buggy rate, avg metrics)",
-    "AC-12: AuthorStatsIndex is built from train split only (no test data leakage)",
-    "AC-13: All new modules importable: python -c 'from commit_investigator.git_context import GitContextProvider; from commit_investigator.context_builder import CommitContextBuilder'"
+    "AC-1: src/commit_investigator/report.py exists with Pydantic v2 models",
+    "AC-2: EvidenceItem model with fields: type (enum), source, content, relevance",
+    "AC-3: LocalizationClaim model with fields: file, lines (optional), rationale",
+    "AC-4: Recommendation model with fields: action, priority, rationale",
+    "AC-5: RiskAssessment model with fields: level (LOW|MEDIUM|HIGH|CRITICAL enum), confidence (0.0-1.0)",
+    "AC-6: CommitInvestigationReport model with fields: commit_id, project, risk_assessment, evidence list, findings list, localization list, reasoning_summary, recommendations list, tools_used list, turn_count, metadata dict",
+    "AC-7: CommitInvestigationReport validator rejects reports with empty evidence list (raises ValidationError)",
+    "AC-8: export_json_schema() function returns valid JSON schema string for CommitInvestigationReport",
+    "AC-9: All models are importable: python -c 'from commit_investigator.report import CommitInvestigationReport, EvidenceItem, RiskAssessment'",
+    "AC-10: Can instantiate a valid report with sample data and serialize to JSON"
   ],
   "edge_cases": [
-    "EC-1: GitContextProvider works with repos that are not yet cloned — raises clear error pointing to clone script",
-    "EC-2: get_file_history on a file that was deleted in a later commit still returns historical commits",
-    "EC-3: CommitContextBuilder handles commits with no CSV row gracefully (partial context with available fields)"
+    "EC-1: Report with 1 evidence item and no localization/recommendations is valid (minimal valid report)",
+    "EC-2: confidence field rejects values outside 0.0-1.0 range",
+    "EC-3: JSON schema export is stable (re-running produces identical output)"
   ],
-  "verification_method": "Evaluator verifies: script exists and is executable, module imports work, GitContextProvider methods have correct signatures, CommitContextBuilder produces expected structure. Full integration test requires cloned repos (skip if absent).",
-  "rubrics": ["code-quality", "architecture"],
+  "verification_method": "Import checks, instantiation tests, validation error tests, JSON schema validity check.",
+  "rubrics": ["code-quality"],
   "rubric_mode": "warn",
   "negotiation_rounds": 1,
-  "phase": "verified",
-  "verified": true
+  "phase": "building",
+  "verified": false
 }

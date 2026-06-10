@@ -178,7 +178,7 @@
       "id": "feat-4",
       "name": "Investigation report schema",
       "type": "feature",
-      "status": "pending",
+      "status": "done",
       "scope": "Pydantic models: EvidenceItem (type, source, content, relevance), LocalizationClaim (file, lines, rationale), Recommendation (action, priority, rationale), RiskAssessment (level: LOW|MEDIUM|HIGH|CRITICAL, confidence 0-1), CommitInvestigationReport (commit_id, project, risk_assessment, evidence[], findings[], localization[], reasoning_summary, recommendations[], tools_used[], turn_count, metadata). JSON schema export. Validation rejects reports with zero evidence items.",
       "depends_on": ["feat-1"]
     },

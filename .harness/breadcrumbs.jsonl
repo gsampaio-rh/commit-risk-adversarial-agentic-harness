@@ -33,3 +33,5 @@
 {"ts":"2026-06-10T00:40:00Z","role":"builder","type":"fix","feat":"feat-3","msg":"Fixed AC-10/AC-11: AuthorStatsIndex groups by author_date (project:author_date keys); project-level fallback via get_stats_for_project; CommitContextBuilder normalizes camel/hadoop and resolves author stats from csv_row or project aggregate.","result":"pass"}
 {"ts":"2026-06-10T00:40:30Z","role":"evaluator","type":"eval","feat":"feat-3","msg":"Re-evaluated feat-3: 13/13 AC pass, 3/3 EC pass (INT-camel skipped). Contract verified.","result":"pass"}
 {"ts":"2026-06-10T00:29:52","role":"builder","type":"checkpoint","feat":"feat-3","msg":"Commit:  (3 files)"}
+{"ts":"2026-06-10T00:42:00Z","role":"builder","type":"build","feat":"feat-4","msg":"Investigation report schema complete: CommitInvestigationReport with EvidenceItem, LocalizationClaim, Recommendation, RiskAssessment (Pydantic v2). Validation rejects empty evidence. JSON schema export functional. All 10 AC and 3 EC verified inline.","result":"pass"}
+{"ts":"2026-06-10T00:31:14","role":"builder","type":"checkpoint","feat":"feat-4","msg":"Commit:  (3 files)"}
