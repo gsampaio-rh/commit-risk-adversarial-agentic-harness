@@ -210,7 +210,7 @@
       "id": "feat-8",
       "name": "Test suite for new codebase",
       "type": "feature",
-      "status": "pending",
+      "status": "done",
       "scope": "tests/ rebuilt from scratch: ground truth graph parsing (fixture CSVs), context builder (mock git), report schema validation, router train/predict (tiny fixture), eval metric computation (synthetic reports), agent loop smoke (mock LLM). Integration tests skip when data/apachejit/ or data/repos/ absent. No dependency on deleted cr_analyzer code.",
       "depends_on": ["feat-2", "feat-4", "feat-6", "feat-7"]
     },
