@@ -22,6 +22,16 @@ Rubric 0–4:
 - **3**: Mostly correct — captures the key failure mechanism but misses details
 - **4**: Precise match — reasoning accurately describes the root cause
 
+**Oracle selection**: D3 uses a tiered oracle strategy. The `judge_oracle` tag in `DimensionScore.details` records which oracle was used:
+
+| Condition | Oracle | `judge_oracle` tag |
+|---|---|---|
+| JIRA description present | JIRA issue description | `judge_oracle=jira` |
+| JIRA description absent, fix files available | Fix diff contents | `judge_oracle=fix-diff-fallback` |
+| JIRA description absent, no fix files | Score 0 (no oracle) | `judge_oracle=unavailable` |
+
+The fix-diff fallback (`D3_FIX_DIFF_FALLBACK_RUBRIC`) uses the same 0–4 rubric but replaces the JIRA description context with the set of files touched by the fix commit. This prevents systematic bias against commits where JIRA descriptions are empty (e.g., `f897d46870ba`).
+
 ### D5 Recommendation Relevance (LLM-as-judge)
 
 Rubric 0–3:

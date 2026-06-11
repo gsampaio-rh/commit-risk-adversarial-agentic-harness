@@ -1,0 +1,92 @@
+{
+  "task_id": "FIX-JUDGE-INFRA",
+  "timestamp": "2026-06-10T12:00:00Z",
+  "evaluator_verdict": "PASS",
+  "action": "commit",
+  "computational_checks": {
+    "pytest_full_suite": {
+      "command": ".venv/bin/pytest -q --tb=short",
+      "passed": 300,
+      "failed": 0,
+      "status": "pass"
+    },
+    "pytest_d3_fallback": {
+      "command": ".venv/bin/pytest tests/test_eval_judge.py::TestD3FixDiffFallback -v",
+      "passed": 6,
+      "failed": 0,
+      "status": "pass"
+    },
+    "ac1_import_check": {
+      "command": "python3 -c import D3_FIX_DIFF_FALLBACK_RUBRIC, ReasoningJudge.score_d3_root_cause_fix_diff_fallback",
+      "rubric_nonempty": true,
+      "fix_diff_in_rubric": true,
+      "method_exists": true,
+      "status": "pass"
+    },
+    "ac3_grep_judge_oracle": {
+      "command": "grep judge_oracle src/commit_investigator/eval_harness.py",
+      "hits": 4,
+      "tags_found": ["judge_oracle=fix-diff-fallback", "judge_oracle=unavailable", "judge_oracle=jira"],
+      "status": "pass"
+    },
+    "ac6_docs_grep": {
+      "command": "grep judge_oracle|fix-diff-fallback|oracle docs/evaluation.md",
+      "oracle_selection_table": true,
+      "status": "pass"
+    }
+  },
+  "criteria_results": [
+    {
+      "id": "AC-1",
+      "status": "PASS",
+      "evidence": "eval_judge.py defines D3_FIX_DIFF_FALLBACK_RUBRIC (lines 68–94) with fix diff oracle context and {fix_files} placeholder; ReasoningJudge.score_d3_root_cause_fix_diff_fallback() (lines 148–162) formats rubric and calls _call_judge. Import check confirms rubric non-empty and method exists."
+    },
+    {
+      "id": "AC-2",
+      "status": "PASS",
+      "evidence": "_score_d3_diagnosis() (eval_harness.py:255–270) checks has_description via bool(description and description.strip()); when false and fix_files non-empty with judge, routes to score_d3_root_cause_fix_diff_fallback(). test_harness_empty_description_with_fix_files_uses_fallback passes."
+    },
+    {
+      "id": "AC-3",
+      "status": "PASS",
+      "evidence": "All three D3 judge paths append judge_oracle tag in details: fix-diff-fallback (line 267), unavailable (line 273), jira (line 282). Tests assert fix-diff-fallback, judge_oracle=jira, and judge_oracle=unavailable in respective scenarios."
+    },
+    {
+      "id": "AC-4",
+      "status": "PASS",
+      "evidence": "Non-empty description path (has_description=True) calls score_d3_root_cause() at line 278. test_harness_non_empty_description_uses_jira_path asserts judge_oracle=jira and does not hit fallback. Full suite 300 passed — no regression."
+    },
+    {
+      "id": "AC-5",
+      "status": "PASS",
+      "evidence": "TestD3FixDiffFallback: 6/6 pass covering (a) empty description+fix files→fallback score>0, (b) non-empty description→jira path, (c) empty description+no fix files→score=0 with unavailable tag."
+    },
+    {
+      "id": "AC-6",
+      "status": "PASS",
+      "evidence": "docs/evaluation.md lines 25–33 document tiered oracle selection table with judge_oracle tags and D3_FIX_DIFF_FALLBACK_RUBRIC behavior including f897d46870ba example."
+    }
+  ],
+  "edge_case_results": [
+    {
+      "id": "EC-1",
+      "status": "PASS",
+      "evidence": "description=None treated as empty: test_harness_empty_description_with_fix_files uses description=None; has_description=False triggers fallback. test_fallback_method_returns_valid_judge_result also uses description=None."
+    },
+    {
+      "id": "EC-2",
+      "status": "PASS",
+      "evidence": "description='' treated as empty: test_harness_empty_description_no_fix_files uses description=''; bool('' and ''.strip()) is False. Same routing logic as None — code inspection confirms identical path to fallback when fix_files available."
+    },
+    {
+      "id": "EC-3",
+      "status": "PASS",
+      "evidence": "Empty fix_files (fix_hashes=[]) with empty description returns score=0.0 and details containing judge_oracle=unavailable. test_harness_empty_description_no_fix_files_returns_zero passes."
+    }
+  ],
+  "advisories": [
+    "EC-2 empty-string + fix-files fallback path is not explicitly unit-tested (only None + fix files), though routing logic is identical via has_description check.",
+    "Word-overlap fallback path (_score_d3_word_overlap_fallback, no judge provider) does not include judge_oracle tag — pre-existing behavior, outside this contract scope."
+  ],
+  "summary": "All 6 acceptance criteria and 3 edge cases pass. Full regression 300/300; TestD3FixDiffFallback 6/6. D3 fix-diff fallback oracle implemented, routed correctly, tagged in details, documented, and non-regressive for valid JIRA descriptions."
+}

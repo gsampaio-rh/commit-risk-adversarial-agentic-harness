@@ -65,6 +65,34 @@ Description: {jira_description}
 Respond with ONLY a JSON object:
 {{"score": <0-4>, "justification": "<one sentence explaining the score>"}}"""
 
+D3_FIX_DIFF_FALLBACK_RUBRIC = """You are an evaluation judge. Score how faithfully the agent's reasoning matches the actual root cause visible in the fix diff. (No JIRA description available — using fix diff as oracle.)
+
+## Rubric (0-4):
+- 0: Generic boilerplate — reasoning has no connection to the actual code changes
+- 1: Vaguely related — mentions the right area but no specifics from the diff
+- 2: Partially correct — identifies some aspects of the change but misses the core mechanism
+- 3: Mostly correct — captures the key change in the diff but misses important details
+- 4: Precise match — reasoning accurately describes the root cause visible in the fix diff
+
+## Inputs
+
+### Agent Reasoning
+{agent_reasoning}
+
+### Agent Findings
+{agent_findings}
+
+### JIRA Issue: {jira_key}
+Summary: {jira_summary}
+(Description unavailable — using fix diff as oracle)
+
+### Fix Diff Files
+{fix_files}
+
+## Instructions
+Respond with ONLY a JSON object:
+{{"score": <0-4>, "justification": "<one sentence explaining the score>"}}"""
+
 D5_RUBRIC = """You are an evaluation judge. Score how relevant the agent's recommendations are to the actual fix that was applied.
 
 ## Rubric (0-3):
@@ -113,6 +141,22 @@ class ReasoningJudge:
             jira_key=jira_issue.key,
             jira_summary=jira_issue.summary,
             jira_description=_truncate(jira_issue.description or "(no description)", 2000),
+            fix_files=", ".join(sorted(fix_files)) if fix_files else "(unavailable)",
+        )
+        return self._call_judge(prompt, dimension="D3_diagnosis", max_score=4)
+
+    def score_d3_root_cause_fix_diff_fallback(
+        self,
+        report: CommitInvestigationReport,
+        jira_issue: JiraIssue,
+        fix_files: set[str] | None = None,
+    ) -> JudgeResult:
+        """D3 fallback: score root-cause faithfulness using fix diff when JIRA has no description."""
+        prompt = D3_FIX_DIFF_FALLBACK_RUBRIC.format(
+            agent_reasoning=report.reasoning_summary,
+            agent_findings="\n".join(f"- {f}" for f in report.findings),
+            jira_key=jira_issue.key,
+            jira_summary=jira_issue.summary,
             fix_files=", ".join(sorted(fix_files)) if fix_files else "(unavailable)",
         )
         return self._call_judge(prompt, dimension="D3_diagnosis", max_score=4)

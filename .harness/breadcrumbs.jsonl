@@ -198,3 +198,5 @@
 {"ts":"2026-06-11T05:45:00Z","role":"builder","type":"fix","feat":"iter-3e-decompose-prompt","msg":"Fixed AC-4+EC-1: complete_with_parse_retry in hypothesis_engine, orchestrator delegates (242 lines). +2 retry tests. 294 pytest pass.","result":"pass"}
 {"ts":"2026-06-11T06:00:00Z","role":"evaluator","type":"eval","feat":"iter-3e-decompose-prompt","msg":"PASS 8/8 AC, 3/3 EC. Parse retry verified (2 LLM calls). 294 pytest pass. contract verified=true.","result":"pass"}
 {"ts":"2026-06-10T23:50:00Z","role":"builder","type":"checkpoint","feat":"iter-3e-decompose-prompt","msg":"PASS 8/8 AC 3/3 EC. hypothesis_engine.py+report_builder.py+orchestrator 242L+29 new tests. 294 pass. Contract verified=true. Staged for commit.","result":"pass"}
+{"ts":"2026-06-11T01:01:11","role":"builder","type":"checkpoint","feat":"iter-3e-decompose-prompt","msg":"Commit:  (13 files)"}
+{"ts":"2026-06-10T12:00:00Z","role":"evaluator","type":"eval","feat":"FIX-JUDGE-INFRA","msg":"PASS 6/6 AC, 3/3 EC. 300 pytest pass; TestD3FixDiffFallback 6/6. D3 fix-diff fallback oracle verified. contract verified=true.","result":"pass"}

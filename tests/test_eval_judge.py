@@ -5,12 +5,13 @@ import json
 import pytest
 
 from commit_investigator.eval_judge import (
+    D3_FIX_DIFF_FALLBACK_RUBRIC,
     JudgeResult,
     ReasoningJudge,
     _parse_judge_response,
 )
 from commit_investigator.jira_client import JiraIssue
-from commit_investigator.llm import LLMMessage, LLMProvider, LLMResponse, MockLLMProvider
+from commit_investigator.llm import LLMProvider, LLMResponse
 from commit_investigator.report import (
     CommitInvestigationReport,
     EvidenceItem,
@@ -297,6 +298,128 @@ class TestEvalHarnessJudgeFallback:
         result = _harness_no_judge.evaluate_report(report, buggy_label=True)
         assert "D5" in result.scores
         assert "stub" in result.scores["D5"].details.lower()
+
+
+class TestD3FixDiffFallback:
+    """AC-1, AC-2, AC-3, AC-5: D3 fallback for empty JIRA descriptions."""
+
+    def test_fallback_rubric_exists_and_mentions_fix_diff(self):
+        """AC-1: D3_FIX_DIFF_FALLBACK_RUBRIC exists and describes fix-diff oracle."""
+        assert "fix diff" in D3_FIX_DIFF_FALLBACK_RUBRIC.lower()
+        assert "{fix_files}" in D3_FIX_DIFF_FALLBACK_RUBRIC
+        assert "{agent_reasoning}" in D3_FIX_DIFF_FALLBACK_RUBRIC
+
+    def test_fallback_method_exists_on_judge(self):
+        judge = ReasoningJudge(_StubJudgeProvider(score=2))
+        assert hasattr(judge, "score_d3_root_cause_fix_diff_fallback")
+
+    def test_fallback_method_returns_valid_judge_result(self):
+        judge = ReasoningJudge(_StubJudgeProvider(score=3, justification="fix diff match"))
+        jira_no_desc = _make_jira_issue(description=None)
+        result = judge.score_d3_root_cause_fix_diff_fallback(
+            _make_report(), jira_no_desc, fix_files={"src/CamelContext.java"}
+        )
+        assert result.dimension == "D3_diagnosis"
+        assert result.score == 3
+        assert result.normalized == 0.75
+
+    # AC-5a: empty description + fix files → fallback used, score > 0
+    def test_harness_empty_description_with_fix_files_uses_fallback(self):
+        from unittest.mock import MagicMock
+
+        from commit_investigator.eval_harness import EvalHarness
+
+        gt = MagicMock()
+        gt.get_chain.return_value = MagicMock(fix_hashes=["fix123"], issue_keys=["CAMEL-5678"])
+        gt.get_issue_keys.return_value = ["CAMEL-5678"]
+
+        jira = MagicMock()
+        jira.get_issue.return_value = JiraIssue(
+            key="CAMEL-5678",
+            summary="NPE in exchange processing",
+            description=None,  # empty
+            priority="Major",
+            components=[],
+            resolution="Fixed",
+            status="Closed",
+        )
+
+        # Provide a mock git provider so fix_files is non-empty
+        git_provider = MagicMock()
+        git_provider.get_touched_files.return_value = {"src/CamelContext.java", "src/Exchange.java"}
+
+        harness = EvalHarness(
+            ground_truth=gt,
+            jira_client=jira,
+            git_providers={"camel": git_provider},
+            judge_provider=_StubJudgeProvider(score=3, justification="fix diff match"),
+        )
+        report = _make_report(reasoning="NPE when body is null in CamelContext.java")
+        result = harness.evaluate_report(report, buggy_label=True)
+
+        assert "D3" in result.scores
+        d3 = result.scores["D3"]
+        assert d3.score > 0.0
+        assert "fix-diff-fallback" in d3.details
+
+    # AC-5b: non-empty description → standard JIRA path, judge_oracle=jira
+    def test_harness_non_empty_description_uses_jira_path(self):
+        from unittest.mock import MagicMock
+
+        from commit_investigator.eval_harness import EvalHarness
+
+        gt = MagicMock()
+        gt.get_chain.return_value = MagicMock(fix_hashes=["fix123"], issue_keys=["CAMEL-1234"])
+        gt.get_issue_keys.return_value = ["CAMEL-1234"]
+
+        jira = MagicMock()
+        jira.get_issue.return_value = _make_jira_issue(
+            description="NullPointerException in CamelContext exchange body"
+        )
+
+        harness = EvalHarness(
+            ground_truth=gt,
+            jira_client=jira,
+            judge_provider=_StubJudgeProvider(score=4, justification="precise match"),
+        )
+        result = harness.evaluate_report(_make_report(), buggy_label=True)
+
+        assert "D3" in result.scores
+        d3 = result.scores["D3"]
+        assert "judge_oracle=jira" in d3.details
+
+    # AC-5c: empty description + no fix files → score=0 with informative message
+    def test_harness_empty_description_no_fix_files_returns_zero(self):
+        from unittest.mock import MagicMock
+
+        from commit_investigator.eval_harness import EvalHarness
+
+        gt = MagicMock()
+        gt.get_chain.return_value = MagicMock(fix_hashes=[], issue_keys=["CAMEL-9999"])
+        gt.get_issue_keys.return_value = ["CAMEL-9999"]
+
+        jira = MagicMock()
+        jira.get_issue.return_value = JiraIssue(
+            key="CAMEL-9999",
+            summary="Unknown bug",
+            description="",  # empty string
+            priority=None,
+            components=[],
+            resolution=None,
+            status="Open",
+        )
+
+        harness = EvalHarness(
+            ground_truth=gt,
+            jira_client=jira,
+            judge_provider=_StubJudgeProvider(score=3),
+        )
+        result = harness.evaluate_report(_make_report(), buggy_label=True)
+
+        assert "D3" in result.scores
+        d3 = result.scores["D3"]
+        assert d3.score == 0.0
+        assert "judge_oracle=unavailable" in d3.details
 
 
 class TestEvalHarnessWithJudge:

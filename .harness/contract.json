@@ -1,24 +1,22 @@
 {
-  "task_id": "iter-3e-decompose-prompt",
-  "feature": "HypothesisEngine: decompose monolithic INVESTIGATION_SYSTEM_PROMPT",
-  "problem": "The monolithic 144-line INVESTIGATION_SYSTEM_PROMPT conflates LLM hypothesis generation with Script risk classification logic (rubric tiers HIGH/MEDIUM/LOW, CLEAN-COMMIT DISCRIMINATION). This violates the architecture decision that the LLM should only generate hypotheses — all risk scoring lives in risk_policy.evaluate_risk(). The orchestrator is also 469 lines (target ≤250). The 'Investigation completed' findings default creates misleading output for zero-finding commits.",
-  "proposed_solution": "Create hypothesis_engine.py with: (1) HypothesisSpec/HypothesisResponse Pydantic models for LLM output, (2) HYPOTHESIS_SYSTEM_PROMPT ≤60 lines (hypothesis generation only, no rubric), (3) build_investigation_messages() extracted from orchestrator. Create report_builder.py for report assembly. Update MockLLMProvider to emit new schema. Fix normalize_findings() empty default. Refactor orchestrator to ≤250 lines.",
+  "task_id": "FIX-JUDGE-INFRA",
+  "feature": "D3 judge fallback for empty JIRA descriptions",
+  "problem": "When a JIRA issue has no description (empty or None), _score_d3_diagnosis() returns score=0.0 immediately with 'JIRA issue has no description'. This creates a systematic bias — commits where JIRA has no description (e.g. f897d46870ba) are penalized with D3=0 regardless of agent reasoning quality. The fix diff contains the actual root cause signal and should serve as fallback oracle.",
+  "proposed_solution": "In eval_judge.py: add D3_FIX_DIFF_FALLBACK_RUBRIC (uses fix diff as oracle instead of JIRA description) and score_d3_root_cause_fix_diff_fallback() method. In eval_harness.py: when jira_issue.description is empty AND fix_files are available, route through fix-diff fallback instead of returning 0. Add judge_oracle metadata tag ('jira' | 'fix-diff-fallback') to the DimensionScore details string. Unit tests + docs/evaluation.md.",
   "acceptance_criteria": [
-    "AC-1: INVESTIGATION_SYSTEM_PROMPT removed from active use or ≤60 lines (hypothesis generation only)",
-    "AC-2: Zero rubric tiers HIGH/MEDIUM/LOW/CRITICAL in active LLM prompt",
-    "AC-3: Zero CLEAN-COMMIT DISCRIMINATION block in active LLM prompt",
-    "AC-4: HypothesisResponse Pydantic schema: {summary, hypotheses[{mechanism, evidence_quote, file, lines}]} used in orchestrator with parse retry",
-    "AC-5: D1 ≥ 0.65 on 12-commit panel (script-only), D6 ≥ 0.70",
-    "AC-6: orchestrator.py ≤ 250 lines",
-    "AC-7: findings default 'Investigation completed' removed — empty list returned instead",
-    "AC-8: 261+ tests pass (no regression)"
+    "AC-1: eval_judge.py has D3_FIX_DIFF_FALLBACK_RUBRIC + score_d3_root_cause_fix_diff_fallback() that uses fix diff as oracle",
+    "AC-2: eval_harness._score_d3_diagnosis() routes to fix-diff fallback when description is empty AND fix_files available",
+    "AC-3: DimensionScore details includes judge_oracle=jira or judge_oracle=fix-diff-fallback tag",
+    "AC-4: Valid-JIRA-description commits still use standard D3 JIRA path (no regression)",
+    "AC-5: Unit tests cover: (a) empty description + fix files → fallback used, (b) non-empty description → standard path, (c) empty description + no fix files → score=0",
+    "AC-6: docs/evaluation.md documents the fallback behavior"
   ],
   "edge_cases": [
-    "EC-1: LLM returns invalid JSON → retry once, then raise InvalidInvestigationResponseError",
-    "EC-2: LLM returns valid JSON but missing 'summary' or 'hypotheses' → raise",
-    "EC-3: hypotheses list is empty → valid (zero SUPPORTED hypotheses → risk_policy caps to MEDIUM)"
+    "EC-1: description is None (not empty string) → treated as empty → fallback",
+    "EC-2: description is empty string '' → treated as empty → fallback",
+    "EC-3: fix_files is empty set → no fallback available → score=0 with informative message"
   ],
-  "verification_method": "pytest tests/test_hypothesis_engine.py -v; pytest -q for regression; grep -c 'RISK CLASSIFICATION\\|CLEAN-COMMIT DISCRIMINATION\\|HIGH\\|MEDIUM\\|LOW' src/commit_investigator/prompts.py",
+  "verification_method": "pytest tests/test_eval_judge.py -v; check details strings contain judge_oracle tag",
   "rubrics": {},
   "rubric_mode": "criteria",
   "negotiation_rounds": 0,

@@ -247,11 +247,30 @@ class EvalHarness:
         jira_issue: JiraIssue,
         fix_files: set[str] | None = None,
     ) -> DimensionScore:
-        """D3: Does agent reasoning align with JIRA issue description? (LLM-as-judge, rubric 0-4)"""
-        if not jira_issue.description:
+        """D3: Does agent reasoning align with JIRA issue description? (LLM-as-judge, rubric 0-4)
+
+        When JIRA description is empty, falls back to fix-diff oracle if fix files are available.
+        DimensionScore.details always includes a judge_oracle=<jira|fix-diff-fallback|unavailable> tag.
+        """
+        has_description = bool(jira_issue.description and jira_issue.description.strip())
+
+        if not has_description:
+            if self._judge and fix_files:
+                judge_result = self._judge.score_d3_root_cause_fix_diff_fallback(
+                    report, jira_issue, fix_files
+                )
+                return DimensionScore(
+                    dimension="D3_diagnosis",
+                    score=judge_result.normalized,
+                    details=(
+                        f"[judge {judge_result.score}/{judge_result.max_score}] "
+                        f"{judge_result.justification} [judge_oracle=fix-diff-fallback]"
+                    ),
+                    automated=False,
+                )
             return DimensionScore(
                 dimension="D3_diagnosis", score=0.0,
-                details="JIRA issue has no description for comparison",
+                details="JIRA issue has no description and no fix files available [judge_oracle=unavailable]",
                 automated=False,
             )
 
@@ -260,7 +279,7 @@ class EvalHarness:
             return DimensionScore(
                 dimension="D3_diagnosis",
                 score=judge_result.normalized,
-                details=f"[judge {judge_result.score}/{judge_result.max_score}] {judge_result.justification}",
+                details=f"[judge {judge_result.score}/{judge_result.max_score}] {judge_result.justification} [judge_oracle=jira]",
                 automated=False,
             )
 
