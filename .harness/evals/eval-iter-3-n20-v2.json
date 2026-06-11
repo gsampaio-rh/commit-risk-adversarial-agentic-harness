@@ -1,0 +1,60 @@
+{
+  "task_id": "iter-3-n20",
+  "run": "output/runs/2026-06-11_02-04-45_real_n20",
+  "evaluator_verdict": "PARTIAL_FAIL",
+  "criteria_results": [
+    {"id": "AC-1", "status": "PASS", "evidence": "20/20 commits investigated, 0 skipped"},
+    {"id": "AC-2", "status": "PASS", "evidence": "D1=0.90 >= 0.70 (18/20 correct: 8/10 buggy, 10/10 clean). Previous: 0.65 (13/20). +0.25 lift from 4-part archetype FP fix."},
+    {"id": "AC-3", "status": "PASS", "evidence": "D2=0.154 >= 0.15"},
+    {"id": "AC-4", "status": "FAIL", "evidence": "D3=0.175 < 0.20. 5/10 buggy commits D3=0 (wrong-mechanism: 2213f71944ae, 409664582f53, 572f3cee35fe, dd6f9ba60fb4, fe57a498f6a5). iter-3f-multiturn-ab TRIGGERED (D3<0.20 AND >=3 commits D3=0)."},
+    {"id": "AC-5", "status": "PASS", "evidence": "D4=0.901 >= 0.60"},
+    {"id": "AC-6", "status": "PASS", "evidence": "D5=0.50 >= 0.25. Previous: 0.0. Restored via suggested_action + _derive_recommendations from SUPPORTED hypotheses."},
+    {"id": "AC-7", "status": "PASS", "evidence": "D6=0.75 >= 0.60"},
+    {"id": "AC-8", "status": "FAIL", "evidence": "D3 alone fails. D1, D2, D4, D5, D6 all pass."},
+    {"id": "AC-9", "status": "PASS", "evidence": "per_stage metadata present in all 20 investigation reports"},
+    {"id": "AC-10", "status": "PASS", "evidence": "iter-1 D1=0.60 D3=0.20 D6=0.85 vs iter-3 D1=0.90 D3=0.175 D6=0.75. D1 +50% lift vs iter-1. D3 marginal regression (-0.025)."},
+    {"id": "AC-11", "status": "PASS", "evidence": "judge_model=cursor-sdk/claude-sonnet-4-6"}
+  ],
+  "metrics": {
+    "D1": 0.900,
+    "D2": 0.154,
+    "D3": 0.175,
+    "D3_buggy_only": 0.175,
+    "D4": 0.901,
+    "D5": 0.500,
+    "D6": 0.750,
+    "n": 20,
+    "buggy": 10,
+    "clean": 10,
+    "total_cost_usd": 0.1043
+  },
+  "d3_breakdown": {
+    "D3=0.00": ["2213f71944ae", "409664582f53", "572f3cee35fe", "dd6f9ba60fb4", "fe57a498f6a5"],
+    "D3=0.25": ["294c169f6d66", "90846b586c51", "f897d46870ba"],
+    "D3=0.50": ["55dcbe801e76", "fbf0ffad627b"]
+  },
+  "d1_breakdown": {
+    "buggy_correct": ["2213f71944ae", "294c169f6d66", "409664582f53", "55dcbe801e76", "90846b586c51", "f897d46870ba", "fbf0ffad627b", "fe57a498f6a5"],
+    "buggy_miss_FN": ["572f3cee35fe(MEDIUM)", "dd6f9ba60fb4(MEDIUM)"],
+    "clean_correct": ["all 10 clean commits classified MEDIUM"],
+    "clean_miss_FP": []
+  },
+  "fp_fix_summary": {
+    "previous_run": "2026-06-11_01-28-36_real_n20",
+    "previous_D1": 0.65,
+    "previous_FPs": ["0a3aa40fe787", "ab607494918a", "4a72341ebffc", "24d9de042248", "ce2d5bfa5f84"],
+    "fixes_applied": [
+      "FIX-1: raw_diff stored in InvestigationContext; archetype/signal detection uses raw diff (fixes ab607494918a — assembled diff dropped minus_methods from secondary files)",
+      "FIX-2: _GUARD_REMOVAL_RE tightened to require null-check patterns not any if( (fixes 4a72341ebffc, ce2d5bfa5f84)",
+      "FIX-3: @Order removed from _LIFECYCLE_RE; LifecyclePhase added (fixes 24d9de042248 without losing f897d468 TP)",
+      "FIX-4: Iterator-safety archetype for itr.remove() refactors (fixes 0a3aa40fe787)"
+    ]
+  },
+  "conditional_triggers": {
+    "iter-3f-multiturn-ab": "TRIGGERED — D3=0.175 < 0.20 AND 5/10 commits D3=0 (≥3)",
+    "iter-2d-wrong-mechanism": "LIKELY TRIGGERED — 5/10 commits D3=0 with wrong-mechanism errors (forensics tags pending)",
+    "EXP-BUNDLE-EXPAND": "NOT TRIGGERED — 90846b D3=0.25 (not 0), need architectural-depth forensics tags to confirm",
+    "iter-n50-delivery": "NOT TRIGGERED — D3 gate failed"
+  },
+  "next_action": "Decision rule: FAIL D3 → iter-3f-multiturn-ab. Run on ≥3 D3=0 commits (2213f71944ae, 409664582f53, 572f3cee35fe) to test if turn-2 context injection lifts D3 ≥ 0.25 on hard subset. Also evaluate iter-2d-wrong-mechanism for anti-anchoring prompt fix."
+}
