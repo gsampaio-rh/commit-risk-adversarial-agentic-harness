@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from commit_investigator.archetype import detect_archetype, has_production_defect_signals
 from commit_investigator.context_builder import InvestigationContext
-from commit_investigator.evidence_tagger import count_supported_from_reasoning
+from commit_investigator.evidence_tagger import TagResult, count_supported_from_reasoning
 from commit_investigator.report import RiskLevel
 
 # ---------------------------------------------------------------------------
@@ -129,6 +129,73 @@ def evaluate_risk(
     if not is_clean_archetype and not is_speculative_only:
         return PolicyVerdict(
             risk_level=llm_risk_level,
+            cap_applied=False,
+            cap_reason="",
+            applied_rules=[],
+            supported_count=supported_count,
+        )
+
+    if is_clean_archetype:
+        cap_reason = "clean_archetype_no_production_defect_signals"
+        applied_rules = ["cap_to_MEDIUM:clean_archetype"]
+    else:
+        cap_reason = "speculative_or_unverifiable_only"
+        applied_rules = ["cap_to_MEDIUM:speculative_only"]
+
+    return PolicyVerdict(
+        risk_level=RiskLevel.MEDIUM,
+        cap_applied=True,
+        cap_reason=cap_reason,
+        applied_rules=applied_rules,
+        supported_count=supported_count,
+    )
+
+
+def evaluate_risk_from_hypotheses(
+    tagged: list[TagResult],
+    context: InvestigationContext,
+) -> PolicyVerdict:
+    """Evaluate risk from tagged hypotheses + context signals (iter-3e+ interface).
+
+    Derives base risk from script signals:
+    - supported_count >= 1 → HIGH (capped if clean archetype + no defect signals)
+    - production_defect_signals → HIGH (no cap override)
+    - router_prior >= 0.70 → HIGH (subject to cap)
+    - otherwise → MEDIUM
+    """
+    supported_count = sum(1 for t in tagged if t.tier == "SUPPORTED")
+    defect_signals = has_production_defect_signals(context)
+    router_prior = context.router_probability or 0.0
+
+    if supported_count >= 1 or defect_signals or router_prior >= 0.70:
+        base_risk = RiskLevel.HIGH
+    else:
+        base_risk = RiskLevel.MEDIUM
+
+    if base_risk not in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+        return PolicyVerdict(
+            risk_level=base_risk,
+            cap_applied=False,
+            cap_reason="",
+            applied_rules=[],
+            supported_count=supported_count,
+        )
+
+    if defect_signals:
+        return PolicyVerdict(
+            risk_level=base_risk,
+            cap_applied=False,
+            cap_reason="",
+            applied_rules=[],
+            supported_count=supported_count,
+        )
+
+    is_clean_archetype = detect_archetype(context)
+    is_speculative_only = supported_count == 0
+
+    if not is_clean_archetype and not is_speculative_only:
+        return PolicyVerdict(
+            risk_level=base_risk,
             cap_applied=False,
             cap_reason="",
             applied_rules=[],

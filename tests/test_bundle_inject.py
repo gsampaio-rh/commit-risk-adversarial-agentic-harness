@@ -11,7 +11,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -20,8 +19,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from commit_investigator.context_builder import AuthorStats, InvestigationContext  # noqa: E402
 from commit_investigator.git_context import FileHistoryEntry  # noqa: E402
+from commit_investigator.hypothesis_engine import build_investigation_messages  # noqa: E402
 from commit_investigator.llm import LLMResponse  # noqa: E402
-from commit_investigator.orchestrator import AgentOrchestrator  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -48,8 +47,7 @@ def _make_context(**overrides: Any) -> InvestigationContext:
 
 def _build_messages(context: InvestigationContext) -> str:
     """Build initial messages and return the user message content."""
-    orch = AgentOrchestrator()
-    messages = orch._build_initial_messages(context)
+    messages = build_investigation_messages(context)
     user_msg = next((m for m in messages if m.role == "user"), None)
     assert user_msg is not None
     return user_msg.content
@@ -167,22 +165,31 @@ class TestAuthorStatsInjection:
 class TestPerStageMetadata:
     def test_per_stage_in_metadata(self) -> None:
         """AC-3: report.metadata has per_stage list with required fields."""
+        from commit_investigator.hypothesis_engine import HypothesisResponse
+        from commit_investigator.orchestrator import BudgetState
+        from commit_investigator.report_builder import build_report
+        from commit_investigator.risk_policy import PolicyVerdict
+        from commit_investigator.report import RiskLevel
+
         mock_response = LLMResponse(
-            content='{"risk_level":"LOW","confidence":0.8,"reasoning":"STAGE 1 - test STAGE 2 - test STAGE 3 - HYPOTHESIS 1 - SPECULATIVE: nothing. STAGE 4 - clean.","findings":["Investigation completed"],"follow_up_needed":false,"localization":[],"recommendations":[]}',
+            content='{"summary":"test","hypotheses":[]}',
             model="mock",
             tokens_used=100,
             estimated_cost=0.0003,
         )
-
-        mock_llm = MagicMock()
-        mock_llm.complete.return_value = mock_response
-
-        orch = AgentOrchestrator(llm_provider=mock_llm, max_turns=1)
+        hyp_response = HypothesisResponse(summary="test", hypotheses=[])
+        verdict = PolicyVerdict(risk_level=RiskLevel.MEDIUM, cap_applied=False, cap_reason="", applied_rules=[])
+        budget = BudgetState(total_tokens=100, total_cost=0.0003, turns_used=1)
         context = _make_context()
 
-        report = orch._assemble_report(
+        report = build_report(
+            hyp_response=hyp_response,
+            tagged=[],
+            verdict=verdict,
             context=context,
             last_response=mock_response,
+            checkpoints=[],
+            budget=budget,
             tools_used=[],
             turns=1,
         )
@@ -192,36 +199,35 @@ class TestPerStageMetadata:
 
     def test_per_stage_fields_when_checkpoint_exists(self) -> None:
         """per_stage entries have required fields when checkpoints are populated."""
-        from commit_investigator.orchestrator import TurnCheckpoint
+        from commit_investigator.hypothesis_engine import HypothesisResponse
+        from commit_investigator.orchestrator import BudgetState, TurnCheckpoint
+        from commit_investigator.report_builder import build_report
+        from commit_investigator.risk_policy import PolicyVerdict
+        from commit_investigator.report import RiskLevel
 
         mock_response = LLMResponse(
-            content='{"risk_level":"LOW","confidence":0.7,"reasoning":"STAGE 1 ok STAGE 2 ok STAGE 3 - HYPOTHESIS 1 - SPECULATIVE: x. STAGE 4 - clean.","findings":[],"follow_up_needed":false,"localization":[],"recommendations":[]}',
+            content='{"summary":"test","hypotheses":[]}',
             model="mock",
             tokens_used=50,
             estimated_cost=0.00015,
         )
-        mock_llm = MagicMock()
-        mock_llm.complete.return_value = mock_response
-
-        orch = AgentOrchestrator(llm_provider=mock_llm, max_turns=1)
-        # Manually add a checkpoint to simulate a completed turn
-        orch._checkpoints = [
-            TurnCheckpoint(
-                turn=1,
-                timestamp=1000.0,
-                messages_sent=2,
-                tool_calls_made=[],
-                tokens_used=50,
-                cost=0.00015,
-                follow_up_needed=False,
-                latency_ms=250.0,
-            )
-        ]
-
+        hyp_response = HypothesisResponse(summary="test", hypotheses=[])
+        verdict = PolicyVerdict(risk_level=RiskLevel.LOW, cap_applied=False, cap_reason="", applied_rules=[])
+        budget = BudgetState(total_tokens=50, total_cost=0.00015, turns_used=1)
+        checkpoint = TurnCheckpoint(
+            turn=1, timestamp=1000.0, messages_sent=2, tool_calls_made=[],
+            tokens_used=50, cost=0.00015, follow_up_needed=False, latency_ms=250.0,
+        )
         context = _make_context()
-        report = orch._assemble_report(
+
+        report = build_report(
+            hyp_response=hyp_response,
+            tagged=[],
+            verdict=verdict,
             context=context,
             last_response=mock_response,
+            checkpoints=[checkpoint],
+            budget=budget,
             tools_used=[],
             turns=1,
         )

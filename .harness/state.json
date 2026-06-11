@@ -116,7 +116,8 @@
     {"id": "iter-3a-spike", "commit": "f9d3d06", "summary": "Evidence tier tagging feasibility spike. 36-fixture corpus (12 commits). tag_hypothesis(): 100% strict agreement (hand), 86.1% (auto). Decision: HYBRID — LLM tier + Script quote⊆diff verification. 28 tests. Evaluator PASS 4/4 AC 2/2 EC.", "report": ".harness/evals/eval-iter-3a-spike.json"},
     {"id": "iter-3b-wire-gates", "commit": "6387ea9", "summary": "evidence_tagger.py (hybrid), 4-trigger quality_gate (HypothesisArtifact), metadata cap_applied/cap_reason/applied_rules, follow_up_needed deprecated. D1=0.75, buggy_recall=0.833. 226 tests. Evaluator PASS 8/8 AC 2/2 EC.", "report": ".harness/evals/eval-iter-3b-wire-gates.json"},
     {"id": "iter-3c-bundle-inject", "commit": "0acfde4", "summary": "file_histories + author_stats injected into LLM context. per_stage metadata in report. D6=0.75 on 12-commit panel. 236 tests. Evaluator PASS 5/5 AC 2/2 EC.", "report": ".harness/evals/eval-iter-3c-bundle-inject.json"},
-    {"id": "iter-3d-smart-diff", "commit": "pending", "summary": "smart_diff.py: per-file ranking (defect_signal>production>test>build/config) + hunk guarantees. truncation_metadata in InvestigationContext + report. 261 tests. Evaluator PASS 7/7 AC 3/3 EC.", "report": ".harness/evals/eval-iter-3d-smart-diff.json"}
+    {"id": "iter-3d-smart-diff", "commit": "b5efd3f", "summary": "smart_diff.py: per-file ranking (defect_signal>production>test>build/config) + hunk guarantees. truncation_metadata in InvestigationContext + report. 261 tests. Evaluator PASS 7/7 AC 3/3 EC.", "report": ".harness/evals/eval-iter-3d-smart-diff.json"},
+    {"id": "iter-3e-decompose-prompt", "commit": "pending", "summary": "hypothesis_engine.py (HypothesisSpec/HypothesisResponse + HYPOTHESIS_SYSTEM_PROMPT ≤60L + complete_with_parse_retry), report_builder.py (tag_hypotheses+build_report), orchestrator.py→242L. 294 tests. Evaluator PASS 8/8 AC 3/3 EC.", "report": ".harness/evals/eval-iter-3e-decompose-prompt.json"}
   ],
 
   "tasks": [
@@ -223,7 +224,7 @@
       "id": "iter-3e-decompose-prompt",
       "name": "HypothesisEngine: decompose monolithic prompt",
       "type": "feature",
-      "status": "pending",
+      "status": "verified",
       "priority": 6,
       "depends_on": ["iter-3b-wire-gates", "iter-3c-bundle-inject", "iter-3d-smart-diff"],
       "acceptance_criteria": [

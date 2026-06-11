@@ -3,6 +3,10 @@
 import pytest
 
 from commit_investigator.context_builder import InvestigationContext
+from commit_investigator.hypothesis_engine import (
+    HYPOTHESIS_SYSTEM_PROMPT,
+    build_investigation_messages,
+)
 from commit_investigator.llm import LLMProvider, LLMResponse, MockLLMProvider
 from commit_investigator.orchestrator import (
     DEFAULT_MAX_DIFF_CHARS,
@@ -28,34 +32,31 @@ def _mock_context() -> InvestigationContext:
 
 
 class TestInvestigationPrompt:
-    def test_system_prompt_has_four_stages_and_rubric(self):
-        assert "STAGE 1" in INVESTIGATION_SYSTEM_PROMPT
-        assert "STAGE 4" in INVESTIGATION_SYSTEM_PROMPT
-        assert "SUPPORTED defect hypothesis with diff evidence" in INVESTIGATION_SYSTEM_PROMPT
-        assert "SPECULATIVE" in INVESTIGATION_SYSTEM_PROMPT
-        assert "CLEAN-COMMIT DISCRIMINATION" in INVESTIGATION_SYSTEM_PROMPT
-        assert "limited blast radius" in INVESTIGATION_SYSTEM_PROMPT
-        assert "EXAMPLE A" in INVESTIGATION_SYSTEM_PROMPT
-        assert "EXAMPLE B" in INVESTIGATION_SYSTEM_PROMPT
+    def test_hypothesis_system_prompt_focuses_on_generation_only(self):
+        """AC-1/2/3: New prompt is about hypothesis generation, no rubric tiers."""
+        assert "hypotheses" in HYPOTHESIS_SYSTEM_PROMPT.lower()
+        assert "mechanism" in HYPOTHESIS_SYSTEM_PROMPT
+        assert "evidence_quote" in HYPOTHESIS_SYSTEM_PROMPT
+        # AC-2: No rubric tier labels in prompt
+        assert "RISK CLASSIFICATION RUBRIC" not in HYPOTHESIS_SYSTEM_PROMPT
+        # AC-3: No CLEAN-COMMIT DISCRIMINATION block
+        assert "CLEAN-COMMIT DISCRIMINATION" not in HYPOTHESIS_SYSTEM_PROMPT
 
-    def test_system_prompt_clean_commit_guard_preserves_buggy_high(self):
-        assert "Do NOT apply clean-commit discrimination when" in INVESTIGATION_SYSTEM_PROMPT
-        assert "SUPPORTED hypothesis with diff evidence" in INVESTIGATION_SYSTEM_PROMPT
-        assert "risk_level MUST be ≥ HIGH" in INVESTIGATION_SYSTEM_PROMPT
-        assert "router_probability does not override this cap" in INVESTIGATION_SYSTEM_PROMPT
-        assert "Strict bar under clean-commit discrimination" in INVESTIGATION_SYSTEM_PROMPT
+    def test_hypothesis_system_prompt_le_60_lines(self):
+        """AC-1: Prompt must be ≤60 lines."""
+        lines = HYPOTHESIS_SYSTEM_PROMPT.strip().splitlines()
+        assert len(lines) <= 60, f"Prompt has {len(lines)} lines (max 60)"
 
-    def test_system_prompt_has_fix_commit_residual_risk_rule(self):
-        assert "commit message mentions a fix" in INVESTIGATION_SYSTEM_PROMPT
-        assert "SUPPORTED mechanism exists" in INVESTIGATION_SYSTEM_PROMPT
+    def test_prompt_no_high_medium_low_rubric(self):
+        """AC-2: No standalone rubric tier assignments in prompt."""
+        # The prompt should not contain 'HIGH:' or 'MEDIUM:' as rubric directives
+        assert "HIGH:" not in HYPOTHESIS_SYSTEM_PROMPT
+        assert "MEDIUM:" not in HYPOTHESIS_SYSTEM_PROMPT
+        assert "LOW:" not in HYPOTHESIS_SYSTEM_PROMPT
 
-    def test_system_prompt_migration_opt_out_and_criterion_b_exclusion(self):
-        assert "PRIMARY change" in INVESTIGATION_SYSTEM_PROMPT
-        assert "Migration typing refactors alone do NOT waive discrimination" in INVESTIGATION_SYSTEM_PROMPT
-        assert "criterion (b) API/binary incompatibility does NOT apply under discrimination" in INVESTIGATION_SYSTEM_PROMPT
-        assert "Material guard removal" in INVESTIGATION_SYSTEM_PROMPT
-        assert "EXAMPLE C" in INVESTIGATION_SYSTEM_PROMPT
-        assert "even if ≥ 0.70" in INVESTIGATION_SYSTEM_PROMPT
+    def test_backward_compat_investigation_prompt_is_hypothesis_prompt(self):
+        """INVESTIGATION_SYSTEM_PROMPT is aliased to HYPOTHESIS_SYSTEM_PROMPT."""
+        assert INVESTIGATION_SYSTEM_PROMPT is HYPOTHESIS_SYSTEM_PROMPT
 
     def test_coerce_structured_llm_fields(self):
         reasoning = coerce_text_field({"STAGE 1": "summary"}, "default")
@@ -65,22 +66,25 @@ class TestInvestigationPrompt:
         assert "hypothesis" in findings[0]
         assert findings[1] == "plain string"
 
+    def test_normalize_findings_returns_empty_list_not_default_string(self):
+        """AC-7: Empty findings → [] not ['Investigation completed']."""
+        assert normalize_findings(None) == []
+        assert normalize_findings([]) == []
+        assert normalize_findings("") == []
+
     def test_router_probability_injected_in_user_message(self):
-        orchestrator = AgentOrchestrator(llm_provider=MockLLMProvider())
         context = _mock_context()
         context.router_probability = 0.652
         context.router_route = "INVESTIGATE"
-        messages = orchestrator._build_initial_messages(context)
+        messages = build_investigation_messages(context)
         user_content = messages[1].content
-        assert "router_probability=0.652" in user_content
-        assert "route=INVESTIGATE" in user_content
-        assert "prior, not a defect label" in user_content
+        assert "0.652" in user_content
+        assert "Router Prior" in user_content
 
     def test_router_probability_omitted_when_unset(self):
-        orchestrator = AgentOrchestrator(llm_provider=MockLLMProvider())
-        messages = orchestrator._build_initial_messages(_mock_context())
+        messages = build_investigation_messages(_mock_context())
         user_content = messages[1].content
-        assert "ML Risk Prior" not in user_content
+        assert "Router Prior" not in user_content
 
     def test_default_diff_limit_is_16k(self):
         assert DEFAULT_MAX_DIFF_CHARS == 16_000
@@ -88,7 +92,6 @@ class TestInvestigationPrompt:
     def test_diff_truncation_note_when_truncation_metadata_present(self):
         """Smart diff truncation note shown when truncation_metadata has truncated_files."""
         from commit_investigator.smart_diff import AssembledDiff
-        orchestrator = AgentOrchestrator(llm_provider=MockLLMProvider(), max_diff_chars=100)
         ctx = _mock_context()
         ctx.diff = "x" * 100
         ctx.truncation_metadata = AssembledDiff(
@@ -97,16 +100,15 @@ class TestInvestigationPrompt:
             truncated_files=["Bar.java"],
             total_chars=100,
         )
-        messages = orchestrator._build_initial_messages(ctx)
+        messages = build_investigation_messages(ctx)
         user_content = messages[1].content
         assert "smart-truncated" in user_content
         assert "Bar.java" in user_content
 
     def test_diff_not_truncated_when_under_limit(self):
-        orchestrator = AgentOrchestrator(llm_provider=MockLLMProvider(), max_diff_chars=500)
         ctx = _mock_context()
         ctx.diff = "y" * 200
-        messages = orchestrator._build_initial_messages(ctx)
+        messages = build_investigation_messages(ctx)
         user_content = messages[1].content
         assert "smart-truncated" not in user_content
         assert "y" * 200 in user_content
@@ -125,6 +127,30 @@ class _StaticLLMProvider(LLMProvider):
     def complete(self, messages, tools=None, temperature=0.0, max_tokens=4096):
         return LLMResponse(
             content=self._content,
+            tool_calls=[],
+            tokens_used=10,
+            estimated_cost=0.0,
+            model=self.model_name,
+            finish_reason="stop",
+        )
+
+
+class _SequenceLLMProvider(LLMProvider):
+    """Returns a sequence of payloads; tracks call count for retry tests."""
+
+    def __init__(self, contents: list[str]) -> None:
+        self._contents = contents
+        self.calls = 0
+
+    @property
+    def model_name(self) -> str:
+        return "sequence-test"
+
+    def complete(self, messages, tools=None, temperature=0.0, max_tokens=4096):
+        idx = min(self.calls, len(self._contents) - 1)
+        self.calls += 1
+        return LLMResponse(
+            content=self._contents[idx],
             tool_calls=[],
             tokens_used=10,
             estimated_cost=0.0,
@@ -164,23 +190,49 @@ class TestInvalidInvestigationResponse:
                 context=_mock_context(),
             )
 
-    def test_missing_risk_level_raises(self):
-        orchestrator = AgentOrchestrator(
-            llm_provider=_StaticLLMProvider('{"confidence": 0.5, "reasoning": "x"}'),
-        )
-        with pytest.raises(InvalidInvestigationResponseError, match="missing risk_level"):
+    def test_missing_summary_raises(self):
+        """New schema: missing summary/hypotheses → InvalidInvestigationResponseError."""
+        llm = _SequenceLLMProvider(['{"confidence": 0.5, "reasoning": "x"}'])
+        orchestrator = AgentOrchestrator(llm_provider=llm)
+        with pytest.raises(InvalidInvestigationResponseError, match="missing summary/hypotheses"):
             orchestrator.investigate(
                 commit_id="x",
                 project="camel",
                 context=_mock_context(),
             )
+        assert llm.calls == 2, "Parse failure should retry once before raising"
 
-    def test_clean_archetype_high_capped_in_assembled_report(self):
+    def test_invalid_json_retries_once_then_raises(self):
+        """EC-1: invalid JSON → retry once → InvalidInvestigationResponseError."""
+        llm = _SequenceLLMProvider(["not valid json", "still not json"])
+        orchestrator = AgentOrchestrator(llm_provider=llm)
+        with pytest.raises(InvalidInvestigationResponseError, match="Invalid LLM JSON"):
+            orchestrator.investigate(
+                commit_id="x",
+                project="camel",
+                context=_mock_context(),
+            )
+        assert llm.calls == 2
+
+    def test_invalid_json_retries_then_succeeds(self):
+        """EC-1: invalid JSON on first attempt, valid JSON on retry succeeds."""
+        valid = '{"summary":"ok","hypotheses":[]}'
+        llm = _SequenceLLMProvider(["not valid json", valid])
+        orchestrator = AgentOrchestrator(llm_provider=llm)
+        report = orchestrator.investigate(
+            commit_id="x",
+            project="camel",
+            context=_mock_context(),
+        )
+        assert llm.calls == 2
+        assert report.reasoning_summary == "ok"
+
+    def test_clean_archetype_returns_medium_directly(self):
+        """Version-bump context → no SUPPORTED hypotheses → Script assigns MEDIUM directly."""
         payload = (
-            '{"risk_level":"HIGH","confidence":0.8,'
-            '"reasoning":"STAGE 3: HYPOTHESIS 1 (SPECULATIVE): migration.",'
-            '"findings":[],"follow_up_needed":false,'
-            '"localization":[],"recommendations":[]}'
+            '{"summary":"Upgrade to Infinispan 9.x via pom.xml version bump and import migration.",'
+            '"hypotheses":[{"mechanism":"If caller uses NotifyingFuture API then NPE",'
+            '"evidence_quote":"","file":"InfinispanProducer.java","lines":[1,5]}]}'
         )
         orchestrator = AgentOrchestrator(llm_provider=_StaticLLMProvider(payload))
         report = orchestrator.investigate(
@@ -188,8 +240,8 @@ class TestInvalidInvestigationResponse:
             project="camel",
             context=_version_bump_context(),
         )
+        # New behavior: Script computes MEDIUM directly (no cap needed since never HIGH)
         assert report.risk_assessment.level == RiskLevel.MEDIUM
-        assert report.metadata.get("clean_commit_risk_cap_applied") is True
 
 
 class TestAgentOrchestrator:

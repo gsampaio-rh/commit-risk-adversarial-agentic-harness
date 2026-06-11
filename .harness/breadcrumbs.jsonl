@@ -192,3 +192,9 @@
 {"ts":"2026-06-11T04:00:00-03:00","role":"builder","type":"build","feat":"iter-3d-smart-diff","msg":"Contract written. Starting implementation: smart_diff.py per-file ranking + hunk assembly.","result":"pass"}
 {"ts":"2026-06-11T04:30:00-03:00","role":"builder","type":"build","feat":"iter-3d-smart-diff","msg":"Build complete. smart_diff.py created. Ranking + hunk guarantees. 261 tests pass. Contract evaluating.","result":"pass"}
 {"ts":"2026-06-11T00:39:10Z","role":"evaluator","type":"eval","feat":"iter-3d-smart-diff","msg":"PASS 7/7 AC, 3/3 EC","result":"pass"}
+{"ts":"2026-06-11T00:39:56","role":"builder","type":"checkpoint","feat":"iter-3d-smart-diff","msg":"Commit:  (10 files)"}
+{"ts":"2026-06-11T05:00:00-03:00","role":"builder","type":"build","feat":"iter-3e-decompose-prompt","msg":"Contract written. Starting: hypothesis_engine.py + report_builder.py + orchestrator refactor.","result":"pass"}
+{"ts":"2026-06-11T05:30:00Z","role":"evaluator","type":"eval","feat":"iter-3e-decompose-prompt","msg":"FAIL 6/8 AC, 2/3 EC. AC-4+EC-1: orchestrator lacks parse retry on invalid JSON (1 LLM call then raise; retry only in run_eval). 292 pytest pass, panel D1=0.75.","result":"fail"}
+{"ts":"2026-06-11T05:45:00Z","role":"builder","type":"fix","feat":"iter-3e-decompose-prompt","msg":"Fixed AC-4+EC-1: complete_with_parse_retry in hypothesis_engine, orchestrator delegates (242 lines). +2 retry tests. 294 pytest pass.","result":"pass"}
+{"ts":"2026-06-11T06:00:00Z","role":"evaluator","type":"eval","feat":"iter-3e-decompose-prompt","msg":"PASS 8/8 AC, 3/3 EC. Parse retry verified (2 LLM calls). 294 pytest pass. contract verified=true.","result":"pass"}
+{"ts":"2026-06-10T23:50:00Z","role":"builder","type":"checkpoint","feat":"iter-3e-decompose-prompt","msg":"PASS 8/8 AC 3/3 EC. hypothesis_engine.py+report_builder.py+orchestrator 242L+29 new tests. 294 pass. Contract verified=true. Staged for commit.","result":"pass"}

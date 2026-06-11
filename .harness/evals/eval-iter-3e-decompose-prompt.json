@@ -1,0 +1,70 @@
+{
+  "task_id": "iter-3e-decompose-prompt",
+  "timestamp": "2026-06-11T06:00:00Z",
+  "evaluator_verdict": "PASS",
+  "action": "commit",
+  "criteria_results": [
+    {
+      "id": "AC-1",
+      "status": "PASS",
+      "evidence": "HYPOTHESIS_SYSTEM_PROMPT is 30 lines (threshold ≤60). test_hypothesis_engine::test_prompt_length_at_most_60_lines PASSED."
+    },
+    {
+      "id": "AC-2",
+      "status": "PASS",
+      "evidence": "Active prompt: HIGH:/MEDIUM:/LOW:/CRITICAL: all absent. test_prompt_has_no_rubric_tiers PASSED."
+    },
+    {
+      "id": "AC-3",
+      "status": "PASS",
+      "evidence": "CLEAN-COMMIT absent from active prompt. test_prompt_has_no_clean_commit_discrimination PASSED."
+    },
+    {
+      "id": "AC-4",
+      "status": "PASS",
+      "evidence": "HypothesisResponse schema wired via orchestrator._parse_response() → parse_hypothesis_response(). Parse retry implemented in hypothesis_engine.complete_with_parse_retry(), called from orchestrator.investigate(). test_invalid_json_retries_once_then_raises and test_invalid_json_retries_then_succeeds PASSED (2 LLM calls on failure path)."
+    },
+    {
+      "id": "AC-5",
+      "status": "PASS",
+      "evidence": "Panel tests pass: test_panel_script_gate::test_d1_overall_accuracy (D1=0.75), test_panel_smart_diff::TestD6OnPanel, test_bundle_inject::TestD6OnPanelReports, test_regression_panel 12/12."
+    },
+    {
+      "id": "AC-6",
+      "status": "PASS",
+      "evidence": "wc -l orchestrator.py = 242 (threshold ≤250)."
+    },
+    {
+      "id": "AC-7",
+      "status": "PASS",
+      "evidence": "normalize_findings([]) returns []. test_orchestrator::test_normalize_findings_returns_empty_list_not_default_string PASSED."
+    },
+    {
+      "id": "AC-8",
+      "status": "PASS",
+      "evidence": ".venv/bin/pytest -q: 294 passed (threshold ≥261/292, +2 new retry tests)."
+    }
+  ],
+  "edge_case_results": [
+    {
+      "id": "EC-1",
+      "status": "PASS",
+      "evidence": "Invalid JSON → retry once with schema feedback → InvalidInvestigationResponseError on second failure (calls=2). Retry-then-succeed path: calls=2, report produced. test_invalid_json_retries_once_then_raises and test_invalid_json_retries_then_succeeds PASSED."
+    },
+    {
+      "id": "EC-2",
+      "status": "PASS",
+      "evidence": "Missing summary/hypotheses → InvalidInvestigationResponseError after retry (calls=2). test_missing_summary_raises PASSED."
+    },
+    {
+      "id": "EC-3",
+      "status": "PASS",
+      "evidence": "Empty hypotheses list valid; evaluate_risk_from_hypotheses([], ctx) → MEDIUM. test_empty_hypotheses_allowed and test_clean_archetype_returns_medium_directly PASSED."
+    }
+  ],
+  "advisories": [
+    "Legacy 144-line INVESTIGATION_SYSTEM_PROMPT remains in src/commit_investigator/prompts.py (unused dead code).",
+    "test_panel_script_gate D6_clean_precision=0.667 differs from evidence-grounding D6; both panel suites pass."
+  ],
+  "summary": "All 8 acceptance criteria and 3 edge cases pass after builder fix. Parse retry (EC-1/AC-4) implemented via hypothesis_engine.complete_with_parse_retry() with orchestrator integration; 294 tests pass, orchestrator at 242 lines, panel metrics hold."
+}

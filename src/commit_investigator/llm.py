@@ -76,36 +76,32 @@ class MockLLMProvider(LLMProvider):
         max_tokens: int = 4096,
     ) -> LLMResponse:
         """Generate a mock investigation response."""
-        import hashlib
-
         context = messages[-1].content if messages else ""
-        has_diff = "diff" in context.lower() or "+++" in context
-
-        seed = int(hashlib.md5(context[:512].encode()).hexdigest()[:8], 16)
-        risk_levels = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
-        risk_level = risk_levels[seed % len(risk_levels)]
-        if not has_diff:
-            risk_level = "LOW" if seed % 2 else "MEDIUM"
-        confidence = round(0.35 + (seed % 61) / 100.0, 2)
-
         touched_files = _extract_touched_files(context)
         primary_file = touched_files[0] if touched_files else "unknown"
-        localization = [
-            {"file": path, "lines": "1-10", "rationale": f"Mock: flagged {path} from diff"}
-            for path in touched_files[:2]
+
+        hypotheses = [
+            {
+                "mechanism": f"If the change in {primary_file} introduces an unhandled edge case then NPE at {primary_file}:10",
+                "evidence_quote": "",
+                "file": primary_file,
+                "lines": [1, 10],
+            }
         ]
+        if len(touched_files) > 1:
+            hypotheses.append({
+                "mechanism": f"If {touched_files[1]} interaction changes unexpectedly then silent data corruption",
+                "evidence_quote": "",
+                "file": touched_files[1],
+                "lines": [1, 5],
+            })
 
         response_content = json.dumps({
-            "risk_level": risk_level,
-            "confidence": confidence,
-            "reasoning": (
+            "summary": (
                 f"Mock investigation of {primary_file}: "
                 f"reviewed diff ({len(context.split())} context tokens)."
             ),
-            "findings": [f"Mock finding on {primary_file}"],
-            "follow_up_needed": False,
-            "localization": localization,
-            "recommendations": [],
+            "hypotheses": hypotheses,
         })
 
         token_estimate = len(context.split()) + len(response_content.split())

@@ -1,8 +1,8 @@
 """Agent orchestrator: bounded multi-turn investigation loop.
 
 The orchestrator owns turn limits, tool dispatch, budget tracking,
-checkpoint persistence, and report assembly. The LLM performs reasoning
-over assembled context inside each turn.
+checkpoint persistence, and report assembly. The LLM generates hypotheses;
+Script layers handle risk scoring, evidence tagging, and gate decisions.
 """
 
 from __future__ import annotations
@@ -16,33 +16,39 @@ from typing import Any
 from commit_investigator.archetype import detect_archetype, has_production_defect_signals
 from commit_investigator.context_builder import CommitContextBuilder, InvestigationContext
 from commit_investigator.git_context import GitContextProvider
+from commit_investigator.hypothesis_engine import (
+    HYPOTHESIS_SYSTEM_PROMPT,
+    HypothesisResponse,
+    build_investigation_messages,
+    complete_with_parse_retry,
+    parse_hypothesis_response,
+)
 from commit_investigator.llm import LLMMessage, LLMProvider, LLMResponse, get_provider
-from commit_investigator.prompts import INVESTIGATION_SYSTEM_PROMPT
 from commit_investigator.quality_gate import HypothesisArtifact, evaluate_gate
 from commit_investigator.report import (
     CommitInvestigationReport,
-    EvidenceItem,
-    EvidenceType,
     LocalizationClaim,
-    Recommendation,
-    RecommendationPriority,
-    RiskAssessment,
-    RiskLevel,
 )
-from commit_investigator.response_parser import coerce_text_field, extract_json, normalize_findings, parse_lines
-from commit_investigator.risk_policy import evaluate_risk
+from commit_investigator.report_builder import build_report, tag_hypotheses
+from commit_investigator.risk_policy import evaluate_risk_from_hypotheses
 from commit_investigator.tools import ToolRegistry, build_default_registry
 
-# Re-export for backward compatibility with existing imports
-__all__ = ["INVESTIGATION_SYSTEM_PROMPT", "AgentOrchestrator", "InvalidInvestigationResponseError",
-           "BudgetState", "TurnCheckpoint", "DEFAULT_MAX_DIFF_CHARS"]
+INVESTIGATION_SYSTEM_PROMPT = HYPOTHESIS_SYSTEM_PROMPT
+
+__all__ = [
+    "INVESTIGATION_SYSTEM_PROMPT",
+    "AgentOrchestrator",
+    "InvalidInvestigationResponseError",
+    "BudgetState",
+    "TurnCheckpoint",
+    "DEFAULT_MAX_DIFF_CHARS",
+]
+
+DEFAULT_MAX_DIFF_CHARS = 16_000
 
 
 class InvalidInvestigationResponseError(ValueError):
     """Raised when LLM output is empty, unparseable, or missing required fields."""
-
-
-DEFAULT_MAX_DIFF_CHARS = 16_000
 
 
 @dataclass
@@ -82,8 +88,8 @@ class TurnCheckpoint:
 class AgentOrchestrator:
     """Bounded multi-turn investigative agent.
 
-    Orchestrates: context assembly → LLM reasoning → tool dispatch → report.
-    Hard cap on turns prevents unbounded loops.
+    LLM generates HypothesisResponse; Script layers score risk, tag evidence,
+    and decide on follow-up gates. Report assembly is deterministic.
     """
 
     def __init__(
@@ -110,10 +116,7 @@ class AgentOrchestrator:
         git_provider: GitContextProvider | None = None,
         context: InvestigationContext | None = None,
     ) -> CommitInvestigationReport:
-        """Run a bounded multi-turn investigation on a commit.
-
-        Returns a schema-validated CommitInvestigationReport.
-        """
+        """Run a bounded multi-turn investigation on a commit."""
         self._budget = BudgetState(max_tokens=self._budget.max_tokens, max_cost=self._budget.max_cost)
         self._checkpoints = []
 
@@ -124,354 +127,116 @@ class AgentOrchestrator:
             builder = CommitContextBuilder(git_provider)  # type: ignore[arg-type]
             context = builder.build(commit_id, project, csv_row)
 
-        tools = self._build_tools(git_provider, context)
-        messages = self._build_initial_messages(context)
+        tools = _build_tools(git_provider, context)
+        messages = build_investigation_messages(context)
         tools_used: list[str] = []
         all_tool_calls: list[str] = []
+        hyp_response: HypothesisResponse | None = None
+        last_response: LLMResponse | None = None
 
         for turn in range(1, self._max_turns + 1):
             if self._budget.budget_exceeded:
                 break
 
             turn_start = time.time()
-            response = self._llm.complete(
-                messages=messages,
-                tools=tools.to_openai_tools() if tools else None,
-                temperature=0.0,
+            hyp_response, last_response = complete_with_parse_retry(
+                self._llm, messages,
+                tools.to_openai_tools() if tools else None,
+                self._parse_response, self._budget.record,
+                InvalidInvestigationResponseError,
             )
             turn_latency_ms = (time.time() - turn_start) * 1000
-            self._budget.record(response)
 
-            if response.tool_calls:
-                for tc in response.tool_calls:
-                    tool_name = tc["name"]
-                    tool_args = tc.get("arguments", {})
-                    result = tools.execute(tool_name, **tool_args)
-                    all_tool_calls.append(tool_name)
+            if last_response.tool_calls:
+                for tc in last_response.tool_calls:
+                    result = tools.execute(tc["name"], **tc.get("arguments", {}))
+                    all_tool_calls.append(tc["name"])
+                    messages.append(LLMMessage(role="assistant", content=f"[Tool call: {tc['name']}]"))
+                    messages.append(LLMMessage(role="tool", content=result, name=tc["name"]))
+                tools_used.extend(tc["name"] for tc in last_response.tool_calls)
+                continue
 
-                    messages.append(LLMMessage(role="assistant", content=f"[Tool call: {tool_name}]"))
-                    messages.append(LLMMessage(role="tool", content=result, name=tool_name))
-
-                tools_used.extend(tc["name"] for tc in response.tool_calls)
-
-            follow_up_needed = self._should_follow_up(response, context, turn)
-
+            follow_up_needed = self._should_follow_up(hyp_response, context, turn)
             self._save_checkpoint(TurnCheckpoint(
-                turn=turn,
-                timestamp=time.time(),
-                messages_sent=len(messages),
-                tool_calls_made=all_tool_calls.copy(),
-                tokens_used=self._budget.total_tokens,
-                cost=self._budget.total_cost,
-                follow_up_needed=follow_up_needed,
+                turn=turn, timestamp=time.time(), messages_sent=len(messages),
+                tool_calls_made=all_tool_calls.copy(), tokens_used=self._budget.total_tokens,
+                cost=self._budget.total_cost, follow_up_needed=follow_up_needed,
                 latency_ms=turn_latency_ms,
             ))
-
             if not follow_up_needed:
                 break
-
             messages.append(LLMMessage(
                 role="user",
                 content="Continue the investigation. Focus on areas of uncertainty.",
             ))
 
-        return self._assemble_report(
+        if hyp_response is None or last_response is None:
+            raise InvalidInvestigationResponseError("No LLM response received")
+        tagged = tag_hypotheses(hyp_response.hypotheses, context.diff, context.truncation_metadata)
+        verdict = evaluate_risk_from_hypotheses(tagged, context)
+        return build_report(
+            hyp_response=hyp_response,
+            tagged=tagged,
+            verdict=verdict,
             context=context,
-            last_response=response,
+            last_response=last_response,
+            checkpoints=self._checkpoints,
+            budget=self._budget,
             tools_used=list(set(tools_used + all_tool_calls)),
             turns=self._budget.turns_used,
         )
 
-    def _build_tools(
-        self,
-        git_provider: GitContextProvider | None,
-        context: InvestigationContext,
-    ) -> ToolRegistry:
-        """Build tool registry if git provider is available."""
-        if git_provider is None:
-            return ToolRegistry()
-        return build_default_registry(git_provider, context)
+    def _parse_response(self, response: LLMResponse) -> HypothesisResponse:
+        content = (response.content or "").strip()
+        if not content:
+            raise InvalidInvestigationResponseError("Empty LLM response; cannot assemble report")
+        try:
+            return parse_hypothesis_response(content)
+        except (ValueError, KeyError) as exc:
+            raise InvalidInvestigationResponseError(
+                f"Invalid LLM JSON (missing summary/hypotheses): {content[:300]!r}"
+            ) from exc
 
-    def _build_initial_messages(self, context: InvestigationContext) -> list[LLMMessage]:
-        """Construct the initial prompt with investigation context."""
-        context_parts = [f"## Commit: {context.commit_id}\n## Project: {context.project}\n"]
-        missing_reasons = list(context.missing_reasons)
-
-        if context.message:
-            context_parts.append(f"## Commit Message\n{context.message.strip()}\n")
-
-        if context.diff:
-            diff_text = context.diff
-            tm = context.truncation_metadata
-            if tm and tm.truncated_files:
-                diff_text += f"\n... (smart-truncated: {len(tm.truncated_files)} file(s) omitted: {', '.join(tm.truncated_files)})"
-            context_parts.append(f"## Diff\n```\n{diff_text}\n```\n")
-
-        if context.touched_files:
-            context_parts.append("## Touched Files\n" + "\n".join(f"- {f}" for f in context.touched_files))
-
-        # Inject file_histories when available; flag absence in missing_reasons
-        file_history_lines = self._format_file_histories(context)
-        if file_history_lines:
-            context_parts.append("## File History\n" + "\n".join(file_history_lines))
-        else:
-            missing_reasons.append("File history unavailable — no prior commit data for changed files")
-
-        # Inject author_stats when available; flag absence in missing_reasons
-        author_stats_text = self._format_author_stats(context)
-        if author_stats_text:
-            context_parts.append("## Author Stats\n" + author_stats_text)
-        else:
-            missing_reasons.append("Author statistics unavailable — author not in training data")
-
-        if context.csv_features:
-            feat_str = ", ".join(f"{k}={v}" for k, v in sorted(context.csv_features.items()))
-            context_parts.append(f"\n## Numeric Features\n{feat_str}")
-
-        if context.router_probability is not None:
-            route = context.router_route or "UNKNOWN"
-            context_parts.append(
-                f"\n## ML Risk Prior\n"
-                f"router_probability={context.router_probability:.3f} (route={route})\n"
-                "Note: This is an ML model score from change metrics. It is a prior, not a "
-                "defect label. Use it as one input to the rubric, especially criterion (c)."
-            )
-
-        if missing_reasons:
-            context_parts.append("\n## Missing Context\n" + "\n".join(f"- {r}" for r in missing_reasons))
-
-        user_content = "\n".join(context_parts)
-
-        return [
-            LLMMessage(role="system", content=INVESTIGATION_SYSTEM_PROMPT),
-            LLMMessage(role="user", content=user_content),
-        ]
-
-    @staticmethod
-    def _format_file_histories(context: InvestigationContext) -> list[str]:
-        """Format file_histories for LLM context. Returns empty list if unavailable."""
-        histories = context.file_histories
-        if not histories:
-            return []
-
-        lines: list[str] = []
-        for fpath, entries in histories.items():
-            if not entries:
-                continue
-            lines.append(f"**{fpath}** — last {len(entries)} commit(s):")
-            for entry in entries[:5]:  # cap at 5 per file
-                msg_preview = (entry.message or "").split("\n")[0][:80]
-                lines.append(f"  - {entry.commit_id[:8]} {entry.author}: {msg_preview}")
-        return lines
-
-    @staticmethod
-    def _format_author_stats(context: InvestigationContext) -> str:
-        """Format author_stats for LLM context. Returns empty string if unavailable."""
-        stats = context.author_stats
-        if stats is None:
-            return ""
-        return (
-            f"author={stats.author}, "
-            f"total_commits={stats.total_commits}, "
-            f"buggy_rate={stats.buggy_rate:.2%}, "
-            f"avg_files_changed={stats.avg_files_changed:.1f}"
-        )
-
-    def _build_hypothesis_artifact(
-        self,
-        parsed: dict[str, Any],
-        context: InvestigationContext,
-        verdict: Any,
-        localization: list[LocalizationClaim],
-        findings: list[str],
-        validation_error: str | None = None,
-    ) -> HypothesisArtifact:
-        """Build HypothesisArtifact from parsed LLM output and context signals."""
+    def _should_follow_up(self, hyp_response: HypothesisResponse, context: InvestigationContext, turn: int) -> bool:
+        if turn >= self._max_turns:
+            return False
+        tagged = tag_hypotheses(hyp_response.hypotheses, context.diff, context.truncation_metadata)
+        supported_count = sum(1 for t in tagged if t.tier == "SUPPORTED")
         tm = context.truncation_metadata
         diff_truncated = bool(tm and tm.truncated_files) or len(context.diff or "") >= self._max_diff_chars
-        return HypothesisArtifact(
-            supported_count=verdict.supported_count,
+        localization = [
+            LocalizationClaim(file=h.file, lines=None, rationale=h.mechanism)
+            for h in hyp_response.hypotheses if h.file
+        ]
+        findings = [h.mechanism for h, t in zip(hyp_response.hypotheses, tagged) if t.tier == "SUPPORTED"]
+        artifact = HypothesisArtifact(
+            supported_count=supported_count,
             production_defect_signals=has_production_defect_signals(context),
             localization=localization,
             diff_truncated=diff_truncated,
             archetype_is_ambiguous=not detect_archetype(context),
             findings=findings,
-            validation_error=validation_error,
-        )
-
-    def _should_follow_up(
-        self,
-        response: LLMResponse,
-        context: InvestigationContext,
-        turn: int,
-    ) -> bool:
-        """Determine if another turn is needed using the deterministic Script gate.
-
-        The LLM's follow_up_needed field is DEPRECATED and NOT read here.
-        Gate decisions are driven entirely by HypothesisArtifact signals.
-        """
-        if turn >= self._max_turns:
-            return False
-        if self._budget.budget_exceeded:
-            return False
-
-        # Parse LLM output to get signals for the artifact (not follow_up_needed)
-        try:
-            parsed = json.loads(response.content)
-        except (json.JSONDecodeError, TypeError):
-            parsed = {}
-
-        reasoning = coerce_text_field(parsed.get("reasoning"), "Investigation completed.")
-        findings = normalize_findings(parsed.get("findings"))
-
-        localization = []
-        for loc in parsed.get("localization", []):
-            if isinstance(loc, dict) and "file" in loc:
-                localization.append(LocalizationClaim(
-                    file=loc["file"],
-                    lines=parse_lines(loc.get("lines")),
-                    rationale=loc.get("rationale", ""),
-                ))
-
-        risk_level_str = parsed.get("risk_level", "MEDIUM")
-        try:
-            risk_level = RiskLevel(risk_level_str)
-        except ValueError:
-            risk_level = RiskLevel.MEDIUM
-
-        verdict = evaluate_risk(risk_level, context, reasoning)
-        artifact = self._build_hypothesis_artifact(
-            parsed, context, verdict, localization, findings
+            validation_error=None,
         )
         return evaluate_gate(artifact).follow_up_needed
 
-    def _assemble_report(
-        self,
-        context: InvestigationContext,
-        last_response: LLMResponse,
-        tools_used: list[str],
-        turns: int,
-    ) -> CommitInvestigationReport:
-        """Parse LLM output into a validated CommitInvestigationReport."""
-        content = (last_response.content or "").strip()
-        if not content:
-            raise InvalidInvestigationResponseError("Empty LLM response; cannot assemble report")
-
-        parsed = extract_json(last_response.content)
-        if not parsed or "risk_level" not in parsed:
-            preview = content[:300].replace("\n", " ")
-            raise InvalidInvestigationResponseError(
-                f"Invalid LLM JSON (missing risk_level): {preview!r}"
-            )
-
-        risk_level_str = parsed["risk_level"]
-        try:
-            risk_level = RiskLevel(risk_level_str)
-        except ValueError as exc:
-            raise InvalidInvestigationResponseError(
-                f"Invalid risk_level {risk_level_str!r}"
-            ) from exc
-
-        reasoning = coerce_text_field(parsed.get("reasoning"), "Investigation completed.")
-        verdict = evaluate_risk(risk_level, context, reasoning)
-        risk_level = verdict.risk_level
-
-        confidence = parsed.get("confidence", 0.5)
-        confidence = max(0.0, min(1.0, float(confidence)))
-
-        evidence_items = [
-            EvidenceItem(
-                type=EvidenceType.DIFF_HUNK if context.diff else EvidenceType.NUMERIC_FEATURE,
-                source=context.commit_id,
-                content=(context.diff[:500] if context.diff else "Numeric features only"),
-                relevance="Primary investigation context",
-            )
-        ]
-
-        localization = []
-        for loc in parsed.get("localization", []):
-            if isinstance(loc, dict) and "file" in loc:
-                localization.append(LocalizationClaim(
-                    file=loc["file"],
-                    lines=parse_lines(loc.get("lines")),
-                    rationale=loc.get("rationale", "Identified during investigation"),
-                ))
-
-        recommendations = []
-        for rec in parsed.get("recommendations", []):
-            if isinstance(rec, dict) and "action" in rec:
-                try:
-                    priority = RecommendationPriority(rec.get("priority", "MEDIUM"))
-                except ValueError:
-                    priority = RecommendationPriority.MEDIUM
-                recommendations.append(Recommendation(
-                    action=rec["action"],
-                    priority=priority,
-                    rationale=rec.get("rationale", ""),
-                ))
-
-        findings = normalize_findings(parsed.get("findings"))
-
-        per_stage = [
-            {
-                "stage": cp.turn,
-                "tier": "investigation",
-                "tokens_used": cp.tokens_used,
-                "cost_usd": round(cp.cost, 6),
-                "latency_ms": round(cp.latency_ms, 1),
-            }
-            for cp in self._checkpoints
-        ]
-
-        metadata: dict[str, Any] = {
-            "model": last_response.model,
-            "total_tokens": self._budget.total_tokens,
-            "total_cost": self._budget.total_cost,
-            "budget_exceeded": self._budget.budget_exceeded,
-            "missing_reasons": list(context.missing_reasons),
-            "per_stage": per_stage,
-        }
-        tm = context.truncation_metadata
-        if tm is not None:
-            metadata["truncation_metadata"] = {
-                "included_files": tm.included_files,
-                "truncated_files": tm.truncated_files,
-                "total_chars": tm.total_chars,
-            }
-        if verdict.cap_applied:
-            metadata["clean_commit_risk_cap_applied"] = True  # backward compat key
-            metadata["cap_applied"] = True
-            metadata["cap_reason"] = verdict.cap_reason
-            metadata["applied_rules"] = list(verdict.applied_rules)
-
-        return CommitInvestigationReport(
-            commit_id=context.commit_id,
-            project=context.project,
-            risk_assessment=RiskAssessment(level=risk_level, confidence=confidence),
-            evidence=evidence_items,
-            findings=findings,
-            localization=localization,
-            reasoning_summary=reasoning,
-            recommendations=recommendations,
-            tools_used=tools_used,
-            turn_count=turns,
-            metadata=metadata,
-        )
-
     def _save_checkpoint(self, checkpoint: TurnCheckpoint) -> None:
-        """Persist turn checkpoint to disk if configured."""
         self._checkpoints.append(checkpoint)
         if self._checkpoint_dir:
             self._checkpoint_dir.mkdir(parents=True, exist_ok=True)
             path = self._checkpoint_dir / f"turn_{checkpoint.turn}.json"
             path.write_text(json.dumps({
-                "turn": checkpoint.turn,
-                "timestamp": checkpoint.timestamp,
-                "messages_sent": checkpoint.messages_sent,
-                "tool_calls_made": checkpoint.tool_calls_made,
-                "tokens_used": checkpoint.tokens_used,
-                "cost": checkpoint.cost,
+                "turn": checkpoint.turn, "timestamp": checkpoint.timestamp,
+                "messages_sent": checkpoint.messages_sent, "tool_calls_made": checkpoint.tool_calls_made,
+                "tokens_used": checkpoint.tokens_used, "cost": checkpoint.cost,
                 "follow_up_needed": checkpoint.follow_up_needed,
             }, indent=2))
 
 
+def _build_tools(
+    git_provider: GitContextProvider | None,
+    context: InvestigationContext,
+) -> ToolRegistry:
+    if git_provider is None:
+        return ToolRegistry()
+    return build_default_registry(git_provider, context)

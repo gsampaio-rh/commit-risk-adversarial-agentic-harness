@@ -59,14 +59,14 @@ def coerce_text_field(value: Any, default: str) -> str:
 
 
 def normalize_findings(raw: Any) -> list[str]:
-    """Ensure findings is a list of strings for schema validation."""
+    """Ensure findings is a list of non-empty strings. Returns [] when no findings."""
     if not raw:
-        return ["Investigation completed"]
+        return []
     if not isinstance(raw, list):
-        return [coerce_text_field(raw, "Investigation completed")]
+        text = coerce_text_field(raw, "")
+        return [text] if text.strip() else []
     findings = [coerce_text_field(item, "") for item in raw]
-    findings = [f for f in findings if f.strip()]
-    return findings or ["Investigation completed"]
+    return [f for f in findings if f.strip()]
 
 
 def parse_lines(raw: Any) -> tuple[int, int] | None:
