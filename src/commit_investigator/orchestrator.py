@@ -76,6 +76,7 @@ class TurnCheckpoint:
     tokens_used: int
     cost: float
     follow_up_needed: bool
+    latency_ms: float = 0.0
 
 
 class AgentOrchestrator:
@@ -132,11 +133,13 @@ class AgentOrchestrator:
             if self._budget.budget_exceeded:
                 break
 
+            turn_start = time.time()
             response = self._llm.complete(
                 messages=messages,
                 tools=tools.to_openai_tools() if tools else None,
                 temperature=0.0,
             )
+            turn_latency_ms = (time.time() - turn_start) * 1000
             self._budget.record(response)
 
             if response.tool_calls:
@@ -161,6 +164,7 @@ class AgentOrchestrator:
                 tokens_used=self._budget.total_tokens,
                 cost=self._budget.total_cost,
                 follow_up_needed=follow_up_needed,
+                latency_ms=turn_latency_ms,
             ))
 
             if not follow_up_needed:
@@ -191,6 +195,7 @@ class AgentOrchestrator:
     def _build_initial_messages(self, context: InvestigationContext) -> list[LLMMessage]:
         """Construct the initial prompt with investigation context."""
         context_parts = [f"## Commit: {context.commit_id}\n## Project: {context.project}\n"]
+        missing_reasons = list(context.missing_reasons)
 
         if context.message:
             context_parts.append(f"## Commit Message\n{context.message.strip()}\n")
@@ -205,6 +210,20 @@ class AgentOrchestrator:
         if context.touched_files:
             context_parts.append("## Touched Files\n" + "\n".join(f"- {f}" for f in context.touched_files))
 
+        # Inject file_histories when available; flag absence in missing_reasons
+        file_history_lines = self._format_file_histories(context)
+        if file_history_lines:
+            context_parts.append("## File History\n" + "\n".join(file_history_lines))
+        else:
+            missing_reasons.append("File history unavailable — no prior commit data for changed files")
+
+        # Inject author_stats when available; flag absence in missing_reasons
+        author_stats_text = self._format_author_stats(context)
+        if author_stats_text:
+            context_parts.append("## Author Stats\n" + author_stats_text)
+        else:
+            missing_reasons.append("Author statistics unavailable — author not in training data")
+
         if context.csv_features:
             feat_str = ", ".join(f"{k}={v}" for k, v in sorted(context.csv_features.items()))
             context_parts.append(f"\n## Numeric Features\n{feat_str}")
@@ -218,8 +237,8 @@ class AgentOrchestrator:
                 "defect label. Use it as one input to the rubric, especially criterion (c)."
             )
 
-        if context.missing_reasons:
-            context_parts.append("\n## Missing Context\n" + "\n".join(f"- {r}" for r in context.missing_reasons))
+        if missing_reasons:
+            context_parts.append("\n## Missing Context\n" + "\n".join(f"- {r}" for r in missing_reasons))
 
         user_content = "\n".join(context_parts)
 
@@ -227,6 +246,36 @@ class AgentOrchestrator:
             LLMMessage(role="system", content=INVESTIGATION_SYSTEM_PROMPT),
             LLMMessage(role="user", content=user_content),
         ]
+
+    @staticmethod
+    def _format_file_histories(context: InvestigationContext) -> list[str]:
+        """Format file_histories for LLM context. Returns empty list if unavailable."""
+        histories = context.file_histories
+        if not histories:
+            return []
+
+        lines: list[str] = []
+        for fpath, entries in histories.items():
+            if not entries:
+                continue
+            lines.append(f"**{fpath}** — last {len(entries)} commit(s):")
+            for entry in entries[:5]:  # cap at 5 per file
+                msg_preview = (entry.message or "").split("\n")[0][:80]
+                lines.append(f"  - {entry.commit_id[:8]} {entry.author}: {msg_preview}")
+        return lines
+
+    @staticmethod
+    def _format_author_stats(context: InvestigationContext) -> str:
+        """Format author_stats for LLM context. Returns empty string if unavailable."""
+        stats = context.author_stats
+        if stats is None:
+            return ""
+        return (
+            f"author={stats.author}, "
+            f"total_commits={stats.total_commits}, "
+            f"buggy_rate={stats.buggy_rate:.2%}, "
+            f"avg_files_changed={stats.avg_files_changed:.1f}"
+        )
 
     def _build_hypothesis_artifact(
         self,
@@ -362,12 +411,24 @@ class AgentOrchestrator:
 
         findings = normalize_findings(parsed.get("findings"))
 
+        per_stage = [
+            {
+                "stage": cp.turn,
+                "tier": "investigation",
+                "tokens_used": cp.tokens_used,
+                "cost_usd": round(cp.cost, 6),
+                "latency_ms": round(cp.latency_ms, 1),
+            }
+            for cp in self._checkpoints
+        ]
+
         metadata: dict[str, Any] = {
             "model": last_response.model,
             "total_tokens": self._budget.total_tokens,
             "total_cost": self._budget.total_cost,
             "budget_exceeded": self._budget.budget_exceeded,
             "missing_reasons": list(context.missing_reasons),
+            "per_stage": per_stage,
         }
         if verdict.cap_applied:
             metadata["clean_commit_risk_cap_applied"] = True  # backward compat key
