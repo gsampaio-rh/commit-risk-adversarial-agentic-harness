@@ -8,14 +8,17 @@ layer (risk_policy, archetype, evidence_tagger).
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from commit_investigator.context_builder import InvestigationContext
-from commit_investigator.llm import LLMMessage, LLMProvider, LLMResponse
+from commit_investigator.llm import CursorSDKProvider, LLMMessage, LLMProvider, LLMResponse
 from commit_investigator.smart_diff import AssembledDiff
+
+logger = logging.getLogger(__name__)
 
 HYPOTHESIS_SYSTEM_PROMPT = """\
 You are a commit risk investigator. Your task: identify specific failure modes
@@ -252,7 +255,94 @@ def mechanism_evaluator_loop(
     record_fn: Callable[[LLMResponse], None],
     parse_error: type[Exception],
 ) -> tuple[HypothesisResponse, LLMResponse]:
-    """Generate hypotheses with deterministic changed-line grounding (T3, max 2 LLM rounds)."""
+    """T3 evaluator loop: grounded changed-line evidence, max 2 rounds.
+
+    Uses Agent.create()+agent.send() multi-turn when the provider supports it
+    (CursorSDKProvider), so the challenge lands as a real follow-up message
+    rather than being embedded as conversation text in a one-shot prompt.
+    Falls back to sequential complete() calls for other providers.
+    """
+    supports_multi_turn = isinstance(llm, CursorSDKProvider)
+
+    if supports_multi_turn:
+        return _mechanism_evaluator_loop_multi_turn(
+            llm, messages, parse_fn, record_fn, parse_error,
+        )
+    return _mechanism_evaluator_loop_single(
+        llm, messages, tools_openai, parse_fn, record_fn, parse_error,
+    )
+
+
+def _mechanism_evaluator_loop_multi_turn(
+    llm: CursorSDKProvider,
+    messages: list[LLMMessage],
+    parse_fn: Callable[[LLMResponse], HypothesisResponse],
+    record_fn: Callable[[LLMResponse], None],
+    parse_error: type[Exception],
+) -> tuple[HypothesisResponse, LLMResponse]:
+    """T3 via Agent.create()+agent.send() — challenge is a real follow-up turn."""
+    turns: list[list[LLMMessage]] = [messages]
+    responses = llm.complete_multi_turn(turns[:1])
+    llm_response = responses[0]
+    record_fn(llm_response)
+
+    try:
+        parsed = parse_fn(llm_response)
+    except parse_error as exc:
+        logger.warning("T3 round 1 parse failed: %s — retrying in same session", exc)
+        retry_msg = LLMMessage(
+            role="user",
+            content=(
+                f"Schema validation failed: {exc}. "
+                "Return valid JSON with 'summary' and 'hypotheses' fields only."
+            ),
+        )
+        retry_responses = llm.complete_multi_turn([[retry_msg]])
+        llm_response = retry_responses[0]
+        record_fn(llm_response)
+        parsed = parse_fn(llm_response)
+
+    ungrounded = _ungrounded_primary_hypotheses(parsed)
+    if not ungrounded:
+        logger.debug("T3 round 1: all primary hypotheses grounded — no challenge needed")
+        return parsed, llm_response
+
+    challenge_text = _build_mechanism_challenge(ungrounded)
+    logger.info(
+        "T3 round 1: %d ungrounded hypothesis(es) — sending challenge turn:\n%s",
+        len(ungrounded), challenge_text,
+    )
+
+    challenge_responses = llm.complete_multi_turn([[LLMMessage(role="user", content=challenge_text)]])
+    llm_response = challenge_responses[0]
+    record_fn(llm_response)
+
+    try:
+        parsed = parse_fn(llm_response)
+    except parse_error as exc:
+        logger.warning("T3 round 2 parse failed: %s — returning round 1 result", exc)
+
+    still_ungrounded = _ungrounded_primary_hypotheses(parsed)
+    if still_ungrounded:
+        logger.info(
+            "T3 round 2: %d hypothesis(es) still ungrounded after challenge — accepting best effort",
+            len(still_ungrounded),
+        )
+    else:
+        logger.info("T3 round 2: all primary hypotheses grounded after challenge")
+
+    return parsed, llm_response
+
+
+def _mechanism_evaluator_loop_single(
+    llm: LLMProvider,
+    messages: list[LLMMessage],
+    tools_openai: list[dict[str, Any]] | None,
+    parse_fn: Callable[[LLMResponse], HypothesisResponse],
+    record_fn: Callable[[LLMResponse], None],
+    parse_error: type[Exception],
+) -> tuple[HypothesisResponse, LLMResponse]:
+    """T3 fallback for non-multi-turn providers: appends challenge to message list."""
     parsed: HypothesisResponse | None = None
     llm_response: LLMResponse | None = None
 
@@ -260,14 +350,15 @@ def mechanism_evaluator_loop(
         parsed, llm_response = complete_with_parse_retry(
             llm, messages, tools_openai, parse_fn, record_fn, parse_error,
         )
-        if not _ungrounded_primary_hypotheses(parsed):
+        ungrounded = _ungrounded_primary_hypotheses(parsed)
+        if not ungrounded:
+            logger.debug("T3 round %d: all grounded", evaluator_round + 1)
             return parsed, llm_response
 
         if evaluator_round == 0:
-            messages.append(LLMMessage(
-                role="user",
-                content=_build_mechanism_challenge(_ungrounded_primary_hypotheses(parsed)),
-            ))
+            challenge = _build_mechanism_challenge(ungrounded)
+            logger.info("T3 round 1 (single): %d ungrounded — appending challenge", len(ungrounded))
+            messages.append(LLMMessage(role="user", content=challenge))
             continue
         break
 

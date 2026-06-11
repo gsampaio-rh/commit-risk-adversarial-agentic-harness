@@ -252,6 +252,17 @@ def main() -> None:
         metavar="COMMIT",
         help="Evaluate specific commit ID prefixes (overrides stratified selection)",
     )
+    parser.add_argument(
+        "--enable-mechanism-evaluator",
+        action="store_true",
+        help="Enable T3 mechanism evaluator loop (H1+H4+T3 experiment variant)",
+    )
+    parser.add_argument(
+        "--forensics-json",
+        default=None,
+        metavar="PATH",
+        help="Path to forensics JSON for baseline D3/H4 comparison in progress output",
+    )
     args = parser.parse_args()
 
     repos_dir = Path(args.repos_dir)
@@ -328,15 +339,38 @@ def main() -> None:
             sys.exit(1)
     _log(f"LLM provider: {llm.model_name} (eval_mode={eval_mode})")
 
+    mechanism_evaluator = getattr(args, "enable_mechanism_evaluator", False)
     _save_run_config(run_dir, args, {
         "eval_mode": eval_mode,
         "provider": llm.model_name,
         "router_auc": metrics.auc_roc,
         "v1_projects": sorted(V1_PROJECTS),
         "stratification": strat_stats,
+        "enable_mechanism_evaluator": mechanism_evaluator,
     })
 
-    orchestrator = AgentOrchestrator(llm_provider=llm, max_turns=1)
+    orchestrator = AgentOrchestrator(
+        llm_provider=llm,
+        max_turns=1,
+        enable_mechanism_evaluator=mechanism_evaluator,
+    )
+    if mechanism_evaluator:
+        _log("  [experiment] T3 mechanism evaluator loop ENABLED (H1+H4+T3 variant)")
+
+    # Load baseline D3/H4 scores from forensics JSON for progress comparison.
+    forensics_path = getattr(args, "forensics_json", None)
+    baseline_scores: dict[str, float] = {}
+    if forensics_path:
+        try:
+            forensics_data = json.loads(Path(forensics_path).read_text())
+            for c in forensics_data.get("commits", []):
+                prefix = c.get("commit_prefix", "")
+                d3 = c.get("scores", {}).get("D3")
+                if prefix and d3 is not None:
+                    baseline_scores[prefix] = float(d3)
+            _log(f"  Loaded {len(baseline_scores)} baseline D3 scores from {forensics_path}")
+        except Exception as exc:
+            _log(f"  WARNING: Could not load forensics baseline: {exc}")
 
     _log("Initializing JIRA client...")
     jira = JiraClient()
@@ -387,7 +421,11 @@ def main() -> None:
             "buggy": buggy_label,
         })
 
-        _print_progress(i, len(target_commits), decision, buggy_label, report, elapsed, cost)
+        _print_progress(
+            i, len(target_commits), decision, buggy_label, report, elapsed, cost,
+            baseline_scores=baseline_scores,
+            mechanism_evaluator=mechanism_evaluator,
+        )
 
     _log(f"\n  Investigated: {len(eval_tuples)}, Skipped: {skipped}")
     _log(f"  Total LLM cost: ${total_cost:.4f}")
@@ -548,6 +586,17 @@ def _init_git_providers(repos_dir: Path) -> dict[str, GitContextProvider]:
     return providers
 
 
+def _compute_h4_compliance(report: CommitInvestigationReport) -> float:
+    """Fraction of diff_hunk evidence items that cite at least one +/- changed diff line."""
+    from commit_investigator.hypothesis_engine import _has_changed_line_citation
+    from commit_investigator.report import EvidenceType
+    diff_evidence = [e for e in report.evidence if e.type == EvidenceType.DIFF_HUNK]
+    if not diff_evidence:
+        return 0.0
+    grounded = sum(1 for e in diff_evidence if _has_changed_line_citation(e.content))
+    return grounded / len(diff_evidence)
+
+
 def _print_progress(
     i: int,
     total: int,
@@ -556,18 +605,39 @@ def _print_progress(
     report: CommitInvestigationReport,
     elapsed: float,
     cost: float,
+    *,
+    baseline_scores: dict[str, float] | None = None,
+    mechanism_evaluator: bool = False,
 ) -> None:
-    """Print one-line progress for each investigated commit."""
+    """Print rich per-commit progress with mechanism snippets and H4 compliance."""
     risk = report.risk_assessment.level.value
     conf = report.risk_assessment.confidence
     label = "BUG" if buggy else "clean"
     cid = report.commit_id[:12]
-    print(
+
+    line = (
         f"  [{i:3d}/{total}] {cid} {report.project:8s} "
         f"risk={risk:8s} conf={conf:.2f} label={label:5s} "
-        f"t={elapsed:.1f}s cost=${cost:.4f}",
-        file=sys.stderr,
+        f"t={elapsed:.1f}s cost=${cost:.4f}"
     )
+
+    if mechanism_evaluator:
+        h4 = _compute_h4_compliance(report)
+        baseline = (baseline_scores or {}).get(cid, None)
+        delta_str = f" Δbaseline={h4 - baseline:+.2f}" if baseline is not None else ""
+        line += f" | H4={h4:.2f}{delta_str}"
+
+    print(line, file=sys.stderr)
+
+    # Per-evidence detail: source, relevance snippet, H4 grounding check on content.
+    for j, ev in enumerate(report.evidence[:3], 1):
+        from commit_investigator.hypothesis_engine import _has_changed_line_citation
+        grounded = "✓" if _has_changed_line_citation(ev.content) else "✗"
+        relevance_short = (ev.relevance[:100] + "…") if len(ev.relevance) > 100 else ev.relevance
+        print(
+            f"         E{j} [{ev.type.value:10s}] grounded={grounded}  {relevance_short}",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":

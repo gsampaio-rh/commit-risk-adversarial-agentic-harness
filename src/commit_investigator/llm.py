@@ -135,9 +135,10 @@ def _extract_touched_files(context: str) -> list[str]:
 class CursorSDKProvider(LLMProvider):
     """LLM provider using the Cursor SDK (cursor-sdk).
 
-    Runs one-shot Cursor agent prompts in read-only plan mode. Each complete()
-    call sends a formatted prompt via Agent.prompt() and parses the text result.
-    No tool-calling — all context is assembled in the prompt upfront.
+    complete()           — one-shot via Agent.prompt(). Use for single-turn calls.
+    complete_multi_turn() — multi-turn via Agent.create()+agent.send(). Use for
+                           T3 evaluator loops where the follow-up challenge must
+                           land as a real conversation message, not embedded text.
     """
 
     def __init__(
@@ -165,7 +166,7 @@ class CursorSDKProvider(LLMProvider):
         max_tokens: int = 4096,
     ) -> LLMResponse:
         """Send a one-shot prompt via Cursor SDK and return the result."""
-        from cursor_sdk import Agent, AgentOptions, LocalAgentOptions
+        from cursor_sdk import Agent, AgentOptions
         from cursor_sdk.errors import CursorAgentError
 
         prompt_text = self._format_messages(messages)
@@ -177,7 +178,6 @@ class CursorSDKProvider(LLMProvider):
                 AgentOptions(
                     api_key=self._api_key,
                     model=self._model,
-                    local=LocalAgentOptions(cwd=os.getcwd()),
                     mode="plan",
                 ),
             )
@@ -219,6 +219,68 @@ class CursorSDKProvider(LLMProvider):
             model=f"cursor-sdk/{actual_model}",
             finish_reason="stop" if result.status == "finished" else str(result.status),
         )
+
+    def complete_multi_turn(
+        self,
+        turns: list[list[LLMMessage]],
+    ) -> list[LLMResponse]:
+        """Execute a multi-turn conversation via Agent.create() + agent.send().
+
+        Each element in `turns` is a list of LLMMessages for that turn. The first
+        turn carries system+user context; subsequent turns carry only the follow-up
+        user challenge. Conversation context is preserved across turns by the SDK.
+
+        Returns one LLMResponse per turn (same ordering as `turns`).
+        """
+        from cursor_sdk import Agent, LocalAgentOptions
+        from cursor_sdk.errors import CursorAgentError
+
+        responses: list[LLMResponse] = []
+
+        try:
+            with Agent.create(
+                model=self._model,
+                api_key=self._api_key,
+                local=LocalAgentOptions(cwd=os.getcwd()),
+            ) as agent:
+                for turn_idx, messages in enumerate(turns):
+                    prompt_text = self._format_messages(messages)
+                    word_count = len(prompt_text.split())
+
+                    run = agent.send(prompt_text)
+                    result = run.wait()
+
+                    if result.status != "finished":
+                        logger.warning(
+                            "Cursor SDK multi-turn run %s status: %s (turn %d)",
+                            result.id, result.status, turn_idx,
+                        )
+
+                    response_text = result.result or ""
+                    token_estimate = word_count + len(response_text.split())
+                    responses.append(LLMResponse(
+                        content=response_text,
+                        tool_calls=[],
+                        tokens_used=token_estimate,
+                        estimated_cost=token_estimate * 0.000003,
+                        model=self.model_name,
+                        finish_reason="stop" if result.status == "finished" else str(result.status),
+                    ))
+
+        except CursorAgentError as exc:
+            logger.error(
+                "Cursor SDK multi-turn call failed at turn %d: %s (retryable=%s)",
+                len(responses), exc.message, exc.is_retryable,
+            )
+            empty = LLMResponse(
+                content="",
+                model=self.model_name,
+                finish_reason="error",
+            )
+            while len(responses) < len(turns):
+                responses.append(empty)
+
+        return responses
 
     @staticmethod
     def _format_messages(messages: list[LLMMessage]) -> str:
