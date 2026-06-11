@@ -1,0 +1,124 @@
+{
+  "task_id": "iter-3b-wire-gates",
+  "timestamp": "2026-06-11T03:00:00Z",
+  "eval_round": 1,
+  "overall": "PASS",
+  "computational_checks": {
+    "pytest_quality_gate": {
+      "command": ".venv/bin/pytest tests/test_quality_gate.py -v",
+      "passed": 18,
+      "failed": 0,
+      "status": "pass"
+    },
+    "pytest_evidence_tagger": {
+      "command": ".venv/bin/pytest tests/test_evidence_tagger.py -q",
+      "passed": 24,
+      "failed": 0,
+      "status": "pass"
+    },
+    "pytest_panel_script_gate": {
+      "command": ".venv/bin/pytest tests/test_panel_script_gate.py -v",
+      "passed": 5,
+      "failed": 0,
+      "status": "pass",
+      "metrics": {
+        "D1": 0.75,
+        "buggy_recall": 0.833,
+        "panel_size": 12
+      }
+    },
+    "grep_follow_up_needed": {
+      "command": "grep -n 'parsed.get.*follow_up_needed' src/commit_investigator/orchestrator.py",
+      "hits": 0,
+      "status": "pass"
+    },
+    "grep_apply_clean_commit_risk_cap": {
+      "command": "grep -n '_apply_clean_commit_risk_cap' src/commit_investigator/orchestrator.py",
+      "hits": 0,
+      "status": "pass"
+    },
+    "grep_cap_metadata": {
+      "command": "grep -n 'cap_applied\\|cap_reason\\|applied_rules' src/commit_investigator/orchestrator.py",
+      "hits": 3,
+      "lines": [374, 375, 376],
+      "status": "pass"
+    },
+    "evidence_tagger_exists": {
+      "command": "ls src/commit_investigator/evidence_tagger.py",
+      "status": "pass"
+    },
+    "pytest_full_suite": {
+      "command": ".venv/bin/pytest -q",
+      "passed": 226,
+      "failed": 0,
+      "threshold": 185,
+      "status": "pass"
+    },
+    "adversarial_t2_conjunct": {
+      "command": "python -c HypothesisArtifact(archetype_is_ambiguous=False) → T2 not in signals",
+      "result": true,
+      "status": "pass"
+    },
+    "adversarial_t4_empty": {
+      "command": "python -c HypothesisArtifact(findings=[]) → T4 not in signals",
+      "result": false,
+      "status": "pass"
+    }
+  },
+  "criteria": [
+    {
+      "id": "AC-1",
+      "status": "pass",
+      "evidence": "quality_gate.py defines T1–T4 constants and evaluate_gate() appends each signal when conjuncts match. 4 trigger fire tests pass (TestTriggerT1/T2/T3/T4::test_fires_*)."
+    },
+    {
+      "id": "AC-2",
+      "status": "pass",
+      "evidence": "grep parsed.get.*follow_up_needed → 0 hits. _should_follow_up() builds HypothesisArtifact and returns evaluate_gate(artifact).follow_up_needed; docstring explicitly deprecates LLM field."
+    },
+    {
+      "id": "AC-3",
+      "status": "pass",
+      "evidence": "orchestrator._assemble_report() lines 372–376: when verdict.cap_applied, metadata sets cap_applied=True, cap_reason=verdict.cap_reason, applied_rules=list(verdict.applied_rules)."
+    },
+    {
+      "id": "AC-4",
+      "status": "pass",
+      "evidence": "grep _apply_clean_commit_risk_cap in orchestrator.py → 0 hits."
+    },
+    {
+      "id": "AC-5",
+      "status": "pass",
+      "evidence": "evidence_tagger.py exports tag_hypothesis(), quote_in_diff(), count_supported_from_reasoning(). test_strict_agreement passes on 36-fixture corpus (≥80% threshold)."
+    },
+    {
+      "id": "AC-6",
+      "status": "pass",
+      "evidence": "test_panel_script_gate.py: D1=0.750 (≥0.65), buggy_recall=0.833 (≥0.80) on 12-commit panel via evaluate_risk() only; test_no_new_llm_calls passes."
+    },
+    {
+      "id": "AC-7",
+      "status": "pass",
+      "evidence": "test_quality_gate.py has 4 trigger fire tests (one per T1–T4) plus independent EC conjunct/superset tests; 18 total tests pass."
+    },
+    {
+      "id": "AC-8",
+      "status": "pass",
+      "evidence": "pytest -q: 226 passed (threshold ≥185, +41 vs iter-3a baseline of 185)."
+    }
+  ],
+  "edge_cases": [
+    {
+      "id": "EC-1",
+      "status": "pass",
+      "evidence": "TestTriggerT2 tests each conjunct independently (localization present, diff not truncated, archetype clean). Adversarial import: archetype_is_ambiguous=False with empty loc+truncated → T2 not in signals."
+    },
+    {
+      "id": "EC-2",
+      "status": "pass",
+      "evidence": "TestTriggerT4::test_no_fire_on_empty_list and test_no_fire_on_superset pass. Adversarial import: findings=[] → T4 not in signals."
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "All 8 AC and 2 EC pass on first eval round. Full suite 226 tests (+41 over 185 threshold). Panel metrics D1=0.750, buggy_recall=0.833. No regressions observed."
+}

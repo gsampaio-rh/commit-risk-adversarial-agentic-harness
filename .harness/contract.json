@@ -1,19 +1,23 @@
 {
-  "task_id": "iter-3a-spike",
-  "feature": "Feasibility spike: script-based evidence tier tagging",
-  "problem": "risk_policy.evaluate_risk() currently infers hypothesis tiers (SUPPORTED/SPECULATIVE) from unstructured LLM reasoning text. Before building evidence_tagger.py in iter-3b, we need to know if a script can match evidence quotes to diff hunks with ≥80% tier agreement vs LLM labels — or if a hybrid/blocked approach is required.",
-  "proposed_solution": "Build scripts/spike_evidence_tagger.py: parse STAGE 3 blocks from reasoning_summary, extract evidence_quote per hypothesis, test quote presence against truncated diff (matching the 16K cap the LLM saw), compare script tier to LLM tier. Curate ≥12 panel fixtures. Report decision: pure_script | hybrid | blocked.",
+  "task_id": "iter-3b-wire-gates",
+  "feature": "Wire deterministic gates + evidence_tagger + cap_reason schema",
+  "problem": "quality_gate.evaluate_gate() is a passthrough stub; risk_level source still partly LLM-controlled; evidence_tagger.py doesn't exist yet; metadata missing cap_reason/applied_rules; LLM follow_up_needed field still read by orchestrator",
+  "proposed_solution": "Port tag_hypothesis() into evidence_tagger.py (hybrid: quote-in-diff verification). Rewrite evaluate_gate() with 4 deterministic triggers based on HypothesisArtifact. Wire orchestrator to build artifact and call gate. Add cap_applied/cap_reason/applied_rules to metadata. Deprecate follow_up_needed field in LLM schema.",
   "acceptance_criteria": [
-    "AC-1: Fixture corpus at tests/fixtures/evidence_tagger_panel.json with ≥12 entries, each having {commit_id, hypothesis_id, evidence_quote, expected_tier, curation}",
-    "AC-2: prototype tag_hypothesis() achieves ≥80% strict 4-way tier agreement across the corpus",
-    "AC-3: Decision documented in spike report: pure_script | hybrid | blocked, with quantitative evidence (strict_agreement, binary_supported_agreement, supported_quote_extraction_rate)",
-    "AC-4: Spike report at .harness/evals/spike-evidence-tagger.json with schema {task_id, decision, metrics, failures, recommendation_for_iter_3b}"
+    "AC-1: quality_gate.evaluate_gate(artifact) fires on all 4 triggers: T1=supported_count==0 AND defect_signals, T2=localization==[] AND diff_truncated AND archetype_is_ambiguous, T3=validation_error not None, T4=findings==['Investigation completed']",
+    "AC-2: orchestrator._should_follow_up() does NOT read parsed.get('follow_up_needed') — gate is driven entirely by Script artifact",
+    "AC-3: CommitInvestigationReport.metadata has cap_applied, cap_reason, applied_rules when verdict.cap_applied is True",
+    "AC-4: grep -r '_apply_clean_commit_risk_cap' src/commit_investigator/orchestrator.py returns 0 hits (already removed in iter-3a)",
+    "AC-5: src/commit_investigator/evidence_tagger.py exists with tag_hypothesis(), quote_in_diff(), and count_supported_from_reasoning(); tests/test_evidence_tagger.py achieves >=80% strict agreement on 36-fixture corpus",
+    "AC-6: tests/test_panel_script_gate.py asserts D1>=0.65, buggy_recall>=0.80 on 12-commit panel using evaluate_risk() only (no LLM calls)",
+    "AC-7: tests/test_quality_gate.py has >=4 trigger tests, one per trigger (T1-T4)",
+    "AC-8: 185+ tests pass (no regression from iter-3a baseline)"
   ],
   "edge_cases": [
-    "EC-1: Truncated diff — fbf0ff H2 and 9530370 H3 are UNVERIFIABLE because diff is truncated; script must not tag these SUPPORTED when quote is beyond truncation marker",
-    "EC-2: 572f3cee has no defect hypotheses (STAGE 3: N/A); corpus must still include ≥1 row from this commit or document the gap"
+    "EC-1: T2 requires ALL THREE conjuncts — diff_truncated alone or archetype_is_ambiguous alone must NOT fire the gate",
+    "EC-2: T4 exact match ['Investigation completed'] — empty list [] or ['Investigation completed', 'extra'] must NOT fire T4"
   ],
-  "verification_method": "Run: .venv/bin/pytest tests/test_evidence_tagger_spike.py -q (AC-2 assertion strict_agreement>=0.80); python scripts/spike_evidence_tagger.py --evaluate (produces report); cat .harness/evals/spike-evidence-tagger.json | python3 -m json.tool (validates schema)",
+  "verification_method": "pytest tests/test_quality_gate.py -v (AC-7); pytest tests/test_evidence_tagger.py -q (AC-5); pytest tests/test_panel_script_gate.py -v (AC-6); grep -n 'parsed.get.*follow_up_needed' src/commit_investigator/orchestrator.py (expect 0 hits for AC-2); pytest -q (AC-8)",
   "rubrics": ["code-quality"],
   "rubric_mode": "warn",
   "negotiation_rounds": 0,

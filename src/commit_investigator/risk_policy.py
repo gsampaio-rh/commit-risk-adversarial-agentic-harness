@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from commit_investigator.archetype import detect_archetype, has_production_defect_signals
 from commit_investigator.context_builder import InvestigationContext
+from commit_investigator.evidence_tagger import count_supported_from_reasoning
 from commit_investigator.report import RiskLevel
 
 # ---------------------------------------------------------------------------
@@ -96,7 +97,13 @@ def evaluate_risk(
     - If reasoning contains only SPECULATIVE/UNVERIFIABLE hypotheses (no SUPPORTED),
       cap to MEDIUM globally — even on non-archetype diffs.
     """
-    supported_count = 1 if _reasoning_has_supported_hypothesis(reasoning) else 0
+    # Use evidence_tagger for accurate SUPPORTED count; fall back to regex when
+    # STAGE 3 is absent (tagger returns -1 sentinel).
+    tagger_count = count_supported_from_reasoning(reasoning, context.diff or "")
+    if tagger_count == -1:
+        supported_count = 1 if _reasoning_has_supported_hypothesis(reasoning) else 0
+    else:
+        supported_count = tagger_count
 
     if llm_risk_level not in (RiskLevel.HIGH, RiskLevel.CRITICAL):
         return PolicyVerdict(

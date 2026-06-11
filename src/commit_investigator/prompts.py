@@ -139,6 +139,6 @@ outside JSON). Required fields:
 - confidence: float 0.0 to 1.0
 - reasoning: string with all four stages
 - findings: list of strings (SUPPORTED hypotheses only)
-- follow_up_needed: boolean
+- follow_up_needed: boolean  # DEPRECATED — ignored by orchestrator; Script gate drives follow-up
 - localization: list of {file, lines, rationale} objects
 - recommendations: list of {action, priority, rationale} objects"""

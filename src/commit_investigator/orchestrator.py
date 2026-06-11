@@ -13,11 +13,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from commit_investigator.archetype import detect_archetype, has_production_defect_signals
 from commit_investigator.context_builder import CommitContextBuilder, InvestigationContext
 from commit_investigator.git_context import GitContextProvider
 from commit_investigator.llm import LLMMessage, LLMProvider, LLMResponse, get_provider
 from commit_investigator.prompts import INVESTIGATION_SYSTEM_PROMPT
-from commit_investigator.quality_gate import evaluate_gate
+from commit_investigator.quality_gate import HypothesisArtifact, evaluate_gate
 from commit_investigator.report import (
     CommitInvestigationReport,
     EvidenceItem,
@@ -150,7 +151,7 @@ class AgentOrchestrator:
 
                 tools_used.extend(tc["name"] for tc in response.tool_calls)
 
-            follow_up_needed = self._should_follow_up(response, turn)
+            follow_up_needed = self._should_follow_up(response, context, turn)
 
             self._save_checkpoint(TurnCheckpoint(
                 turn=turn,
@@ -227,20 +228,72 @@ class AgentOrchestrator:
             LLMMessage(role="user", content=user_content),
         ]
 
-    def _should_follow_up(self, response: LLMResponse, turn: int) -> bool:
-        """Determine if another turn is needed based on LLM response."""
+    def _build_hypothesis_artifact(
+        self,
+        parsed: dict[str, Any],
+        context: InvestigationContext,
+        verdict: Any,
+        localization: list[LocalizationClaim],
+        findings: list[str],
+        validation_error: str | None = None,
+    ) -> HypothesisArtifact:
+        """Build HypothesisArtifact from parsed LLM output and context signals."""
+        diff_truncated = len(context.diff or "") >= self._max_diff_chars
+        return HypothesisArtifact(
+            supported_count=verdict.supported_count,
+            production_defect_signals=has_production_defect_signals(context),
+            localization=localization,
+            diff_truncated=diff_truncated,
+            archetype_is_ambiguous=not detect_archetype(context),
+            findings=findings,
+            validation_error=validation_error,
+        )
+
+    def _should_follow_up(
+        self,
+        response: LLMResponse,
+        context: InvestigationContext,
+        turn: int,
+    ) -> bool:
+        """Determine if another turn is needed using the deterministic Script gate.
+
+        The LLM's follow_up_needed field is DEPRECATED and NOT read here.
+        Gate decisions are driven entirely by HypothesisArtifact signals.
+        """
         if turn >= self._max_turns:
             return False
         if self._budget.budget_exceeded:
             return False
 
+        # Parse LLM output to get signals for the artifact (not follow_up_needed)
         try:
             parsed = json.loads(response.content)
-            llm_follow_up = parsed.get("follow_up_needed", False)
         except (json.JSONDecodeError, TypeError):
-            llm_follow_up = False
+            parsed = {}
 
-        return evaluate_gate(follow_up_needed=llm_follow_up).follow_up_needed
+        reasoning = coerce_text_field(parsed.get("reasoning"), "Investigation completed.")
+        findings = normalize_findings(parsed.get("findings"))
+
+        localization = []
+        for loc in parsed.get("localization", []):
+            if isinstance(loc, dict) and "file" in loc:
+                localization.append(LocalizationClaim(
+                    file=loc["file"],
+                    lines=parse_lines(loc.get("lines")),
+                    rationale=loc.get("rationale", ""),
+                ))
+
+        risk_level_str = parsed.get("risk_level", "MEDIUM")
+        try:
+            risk_level = RiskLevel(risk_level_str)
+        except ValueError:
+            risk_level = RiskLevel.MEDIUM
+
+        verdict = evaluate_risk(risk_level, context, reasoning)
+        artifact = self._build_hypothesis_artifact(
+            parsed, context, verdict, localization, findings
+        )
+        return evaluate_gate(artifact).follow_up_needed
 
     def _assemble_report(
         self,
@@ -317,7 +370,10 @@ class AgentOrchestrator:
             "missing_reasons": list(context.missing_reasons),
         }
         if verdict.cap_applied:
-            metadata["clean_commit_risk_cap_applied"] = True
+            metadata["clean_commit_risk_cap_applied"] = True  # backward compat key
+            metadata["cap_applied"] = True
+            metadata["cap_reason"] = verdict.cap_reason
+            metadata["applied_rules"] = list(verdict.applied_rules)
 
         return CommitInvestigationReport(
             commit_id=context.commit_id,
