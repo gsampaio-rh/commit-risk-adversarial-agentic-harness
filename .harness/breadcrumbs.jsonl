@@ -200,3 +200,6 @@
 {"ts":"2026-06-10T23:50:00Z","role":"builder","type":"checkpoint","feat":"iter-3e-decompose-prompt","msg":"PASS 8/8 AC 3/3 EC. hypothesis_engine.py+report_builder.py+orchestrator 242L+29 new tests. 294 pass. Contract verified=true. Staged for commit.","result":"pass"}
 {"ts":"2026-06-11T01:01:11","role":"builder","type":"checkpoint","feat":"iter-3e-decompose-prompt","msg":"Commit:  (13 files)"}
 {"ts":"2026-06-10T12:00:00Z","role":"evaluator","type":"eval","feat":"FIX-JUDGE-INFRA","msg":"PASS 6/6 AC, 3/3 EC. 300 pytest pass; TestD3FixDiffFallback 6/6. D3 fix-diff fallback oracle verified. contract verified=true.","result":"pass"}
+{"ts":"2026-06-11T01:08:16","role":"builder","type":"checkpoint","feat":"FIX-JUDGE-INFRA","msg":"Commit:  (8 files)"}
+{"ts":"2026-06-11T01:15:30Z","role":"builder","type":"build","feat":"EXP-JUDGE-SWAP","msg":"Cross-model judge swap: claude-sonnet-4-6 vs claude-haiku-4-5. n=10 buggy. Δ=+0.075 (cross better). 1 gate flip. Decision: same-model-acceptable. All 6 ACs met.","result":"pass"}
+{"ts":"2026-06-11T01:16:51","role":"builder","type":"checkpoint","feat":"FIX-JUDGE-INFRA","msg":"Commit:  (2 files)"}

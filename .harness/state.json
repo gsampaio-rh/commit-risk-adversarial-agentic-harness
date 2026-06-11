@@ -117,6 +117,8 @@
     {"id": "iter-3b-wire-gates", "commit": "6387ea9", "summary": "evidence_tagger.py (hybrid), 4-trigger quality_gate (HypothesisArtifact), metadata cap_applied/cap_reason/applied_rules, follow_up_needed deprecated. D1=0.75, buggy_recall=0.833. 226 tests. Evaluator PASS 8/8 AC 2/2 EC.", "report": ".harness/evals/eval-iter-3b-wire-gates.json"},
     {"id": "iter-3c-bundle-inject", "commit": "0acfde4", "summary": "file_histories + author_stats injected into LLM context. per_stage metadata in report. D6=0.75 on 12-commit panel. 236 tests. Evaluator PASS 5/5 AC 2/2 EC.", "report": ".harness/evals/eval-iter-3c-bundle-inject.json"},
     {"id": "iter-3d-smart-diff", "commit": "b5efd3f", "summary": "smart_diff.py: per-file ranking (defect_signal>production>test>build/config) + hunk guarantees. truncation_metadata in InvestigationContext + report. 261 tests. Evaluator PASS 7/7 AC 3/3 EC.", "report": ".harness/evals/eval-iter-3d-smart-diff.json"},
+    {"id": "EXP-JUDGE-SWAP", "commit": "pending", "summary": "Cross-model judge validation (claude-sonnet-4-6 vs claude-haiku-4-5). n=10 buggy. mean_same=0.200, mean_cross=0.275, Δ=+0.075. 1 gate flip (fbf0ffad627b). Decision: same-model-acceptable.", "report": ".harness/evals/exp-judge-swap.json"},
+    {"id": "FIX-JUDGE-INFRA", "commit": "a97134c", "summary": "D3 fix-diff fallback oracle. eval_judge.py: D3_FIX_DIFF_FALLBACK_RUBRIC + score_d3_root_cause_fix_diff_fallback(). eval_harness: judge_oracle tag (jira|fix-diff-fallback|unavailable). 300 tests. Evaluator PASS 6/6 AC 3/3 EC.", "report": ".harness/evals/eval-FIX-JUDGE-INFRA.json"},
     {"id": "iter-3e-decompose-prompt", "commit": "5d39411", "summary": "hypothesis_engine.py (HypothesisSpec/HypothesisResponse + HYPOTHESIS_SYSTEM_PROMPT ≤60L + complete_with_parse_retry), report_builder.py (tag_hypotheses+build_report), orchestrator.py→242L. 294 tests. Evaluator PASS 8/8 AC 3/3 EC.", "report": ".harness/evals/eval-iter-3e-decompose-prompt.json"}
   ],
 
@@ -243,7 +245,7 @@
       "id": "FIX-JUDGE-INFRA",
       "name": "D3 judge fallback for empty JIRA descriptions",
       "type": "feature",
-      "status": "pending",
+      "status": "committed",
       "priority": 8,
       "depends_on": ["iter-3e-decompose-prompt"],
       "parallel_with": ["EXP-JUDGE-SWAP"],
@@ -262,7 +264,7 @@
       "id": "EXP-JUDGE-SWAP",
       "name": "Cross-model judge validation",
       "type": "experiment",
-      "status": "pending",
+      "status": "committed",
       "priority": 8,
       "cost": "~$0.02",
       "depends_on": ["iter-3e-decompose-prompt"],
