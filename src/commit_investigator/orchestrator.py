@@ -19,9 +19,11 @@ from commit_investigator.context_builder import CommitContextBuilder, Investigat
 from commit_investigator.git_context import GitContextProvider
 from commit_investigator.hypothesis_engine import (
     HYPOTHESIS_SYSTEM_PROMPT,
+    HYPOTHESIS_SYSTEM_PROMPT_H1H4T3,
     HypothesisResponse,
     build_investigation_messages,
     complete_with_parse_retry,
+    mechanism_evaluator_loop,
     parse_hypothesis_response,
 )
 from commit_investigator.llm import LLMMessage, LLMProvider, LLMResponse, get_provider
@@ -112,6 +114,7 @@ class AgentOrchestrator:
         checkpoint_dir: str | Path | None = None,
         max_diff_chars: int = DEFAULT_MAX_DIFF_CHARS,
         follow_up_mode: FollowUpMode = FollowUpMode.GATE,
+        enable_mechanism_evaluator: bool = False,
     ) -> None:
         self._llm = llm_provider or get_provider()
         self._max_turns = max_turns
@@ -120,6 +123,7 @@ class AgentOrchestrator:
         self._checkpoints: list[TurnCheckpoint] = []
         self._max_diff_chars = max_diff_chars
         self._follow_up_mode = follow_up_mode
+        self._enable_mechanism_evaluator = enable_mechanism_evaluator
         self._last_turn2_bundle: Turn2ContextBundle | None = None
 
     def investigate(
@@ -143,18 +147,26 @@ class AgentOrchestrator:
             context = builder.build(commit_id, project, csv_row)
 
         tools = _build_tools(git_provider, context)
-        messages = build_investigation_messages(context)
+        system_prompt = (
+            HYPOTHESIS_SYSTEM_PROMPT_H1H4T3
+            if self._enable_mechanism_evaluator
+            else HYPOTHESIS_SYSTEM_PROMPT
+        )
+        messages = build_investigation_messages(context, system_prompt=system_prompt)
         tools_used: list[str] = []
         all_tool_calls: list[str] = []
         hyp_response: HypothesisResponse | None = None
         last_response: LLMResponse | None = None
+        hypothesis_fn = (
+            mechanism_evaluator_loop if self._enable_mechanism_evaluator else complete_with_parse_retry
+        )
 
         for turn in range(1, self._max_turns + 1):
             if self._budget.budget_exceeded:
                 break
 
             turn_start = time.time()
-            hyp_response, last_response = complete_with_parse_retry(
+            hyp_response, last_response = hypothesis_fn(
                 self._llm, messages,
                 tools.to_openai_tools() if tools else None,
                 self._parse_response, self._budget.record,

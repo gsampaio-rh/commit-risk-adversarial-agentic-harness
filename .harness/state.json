@@ -2,7 +2,7 @@
   "project": "exp19b-commit-risk-adversarial-agentic-harness",
   "phase": "v2-d3-experiment",
   "created": "2026-06-10T14:00:00Z",
-  "updated": "2026-06-11T12:29:20.696928+00:00",
+  "updated": "2026-06-11T12:42:36.965147+00:00",
   "schema_version": 4,
   "_archive": "see .harness/state-archive.json for completed tasks + iter-3 history",
   "vision": "Close the gap between V1 delivery gates (all 6 pass at n=50) and V2 quality targets — especially D3 root-cause identification (0.23→≥0.35) and D1 calibration (0.70→≥0.80, FP≤25%). Preserve iter-3's Script-first architecture: deterministic risk, evidence tagging, and quality gates remain frozen; V2 improves hypothesis quality, context assembly, localization precision, and selectively re-evaluates multi-turn only where forensics justify it.",
@@ -246,7 +246,7 @@
       "id": "v2-d3-h1h4-t3",
       "name": "D3 Layer 1 — Symptom-first + line-level forcing + evaluator loop",
       "type": "experiment",
-      "status": "building",
+      "status": "verified",
       "priority": 4,
       "depends_on": [
         "v2-fp-risk-tightening",
@@ -259,7 +259,8 @@
         "H4 as T3 criterion"
       ],
       "success_threshold": "D3 ≥ 0.35 on hard panel (n=18), or ≥2 tier-1 commits flip from D3=0 to D3>0",
-      "fallback": "v2-d3-h8a if threshold not met"
+      "fallback": "v2-d3-h8a if threshold not met",
+      "verified_at": "2026-06-11T12:42:36.964985+00:00"
     },
     {
       "id": "v2-d3-h8a",
