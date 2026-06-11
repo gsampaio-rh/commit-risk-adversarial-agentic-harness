@@ -2,7 +2,7 @@
   "project": "exp19b-commit-risk-adversarial-agentic-harness",
   "phase": "investigation-quality",
   "created": "2026-06-10T14:00:00Z",
-  "updated": "2026-06-11T08:10:00Z",
+  "updated": "2026-06-11T09:00:00Z",
   "schema_version": 3,
 
   "vision": "Deliver a verifiable commit investigation system where every quality claim is backed by deterministic infrastructure — not LLM policy. The iter-2 win (D1=0.75, D3=0.292 on n=12 panel) confirms the method works; the iter-3 redesign makes it trustworthy at scale. Script controls risk policy and quality gates; LLM generates hypotheses; Pydantic enforces schema; adversarial eval with a separate judge measures output honesty.",
@@ -421,11 +421,18 @@
       "id": "iter-n50-delivery",
       "name": "n=50 delivery-confidence gate",
       "type": "validation",
-      "status": "pending",
+      "status": "verified",
       "priority": 15,
       "cost": "~$0.35",
+      "cost_actual": "$0.2933",
       "depends_on": ["iter-3-n20", "EXP-JUDGE-SWAP"],
       "trigger": "iter-3-n20 all 6 gates pass",
+      "run": "output/runs/2026-06-11_06-13-50_real_n50",
+      "results": {"D1": 0.700, "D2": 0.190, "D3": 0.230, "D4": 0.894, "D5": 0.413, "D6": 0.770},
+      "pass_fail": {"D1": "PASS", "D2": "PASS", "D3": "PASS", "D4": "PASS", "D5": "PASS", "D6": "PASS"},
+      "clean_fp_rate": 0.32,
+      "buggy_recall": 0.72,
+      "note": "ALL 6 GATES PASS at n=50. Clean FP rate=32% (≤35%) ✓. Buggy recall=72% (≥70%) ✓. Cost=$0.2933. vs iter-1: D1+0.10 D2+0.04 D3+0.03. vs iter-3-n20: natural variance — harder commits at scale. DELIVERY GATE PASSED.",
       "acceptance_criteria": [
         "AC-1: n=50 stratified eval completes",
         "AC-2: All 6 gate thresholds pass at n=50",
@@ -433,7 +440,8 @@
         "AC-4: Clean FP rate ≤ 35%",
         "AC-5: Buggy recall ≥ 0.70",
         "AC-6: Report archived with comparison vs iter-1, iter-3 baselines (iter-2-n20 supplementary if available)"
-      ]
+      ],
+      "report": ".harness/evals/eval-iter-n50-delivery.json"
     },
 
     {
@@ -475,10 +483,18 @@
   ],
 
   "session_handoff": {
-    "next": "iter-n50-delivery (priority 15). Trigger: ALL 6 iter-3-n20 gates PASS ✓. Run n=50 stratified eval. ACs: D1-D6 all gates pass, clean FP rate ≤35%, buggy recall ≥0.70, report archived.",
-    "reference_run": "output/runs/2026-06-11_05-43-56_real_n20",
-    "scores_at_handoff": {"D1": 0.900, "D2": 0.209, "D3": 0.325, "D4": 0.901, "D5": 0.600, "D6": 0.762},
+    "status": "DELIVERY GATE PASSED — V1 feature-complete",
+    "next": "Optional: iter-2-n20 supplementary baseline for analytical comparison. Or start V2 planning session with /planner.",
+    "delivered": {
+      "n50_run": "output/runs/2026-06-11_06-13-50_real_n50",
+      "scores": {"D1": 0.700, "D2": 0.190, "D3": 0.230, "D4": 0.894, "D5": 0.413, "D6": 0.770},
+      "all_gates": true,
+      "clean_fp_rate": 0.32,
+      "buggy_recall": 0.72,
+      "cost": "$0.2933 for n=50"
+    },
+    "vs_iter1_n20": {"D1": "+0.10", "D2": "+0.04", "D3": "+0.03", "D4": "+0.00", "D5": "+0.04", "D6": "-0.08"},
     "uncommitted": [],
-    "preserved": ["All V1 code (ed5bfe6)", "data/apachejit/ + data/repos/", "output/runs/ (35 runs)", ".harness/evals/", ".harness/archive/"]
+    "preserved": ["All V1 code", "data/apachejit/ + data/repos/", "output/runs/ (36 runs)", ".harness/evals/", ".harness/archive/"]
   }
 }

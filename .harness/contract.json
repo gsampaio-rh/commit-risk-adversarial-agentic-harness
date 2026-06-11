@@ -1,22 +1,26 @@
 {
-  "task_id": "iter-3-n20-d2-filter",
-  "feature": "D2 metric refinement: filter non-source files (test classes, docs) from fix ground truth in Jaccard localization scoring",
+  "task_id": "iter-n50-delivery",
+  "feature": "n=50 stratified delivery-confidence gate: verify all 6 quality dimensions hold at scale",
   "phase": "evaluating",
   "negotiation_rounds": 0,
   "verified": true,
   "acceptance_criteria": [
-    "AC-1: _score_d2_localization filters fix_basenames to exclude test files (*Test.java, *Tests.java, *IT.java, *Spec.java) and documentation files (*.adoc, *.md, *.rst, *.txt). Agent localization (agent_files) is NOT filtered — agent should already emit source files only.",
-    "AC-2: A _is_test_or_doc helper or equivalent pattern is added to eval_harness.py with unit tests confirming it filters Test.java, Tests.java, .adoc, .md correctly and preserves plain .java source files.",
-    "AC-3: D2_buggy_only >= 0.30 on the latest n=20 run (was 0.254 before iter-2d, before adoc/test noise).",
-    "AC-4: D2_overall >= 0.15 on n=20 (current blocker = 0.127).",
-    "AC-5: D1, D3, D4, D5, D6 scores remain within ±0.05 of the 2026-06-11_05-06-01_real_n20 baseline {D1:0.900, D3:0.350, D4:0.901, D5:0.600, D6:0.750}.",
-    "AC-6: All 6 gates pass simultaneously: D1>=0.70, D2>=0.15, D3>=0.20, D4>=0.60, D5>=0.25, D6>=0.60.",
-    "AC-7: pytest 320+ tests pass; ruff check clean."
+    "AC-1: n=50 stratified eval completes (25 buggy + 25 clean, same apachejit_test_small.csv dataset).",
+    "AC-2: D1 >= 0.70 at n=50.",
+    "AC-3: D2 >= 0.15 at n=50.",
+    "AC-4: D3 >= 0.20 at n=50.",
+    "AC-5: D4 >= 0.60 at n=50.",
+    "AC-6: D5 >= 0.25 at n=50.",
+    "AC-7: D6 >= 0.60 at n=50.",
+    "AC-8: All 6 gates pass simultaneously.",
+    "AC-9: Clean FP rate <= 35% (HIGH/CRITICAL on clean commits / total clean <= 0.35).",
+    "AC-10: Buggy recall >= 0.70 (HIGH/CRITICAL on buggy commits / total buggy >= 0.70).",
+    "AC-11: Report archived at .harness/evals/eval-iter-n50-delivery.json with D1-D6 and comparison vs iter-1 n=20 baseline {D1:0.60, D2:0.15, D3:0.20, D4:0.90, D5:0.37, D6:0.85} and iter-3 n=20 baseline {D1:0.900, D2:0.209, D3:0.325, D4:0.901, D5:0.600, D6:0.762}."
   ],
   "edge_cases": [
-    "EC-1: If fix_basenames after filtering is empty (e.g., fix only touched test files), return score=0.5 with details noting all fix files were test/doc — same as the 'fix unavailable from git' fallback, to avoid penalizing correct localization when the fix was test-only.",
-    "EC-2: Filter is applied to fix_basenames only — D3 and D5 still receive the unfiltered fix_files set (they need the full context for diff oracle and recommendation scoring).",
-    "EC-3: Filtering XML test configs (test-*.xml, *Test*.xml) is NOT included to avoid over-filtering — XML extension alone is insufficient to classify as test."
+    "EC-1: If any gate fails at n=50 that passed at n=20, record the regression and trigger forensic analysis on failing commits before declaring the run a failure.",
+    "EC-2: If D3 < 0.20 at n=50 but was 0.325 at n=20, inspect D3=0 commits for wrong-mechanism vs judge-infra failure. Document whether the regression is within expected variance (CI at n=20 is wide).",
+    "EC-3: judge_model must be the same model (cursor-sdk) as iter-3 n=20 baseline for comparability."
   ],
-  "verification_method": "1. ruff check + pytest. 2. Unit test: _is_test_or_doc('FooTest.java')=True, _is_test_or_doc('Foo.java')=False, _is_test_or_doc('design.adoc')=True. 3. Re-run n=20 eval and confirm D2_overall >= 0.15, all 6 gates pass. 4. Confirm D3 score unchanged vs 2026-06-11_05-06-01_real_n20 baseline (0.350 ± 0.05)."
+  "verification_method": "1. Run: python -m commit_investigator.run_eval --train data/apachejit/apachejit_train.csv --test data/apachejit/apachejit_test_small.csv --zip data/apachejit/apachejit_dataset_replication.zip --max-evals 50. 2. Parse eval-report.md for D1-D6 dimension_averages. 3. Check all 6 gates pass. 4. Compute clean FP rate from stratum_averages.clean.D1 (inverted). 5. Compute buggy recall from stratum_averages.buggy.D1. 6. Archive eval-report.json to .harness/evals/eval-iter-n50-delivery.json."
 }
