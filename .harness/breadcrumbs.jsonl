@@ -234,3 +234,6 @@
 {"ts":"2026-06-11T07:04:28","role":"builder","type":"checkpoint","feat":"iter-n50-delivery","msg":"Commit:  (2 files)"}
 {"ts":"2026-06-11T14:45:00Z","role":"evaluator","type":"eval","feat":"iter-n50-delivery","msg":"RETEST: AC-11 PASS, EC-3 PASS. Overall PASS. Archive now has judge_model and baseline_comparison with verified deltas; D1=0.700 exact (18/25 buggy, 8/25 clean FP).","result":"pass"}
 {"ts":"2026-06-11T07:06:59","role":"builder","type":"checkpoint","feat":"iter-n50-delivery","msg":"Commit:  (1 files)"}
+{"ts":"2026-06-11T07:07:18","role":"builder","type":"checkpoint","feat":"iter-n50-delivery","msg":"Commit:  (1 files)"}
+{"ts":"2026-06-11T07:07:00Z","role":"builder","type":"checkpoint","feat":null,"msg":"SESSION HANDOFF. V1 DELIVERY COMPLETE. All tasks committed. iter-n50-delivery: PASS, adversarial eval PASS 11/11 AC 3/3 EC (commit ce394c4). Final n=50: D1=0.700 D2=0.190 D3=0.230 D4=0.894 D5=0.413 D6=0.770. Clean FP=32% Recall=72%. Next: iter-2-n20 supplementary baseline (optional, priority 16) OR /planner for V2. No uncommitted work.","result":"pass"}
+{"ts":"2026-06-11T07:08:03","role":"builder","type":"checkpoint","feat":"iter-n50-delivery","msg":"Commit:  (1 files)"}
