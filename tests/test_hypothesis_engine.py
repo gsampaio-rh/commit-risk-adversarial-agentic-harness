@@ -12,12 +12,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from commit_investigator.context_builder import InvestigationContext  # noqa: E402
 from commit_investigator.hypothesis_engine import (  # noqa: E402
+    COVERAGE_SECTION_HEADER,
     HYPOTHESIS_SYSTEM_PROMPT,
     HypothesisResponse,
     HypothesisSpec,
     _format_author_stats,
     _format_file_histories,
     build_investigation_messages,
+    extract_coverage_section,
+    is_production_source_file,
     parse_hypothesis_response,
 )
 
@@ -79,6 +82,77 @@ class TestPromptConstraints:
         assert "risk_level" in HYPOTHESIS_SYSTEM_PROMPT  # appears in the exclusion instruction
         assert "confidence" in HYPOTHESIS_SYSTEM_PROMPT  # appears in the exclusion instruction
         assert "follow_up_needed" in HYPOTHESIS_SYSTEM_PROMPT  # appears in the exclusion instruction
+
+
+# ---------------------------------------------------------------------------
+# iter-2d: COVERAGE REQUIREMENT (AC-1, EC-1, EC-2, EC-4)
+# ---------------------------------------------------------------------------
+
+
+class TestCoverageRequirement:
+    """Anti-anchoring per-production-file coverage in HYPOTHESIS_SYSTEM_PROMPT."""
+
+    def test_coverage_section_present(self):
+        assert COVERAGE_SECTION_HEADER in HYPOTHESIS_SYSTEM_PROMPT
+
+    def test_coverage_requires_hypothesis_or_skip_per_file(self):
+        section = extract_coverage_section()
+        assert "≥1 hypothesis" in section or ">=1 hypothesis" in section
+        assert "SKIP:" in section
+        assert "message-only" in section
+        assert "*.java" in section
+
+    def test_coverage_section_at_most_8_lines(self):
+        section_lines = extract_coverage_section().splitlines()
+        assert len(section_lines) <= 8, (
+            f"COVERAGE section is {len(section_lines)} lines — EC-4 limit is 8"
+        )
+
+    def test_coverage_no_injected_file_names_or_risk_labels(self):
+        """EC-1: no commit-specific paths, rubric tiers, or risk labels in system prompt."""
+        forbidden = (
+            "2213f71944ae",
+            "409664582f53",
+            "572f3cee35fe",
+            "XmppGroupChatProducer",
+            "DataFormatConfiguration",
+            "HIGH:",
+            "MEDIUM:",
+            "LOW:",
+            "CRITICAL:",
+        )
+        for token in forbidden:
+            assert token not in HYPOTHESIS_SYSTEM_PROMPT, f"Forbidden token {token!r} in prompt"
+
+    def test_coverage_uses_touched_files_from_context_not_prompt(self):
+        """EC-1: file list comes from user context, not hardcoded in system prompt."""
+        ctx = _make_context(
+            touched_files=["components/camel-quartz/src/main/java/TriggerBuilder.java"],
+        )
+        msgs = build_investigation_messages(ctx)
+        assert "TriggerBuilder.java" in msgs[1].content
+        assert "TriggerBuilder.java" not in msgs[0].content
+
+    def test_single_production_file_context_in_user_message(self):
+        """EC-2: single-file commit — production path available in context for coverage."""
+        prod_file = (
+            "components/camel-quartz/src/main/java/org/apache/camel/component/quartz/"
+            "QuartzTrigger.java"
+        )
+        ctx = _make_context(
+            commit_id="409664582f53",
+            touched_files=[prod_file],
+            diff=f"--- a/{prod_file}\n+++ b/{prod_file}\n+ reschedule fix",
+        )
+        msgs = build_investigation_messages(ctx)
+        assert prod_file in msgs[1].content
+        assert "`file` matching" in msgs[0].content or "`file`" in msgs[0].content
+
+    def test_is_production_source_file_filters_tests_and_docs(self):
+        assert is_production_source_file("src/main/Foo.java")
+        assert not is_production_source_file("src/test/FooTest.java")
+        assert not is_production_source_file("README.md")
+        assert not is_production_source_file("pom.xml")
 
 
 # ---------------------------------------------------------------------------

@@ -355,7 +355,7 @@
       "id": "iter-2d-wrong-mechanism",
       "name": "Hypothesis coverage: anti-anchoring",
       "type": "feature",
-      "status": "conditional",
+      "status": "building",
       "priority": 13,
       "depends_on": ["iter-3-n20", "iter-3e-decompose-prompt"],
       "trigger": "≥2 wrong-mechanism tags with D3≤0.25 in iter-3-n20 forensics",

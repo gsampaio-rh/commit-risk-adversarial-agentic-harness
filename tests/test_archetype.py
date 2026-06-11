@@ -1,6 +1,8 @@
 """Tests for the archetype module: detect_archetype() and has_production_defect_signals()."""
 
-from commit_investigator.archetype import detect_archetype, has_production_defect_signals
+import pytest
+
+from commit_investigator.archetype import detect_archetype, has_production_defect_signals, is_message_only_diff
 from commit_investigator.context_builder import InvestigationContext
 
 
@@ -168,3 +170,35 @@ class TestDetectArchetype:
         ctx = _version_bump_context()
         ctx.diff += "\n-        if (value != null) {\n-            return value;\n-        }\n"
         assert detect_archetype(ctx) is True
+
+
+class TestMessageOnlyDiff:
+    def test_e0bb867_exception_message_only(self):
+        from pathlib import Path
+        from commit_investigator.git_context import GitContextProvider
+
+        repo = Path("data/repos/hadoop")
+        if not repo.exists():
+            pytest.skip("hadoop repo not cloned")
+        diff = GitContextProvider(repo).get_diff("e0bb867c3fa638c9f689ee0b044b400481cf02b5") or ""
+        assert is_message_only_diff(diff) is True
+        ctx = InvestigationContext(
+            commit_id="e0bb867c3fa6",
+            project="hadoop",
+            message="Improve ApplicationNotFoundException message",
+            diff=diff,
+            touched_files=["ClientRMService.java"],
+            csv_features={},
+            file_histories={},
+            author_stats=None,
+        )
+        assert detect_archetype(ctx) is True
+
+    def test_scheduler_logic_not_message_only(self):
+        ctx = _generic_diff_context()
+        ctx.diff = (
+            "-        if (trigger.exists()) {\n"
+            "+        if (existingTrigger != null) {\n"
+            "+            scheduler.rescheduleJob(existingTrigger.getTriggerBuilder()...\n"
+        )
+        assert is_message_only_diff(ctx.diff) is False

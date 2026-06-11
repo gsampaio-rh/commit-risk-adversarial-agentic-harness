@@ -1,24 +1,22 @@
 {
-  "task_id": "iter-3f-multiturn-ab",
-  "feature": "Multi-turn hypothesis investigation with targeted turn-2 context injection on D3=0 hard commits",
+  "task_id": "iter-2d-wrong-mechanism",
+  "feature": "Anti-anchoring: per-production-file hypothesis coverage requirement in HypothesisEngine",
   "phase": "evaluating",
+  "negotiation_rounds": 1,
   "verified": true,
   "acceptance_criteria": [
-    "AC-1: Experiment runs on exactly the 3 D3=0 hard commits: 2213f71944ae, 409664582f53, 572f3cee35fe — no additional commits, no omissions",
-    "AC-2: Turn-2 user message injects structured context per EC-2: (a) full content of each truncated_files[] entry when non-empty, OR (b) git blame snippets for touched production lines when truncated_files[] is empty. Message MUST include section headers '## Truncated Files' and/or '## Git Blame'. MUST NOT contain generic follow-up strings 'Continue the investigation', 'think harder', 'Focus on areas of uncertainty', or equivalent",
-    "AC-3: ΔD3 = mean(D3_2turn) − mean(D3_1turn_control) ≥ 0.25 where D3_1turn_control is frozen from EC-4 (do NOT re-run single-turn). mean(D3_1turn_control)=0.0; therefore mean(D3_2turn) ≥ 0.25. Additionally ≥2/3 commits must have D3_2turn > D3_1turn_control (anti single-commit noise)",
-    "AC-4: Cost/commit documented in report. Per-commit cost = report.metadata.total_cost_usd. Baseline = iter-3-n20-v2 mean ($0.1043/20 = $0.00522/commit). Cap = 2× baseline = $0.01044/commit. Each 2-turn commit cost_usd ≤ $0.01044",
-    "AC-5: Decision recorded in .harness/evals/exp-multiturn-ab.json with fields: decision (multi-turn-activated | single-turn-maintained), delta_d3, per_commit[{commit_id, d3_1turn, d3_2turn, cost_usd}], run_dir, judge_model",
-    "AC-6: max_turns remains 1 in run_eval.py and investigate.py CLI default until decision=multi-turn-activated in AC-5 report. Experiment uses dedicated entry (script or --max-turns 2 flag) that does NOT change run_eval.py default",
-    "AC-7: Experiment report + 3 investigation JSONs archived under output/runs/<timestamp>_multiturn_ab/ with turn_count=2 and per_stage cost breakdown in each report metadata"
+    "AC-1: HYPOTHESIS_SYSTEM_PROMPT includes a coverage requirement: at least 1 hypothesis per production source file (*.java, *.py, *.scala, *.go, *.ts, *.js) OR explicit SKIP with justification. Doc/test/config-only commits exempt.",
+    "AC-2: Targeted rerun of 2213f71944ae, 409664582f53, dd6f9ba60fb4 via run_eval.py --commit-ids: ≥1/3 improves D3 by ≥0.25 vs frozen iter-3-n20-v2 baselines {2213f71944ae: 0.0, 409664582f53: 0.0, dd6f9ba60fb4: 0.0}. Judge config must match iter-3-n20-v2 (cursor-sdk/claude-sonnet-4-6, fix-diff fallback per FIX-JUDGE-INFRA).",
+    "AC-3: Re-run the 10 clean commits from iter-3-n20-v2 (output/runs/2026-06-11_02-04-45_real_n20/investigations/* where buggy_label=false) via run_eval.py --commit-ids; zero reclassifications to HIGH or CRITICAL (iter-3-n20-v2 baseline: all 10 were MEDIUM).",
+    "AC-4: Fresh 12-commit regression panel re-run (6 buggy + 6 clean per tests/test_panel_script_gate.py header); buggy_recall ≥ 0.80 (≥5/6 buggy → HIGH/CRITICAL after risk_policy). test_panel_script_gate.py must still pass (risk_policy unchanged).",
+    "AC-5: D6 ≥ 0.70 on frozen n=5 smoke via run_eval.py --commit-ids f897d46870ba 90846b586c51 2213f71944ae 409664582f53 dd6f9ba60fb4; mean D6 across 5 ≥ 0.70.",
+    "AC-6: Total HYPOTHESIS_SYSTEM_PROMPT length stays ≤ 60 lines (regression guard from iter-3e; enforced by test_hypothesis_engine.py::test_prompt_length_at_most_60_lines)."
   ],
   "edge_cases": [
-    "EC-1: Turn-2 context must not inject rubric, risk tier labels, discrimination signals, JIRA text, fix-commit diff, or apachejit bug labels — same hygiene as iter-3e prompt plus oracle isolation",
-    "EC-2: If truncation_metadata.truncated_files is non-empty → inject full file content for each truncated file (smart-diff path). If truncated_files is empty → inject git blame snippets for lines touched in the commit diff (blame-only path). Both paths may apply when truncation exists (files + blame for included hunks)",
-    "EC-3: D3 scoring for 2-turn path uses same judge (claude-sonnet-4-6) and same oracle path (jira | fix-diff-fallback per FIX-JUDGE-INFRA) as iter-3-n20-v2 run output/runs/2026-06-11_02-04-45_real_n20",
-    "EC-4: Frozen single-turn control scores (from eval-iter-3-n20-v2.json, do NOT re-run): 2213f71944ae D3=0.0, 409664582f53 D3=0.0, 572f3cee35fe D3=0.0",
-    "EC-5: Experiment uses max_turns=2 exactly (not 3). Turn 2 executes only after turn-1 HypothesisResponse is parsed; D3 is scored on the final turn-2 HypothesisResponse, not turn-1 alone",
-    "EC-6: Turn-2 injection content persisted in checkpoint JSON (checkpoint_dir) or report.metadata for evaluator audit — grep-able evidence that blame/truncated file content was actually sent"
+    "EC-1: The coverage requirement must NOT inject file names, risk labels, or rubric tiers into the prompt (consistent with iter-3e hygiene). Files list should come from context, not system prompt.",
+    "EC-2: For commits with only 1 production file (e.g. 409664582f53), the per-file requirement degenerates to ≥1 hypothesis with file field set to that production path; verified by unit test on single-file context fixture.",
+    "EC-3: If the targeted rerun shows ΔD3=0 for all 3 commits, record decision anti-anchoring-insufficient in .harness/evals/eval-iter-2d-wrong-mechanism.json and close task with negative result documented.",
+    "EC-4: The new COVERAGE REQUIREMENT section must be ≤ 8 lines to respect prompt brevity constraints."
   ],
-  "verification_method": "1) Run experiment on 3 commits via dedicated script/flag with max_turns=2. 2) Grep turn-2 message in checkpoints: assert '## Git Blame' or '## Truncated Files' present; assert forbidden generic strings absent. 3) Grep turn-2 for oracle leaks: no JIRA keys, 'bug introducing', fix-commit hashes. 4) Score D3_2turn via eval_judge.py (same model/oracle as iter-3-n20-v2). 5) Compute ΔD3 vs EC-4 frozen controls; check ≥2/3 per-commit improvement. 6) Verify each report metadata.total_cost_usd ≤ $0.01044. 7) Verify run_eval.py and investigate.py default max_turns=1 (grep). 8) Confirm .harness/evals/exp-multiturn-ab.json decision + output/runs/*_multiturn_ab/ artifacts exist."
+  "verification_method": "1. ruff check + pytest (300+ tests must pass). 2. AC-1/EC-1/EC-4: grep + test_hypothesis_engine coverage-section tests. 3. AC-2: run_eval.py --commit-ids 2213f71944ae 409664582f53 dd6f9ba60fb4; score D3 vs frozen baselines with same judge. 4. AC-3: run_eval.py --commit-ids on 10 clean prefixes from iter-3-n20-v2 run dir; assert risk_level ∉ {HIGH, CRITICAL}. 5. AC-4: run_eval.py --commit-ids on 12 panel prefixes; compute buggy_recall; pytest tests/test_panel_script_gate.py. 6. AC-5: run_eval.py --commit-ids on frozen n=5 set; mean D6 ≥ 0.70. 7. EC-3: document outcome in eval report regardless of PASS/FAIL on AC-2."
 }

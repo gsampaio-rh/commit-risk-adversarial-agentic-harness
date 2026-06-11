@@ -64,6 +64,22 @@ _CONCURRENCY_CHANGE_RE = re.compile(
     r"^[-+].*(?:synchronized|ReentrantLock|\bLock\.|volatile\s+\w+)",
     re.MULTILINE | re.IGNORECASE,
 )
+_THROW_OR_LOG_RE = re.compile(
+    r"(?:throw\s+new\s+\w*(?:Exception|Error)|\.(?:info|warn|error|debug|trace)\s*\()",
+    re.IGNORECASE,
+)
+_CONTROL_FLOW_CHANGE_RE = re.compile(
+    r"^[-+]\s*(?:"
+    r"(?:public|private|protected|static)\s+"
+    r"|(?:if|for|while|switch|synchronized)\s*\("
+    r"|(?:import|package|class|interface|enum)\b"
+    r")",
+    re.MULTILINE | re.IGNORECASE,
+)
+_STRING_FRAGMENT_LINE_RE = re.compile(
+    r"^[-+]\s*(?:.*[\"'].*|.*\+\s*[\"']|.*throw\s+new\s+\w*(?:Exception|Error).*)",
+    re.IGNORECASE,
+)
 
 
 def has_production_defect_signals(context: InvestigationContext) -> bool:
@@ -85,6 +101,43 @@ def has_production_defect_signals(context: InvestigationContext) -> bool:
         return True
 
     return _CONCURRENCY_CHANGE_RE.search(diff) is not None
+
+
+def is_message_only_diff(diff: str) -> bool:
+    """True when diff only changes exception/log message string literals.
+
+    Used to cap false HIGH on clean commits where coverage forces hypotheses
+    on cosmetic message edits (e.g. e0bb867c3fa6 ApplicationNotFoundException).
+    """
+    if not diff or not _THROW_OR_LOG_RE.search(diff):
+        return False
+
+    changed = [
+        ln for ln in diff.splitlines()
+        if (ln.startswith("+") or ln.startswith("-"))
+        and not ln.startswith("+++")
+        and not ln.startswith("---")
+    ]
+    if not changed:
+        return False
+
+    if (
+        _CONTROL_FLOW_CHANGE_RE.search(diff)
+        or _GUARD_REMOVAL_RE.search(diff)
+        or _CONCURRENCY_CHANGE_RE.search(diff)
+    ):
+        return False
+
+    if _LIFECYCLE_RE.search(diff) and re.search(r"^[-+]", diff, re.MULTILINE):
+        return False
+
+    for ln in changed:
+        if not ln[1:].strip():
+            continue
+        if not _STRING_FRAGMENT_LINE_RE.match(ln):
+            return False
+
+    return True
 
 
 def detect_archetype(context: InvestigationContext) -> bool:
@@ -135,5 +188,8 @@ def detect_archetype(context: InvestigationContext) -> bool:
         plus_itr_remove = len(re.findall(r"^\+.*itr(?:erator)?\.remove\(\)", diff, re.MULTILINE))
         if minus_direct_remove >= 1 and plus_itr_remove >= 1:
             return True
+
+    if is_message_only_diff(diff):
+        return True
 
     return False

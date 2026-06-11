@@ -1,0 +1,73 @@
+{
+  "task_id": "iter-2d-wrong-mechanism",
+  "timestamp": "2026-06-11T07:00:00Z",
+  "overall": "PASS",
+  "computational_checks": {
+    "lint": "BLOCKED — ruff not installed in eval environment",
+    "types": "NOT_RUN — no mypy configured",
+    "tests": "PASS — 320 passed (pytest -q); contract subset 19/19 passed",
+    "build": "PASS — PYTHONPATH=src import commit_investigator.hypothesis_engine OK"
+  },
+  "criteria": [
+    {
+      "criterion": "AC-1: HYPOTHESIS_SYSTEM_PROMPT includes coverage requirement per production file or SKIP",
+      "result": "PASS",
+      "evidence": "grep: ## COVERAGE REQUIREMENT at hypothesis_engine.py:41. Section requires ≥1 hypothesis with file match OR SKIP:<path> (test-only, doc-only, config-only, message-only). TestCoverageRequirement 7/7 pass."
+    },
+    {
+      "criterion": "AC-2: Targeted rerun ≥1/3 improves D3 by ≥0.25 vs iter-3-n20-v2 baselines",
+      "result": "PASS",
+      "evidence": "output/runs/2026-06-11_03-36-15_real_n3 eval-report.json: provider=cursor-sdk/claude-sonnet-4-6. 2213 D3=0.0 (Δ0), 409664 D3=0.25 (Δ+0.25), dd6f9ba D3=0.0 (Δ0). 1/3 improved ≥0.25."
+    },
+    {
+      "criterion": "AC-3: 10 clean n20-v2 commits — zero HIGH/CRITICAL reclassifications",
+      "result": "PASS",
+      "evidence": "output/runs/2026-06-11_03-24-33_real_n10: 10/10 evaluated, 0 HIGH/CRITICAL. Requested IDs verified exact subset of n20-v2 clean set (10/10 match, 0 missing, 0 extra). e0bb867 MEDIUM after message-only archetype cap."
+    },
+    {
+      "criterion": "AC-4: Fresh 12-commit panel buggy_recall ≥ 0.80; test_panel_script_gate passes",
+      "result": "PASS",
+      "evidence": "12/12 panel commits re-investigated (runs 2026-06-11_03-48-06_real_n12 + 2026-06-11_04-06-14_real_n5, same git_rev=75092f2). After evaluate_risk(): 5/6 buggy → HIGH/CRITICAL (572f3cee MEDIUM). buggy_recall=0.833. test_panel_script_gate 5/5 pass."
+    },
+    {
+      "criterion": "AC-5: Frozen n=5 smoke mean D6 ≥ 0.70",
+      "result": "PASS",
+      "evidence": "output/runs/2026-06-11_03-40-27_real_n5: mean D6=0.75. requested_ids match contract frozen set exactly."
+    },
+    {
+      "criterion": "AC-6: HYPOTHESIS_SYSTEM_PROMPT ≤ 60 lines",
+      "result": "PASS",
+      "evidence": "41 lines measured. TestPromptConstraints::test_prompt_length_at_most_60_lines PASS."
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "EC-1: No file names, risk labels, or rubric tiers in system prompt",
+      "result": "PASS",
+      "evidence": "test_coverage_no_injected_file_names_or_risk_labels: forbidden tokens absent. TriggerBuilder.java in user message only (test_coverage_uses_touched_files_from_context_not_prompt)."
+    },
+    {
+      "case": "EC-2: Single production file degenerates to ≥1 hypothesis with file field",
+      "result": "PASS",
+      "evidence": "test_single_production_file_context_in_user_message: 409664582f53 fixture has prod path in user context; system prompt references file field requirement without hardcoding path."
+    },
+    {
+      "case": "EC-3: Record decision if ΔD3=0 for all 3 commits",
+      "result": "PASS",
+      "evidence": "decision=anti-anchoring-partial documented (409664 ΔD3=+0.25; not anti-anchoring-insufficient)."
+    },
+    {
+      "case": "EC-4: COVERAGE REQUIREMENT section ≤ 8 lines",
+      "result": "PASS",
+      "evidence": "extract_coverage_section() = 7 lines. test_coverage_section_at_most_8_lines PASS."
+    }
+  ],
+  "recommendation": "proceed",
+  "decision": "anti-anchoring-partial",
+  "notes": [
+    "AC-4 panel completed across two run dirs after interrupted n12 run; all 12 commits present with identical git_rev and provider — acceptable.",
+    "Implementation (hypothesis_engine.py, archetype.py) uncommitted at HEAD 75092f2; eval artifacts reflect working-tree code.",
+    "572f3cee35fe remains MEDIUM (known hard commit); recall still meets 0.80 gate.",
+    "Prompt-level anti-anchoring partially effective: D3 lift on 409664 only; 2213/dd6f9ba unchanged."
+  ]
+}

@@ -38,6 +38,14 @@ Respond ONLY with valid JSON (no markdown, no text outside JSON):
   ]
 }
 
+## COVERAGE REQUIREMENT
+
+For each production source file (*.java, *.py, *.scala, *.go, *.ts, *.js)
+in Touched Files or the Diff: emit ≥1 hypothesis with `file` matching that
+path, OR cite SKIP:<path> with reason (test-only, doc-only, config-only,
+message-only). Cover all production files before adding extras.
+Do not anchor on the most salient hunk alone.
+
 ## INVESTIGATION FOCUS
 
 Prioritize mechanisms visible in the diff:
@@ -47,9 +55,42 @@ Prioritize mechanisms visible in the diff:
 - API signature change (removed method, erased generics) breaking callers
 - Missing input validation on production code paths
 
-Generate 2-4 hypotheses. If no mechanism is visible, use an empty evidence_quote.
+Generate at least one hypothesis per required production file (see COVERAGE).
+Add further hypotheses only when distinct mechanisms apply.
+If no mechanism is visible, use an empty evidence_quote.
 Do NOT include risk_level, confidence, follow_up_needed, or rubric assessment.
 """
+
+COVERAGE_SECTION_HEADER = "## COVERAGE REQUIREMENT"
+
+PRODUCTION_SOURCE_SUFFIXES = (".java", ".py", ".scala", ".go", ".ts", ".js")
+
+
+def is_production_source_file(path: str) -> bool:
+    """Return True if path looks like a production source file (not test/doc/config)."""
+    lower = path.lower()
+    if not lower.endswith(PRODUCTION_SOURCE_SUFFIXES):
+        return False
+    basename = lower.rsplit("/", 1)[-1]
+    if basename.startswith("test") or basename.endswith("test.java"):
+        return False
+    if "/test/" in lower or "/tests/" in lower or lower.startswith("test/"):
+        return False
+    if "/docs/" in lower or lower.endswith(".md"):
+        return False
+    return True
+
+
+def extract_coverage_section(prompt: str = HYPOTHESIS_SYSTEM_PROMPT) -> str:
+    """Return the COVERAGE REQUIREMENT section body (header through next ## section)."""
+    if COVERAGE_SECTION_HEADER not in prompt:
+        return ""
+    start = prompt.index(COVERAGE_SECTION_HEADER)
+    rest = prompt[start + len(COVERAGE_SECTION_HEADER) :]
+    next_header = rest.find("\n## ")
+    if next_header == -1:
+        return COVERAGE_SECTION_HEADER + rest
+    return COVERAGE_SECTION_HEADER + rest[:next_header]
 
 
 class HypothesisSpec(BaseModel):
