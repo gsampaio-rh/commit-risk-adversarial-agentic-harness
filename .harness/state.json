@@ -111,7 +111,8 @@
     {"id": "iter-2a",       "commit": "ed5bfe6", "summary": "Diff limit 4K→16K. D3 truncation commits 0.083→0.333. fbf0ff D3=0.75."},
     {"id": "iter-2b",       "commit": "ed5bfe6", "summary": "Dual-path rubric: SUPPORTED→HIGH + CLEAN-COMMIT DISCRIMINATION + _apply_clean_commit_risk_cap(). Panel: D1=0.75, buggy 5/6, clean FP 2/6."},
     {"id": "iter-2-validate","commit": "ed5bfe6","summary": "12-commit panel 12/12 AC PASS. D1=0.75, D3_buggy=0.292, D6=0.833.", "run": "output/runs/2026-06-10_21-07-21_real_n12", "report": ".harness/evals/eval-iter-2-validate.json"},
-    {"id": "arch-debate",   "commit": null,      "summary": "Builder+evaluator 2-round debate on 6 anti-patterns. Agreed iter-3 redesign. state.json v3 + docs rewritten (agent-loop, harness, architecture) and evaluator-verified."}
+    {"id": "arch-debate",   "commit": null,      "summary": "Builder+evaluator 2-round debate on 6 anti-patterns. Agreed iter-3 redesign. state.json v3 + docs rewritten (agent-loop, harness, architecture) and evaluator-verified."},
+    {"id": "iter-3a-extract", "commit": "0395e83", "summary": "Extract archetype.py, risk_policy.py, quality_gate.py, response_parser.py, prompts.py from orchestrator. orchestrator=352L. 157 tests pass (was 103). 12/12 panel regression. 1000x determinism. Evaluator PASS 7/7 AC 2/2 EC.", "report": ".harness/evals/eval-iter-3a-extract.json"}
   ],
 
   "tasks": [
@@ -119,7 +120,7 @@
       "id": "iter-3a-extract",
       "name": "Extract behavior-preserving modules from orchestrator",
       "type": "refactor",
-      "status": "pending",
+      "status": "committed",
       "priority": 1,
       "depends_on": [],
       "note": "evidence_tagger.py NOT in this task — it requires feasibility spike (iter-3a-spike).",
@@ -143,7 +144,7 @@
       "id": "iter-3a-spike",
       "name": "Feasibility spike: Script evidence tier tagging",
       "type": "spike",
-      "status": "pending",
+      "status": "done",
       "priority": 2,
       "depends_on": ["iter-3a-extract"],
       "acceptance_criteria": [

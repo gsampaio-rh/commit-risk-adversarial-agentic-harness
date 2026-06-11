@@ -1,28 +1,20 @@
 {
-  "task_id": "state-reorder-audit",
-  "feature": "state.json task ordering and dependency restructure for iter-3-first track",
-  "problem": "Previous ordering had iter-2-n20 as priority 1 blocker and FIX-JUDGE-INFRA/EXP-JUDGE-SWAP as priorities 1-2. None of these block any iter-3 refactor step. The real work (architectural redesign) was buried at priority 4+.",
-  "proposed_solution": "iter-3a-extract becomes priority 1 with no deps. Judge scoring infra (FIX-JUDGE-INFRA + EXP-JUDGE-SWAP) deferred to after iter-3e, depends_on iter-3e. iter-2-n20 demoted to optional conditional (priority 16, no blocker).",
+  "task_id": "iter-3a-spike",
+  "feature": "Feasibility spike: script-based evidence tier tagging",
+  "problem": "risk_policy.evaluate_risk() currently infers hypothesis tiers (SUPPORTED/SPECULATIVE) from unstructured LLM reasoning text. Before building evidence_tagger.py in iter-3b, we need to know if a script can match evidence quotes to diff hunks with ≥80% tier agreement vs LLM labels — or if a hybrid/blocked approach is required.",
+  "proposed_solution": "Build scripts/spike_evidence_tagger.py: parse STAGE 3 blocks from reasoning_summary, extract evidence_quote per hypothesis, test quote presence against truncated diff (matching the 16K cap the LLM saw), compare script tier to LLM tier. Curate ≥12 panel fixtures. Report decision: pure_script | hybrid | blocked.",
   "acceptance_criteria": [
-    "AC-1: iter-3a-extract has priority=1 and depends_on=[]",
-    "AC-2: iter-3a-spike has priority=2 and depends_on=[iter-3a-extract]",
-    "AC-3: iter-3b-wire-gates has priority=3 and depends_on=[iter-3a-extract, iter-3a-spike]",
-    "AC-4: iter-3c-bundle-inject has priority=4 and depends_on=[iter-3a-extract]",
-    "AC-5: iter-3d-smart-diff has priority=5 and depends_on=[iter-3a-extract]",
-    "AC-6: iter-3e-decompose-prompt has priority=6 and depends_on=[iter-3b, iter-3c, iter-3d]",
-    "AC-7: FIX-JUDGE-INFRA has depends_on=[iter-3e-decompose-prompt] — NOT depends_on=[]",
-    "AC-8: EXP-JUDGE-SWAP has depends_on=[iter-3e-decompose-prompt] — NOT depends_on=[]",
-    "AC-9: iter-3-validate depends_on includes FIX-JUDGE-INFRA AND EXP-JUDGE-SWAP AND iter-3e (no duplicate key)",
-    "AC-10: iter-2-n20 has status=conditional, trigger contains 'NOT a blocker', depends_on=[]",
-    "AC-11: No circular dependencies in the depends_on graph",
-    "AC-12: direction field reflects iter-3 as main track and judge infra as post-iter-3e"
+    "AC-1: Fixture corpus at tests/fixtures/evidence_tagger_panel.json with ≥12 entries, each having {commit_id, hypothesis_id, evidence_quote, expected_tier, curation}",
+    "AC-2: prototype tag_hypothesis() achieves ≥80% strict 4-way tier agreement across the corpus",
+    "AC-3: Decision documented in spike report: pure_script | hybrid | blocked, with quantitative evidence (strict_agreement, binary_supported_agreement, supported_quote_extraction_rate)",
+    "AC-4: Spike report at .harness/evals/spike-evidence-tagger.json with schema {task_id, decision, metrics, failures, recommendation_for_iter_3b}"
   ],
   "edge_cases": [
-    "EC-1: iter-3-validate must not have a duplicate depends_on key (JSON duplicate key silently drops first value)",
-    "EC-2: Both FIX-JUDGE-INFRA and EXP-JUDGE-SWAP must have the same priority value (8) — if they have different priorities the parallel_with relationship is misleading"
+    "EC-1: Truncated diff — fbf0ff H2 and 9530370 H3 are UNVERIFIABLE because diff is truncated; script must not tag these SUPPORTED when quote is beyond truncation marker",
+    "EC-2: 572f3cee has no defect hypotheses (STAGE 3: N/A); corpus must still include ≥1 row from this commit or document the gap"
   ],
-  "verification_method": "Read state.json and verify each AC against the actual JSON values. Check for duplicate keys. Trace the depends_on graph for cycles. Verify the direction field narrative matches the task ordering.",
-  "rubrics": ["architecture"],
+  "verification_method": "Run: .venv/bin/pytest tests/test_evidence_tagger_spike.py -q (AC-2 assertion strict_agreement>=0.80); python scripts/spike_evidence_tagger.py --evaluate (produces report); cat .harness/evals/spike-evidence-tagger.json | python3 -m json.tool (validates schema)",
+  "rubrics": ["code-quality"],
   "rubric_mode": "warn",
   "negotiation_rounds": 0,
   "phase": "evaluating",

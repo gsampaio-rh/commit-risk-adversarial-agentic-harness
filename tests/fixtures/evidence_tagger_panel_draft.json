@@ -1,0 +1,282 @@
+[
+  {
+    "commit_id": "24d9de042248",
+    "project": "camel",
+    "hypothesis_id": "H1",
+    "hypothesis_text": "HYPOTHESIS 1 \u2014 SPECULATIVE. The diff clearly shows the @ConditionalOnProperty name changed from 'camel.component.ehcache.configurer.cache-manager.enabled' to 'camel.component.ehcache.customizer.cache-",
+    "expected_tier": "SPECULATIVE",
+    "evidence_quote": "camel.component.ehcache.configurer.cache-manager.enabled",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "24d9de042248",
+    "project": "camel",
+    "hypothesis_id": "H2",
+    "hypothesis_text": "HYPOTHESIS 2 \u2014 UNVERIFIABLE. The diff does not include the source of globalConfiguration or componentConfiguration (their types are not shown). The call sites at lines 114-117 of EhcacheComponentAutoC",
+    "expected_tier": "UNVERIFIABLE",
+    "evidence_quote": "EhcacheComponentAutoConfiguration",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "24d9de042248",
+    "project": "camel",
+    "hypothesis_id": "H3",
+    "hypothesis_text": "HYPOTHESIS 3 \u2014 SPECULATIVE. The diff shows IntrospectionSupport.setProperties() is called before customizers are applied in EhcacheComponentAutoConfiguration, which could populate cacheManager via pro",
+    "expected_tier": "SPECULATIVE",
+    "evidence_quote": "IntrospectionSupport",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "294c169f6d66",
+    "project": "camel",
+    "hypothesis_id": "HA",
+    "hypothesis_text": "HYPOTHESIS A \u2014 SUPPORTED. The diff explicitly makes stop() synchronized but leaves getCache() unsynchronized. stop() iterates userCaches.values().forEach(UserManagedCache::close) while getCache() call",
+    "expected_tier": "SUPPORTED",
+    "evidence_quote": "makes stop() synchronized but leaves getCache() unsynchroniz",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "294c169f6d66",
+    "project": "camel",
+    "hypothesis_id": "HB",
+    "hypothesis_text": "HYPOTHESIS B \u2014 SUPPORTED. The diff introduces the unchecked cast (Cache<K,V>) at computeIfAbsent. The lambda captures keyType and valueType from the outer getCache() call, but computeIfAbsent only inv",
+    "expected_tier": "SUPPORTED",
+    "evidence_quote": "SuppressWarnings(\"unchecked\")",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "294c169f6d66",
+    "project": "camel",
+    "hypothesis_id": "HC",
+    "hypothesis_text": "HYPOTHESIS C \u2014 SPECULATIVE. createEndpoint() override is not visible in the truncated diff; whether EhcacheEndpoint carries @UriEndpoint annotations that UriEndpointComponent consumed cannot be confir",
+    "expected_tier": "SPECULATIVE",
+    "evidence_quote": "UriEndpointComponent",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "4a72341ebffc",
+    "project": "camel",
+    "hypothesis_id": "H_NA",
+    "hypothesis_text": "No defect hypotheses (test-only/style commit)",
+    "expected_tier": "UNVERIFIABLE",
+    "evidence_quote": "",
+    "curation": "auto",
+    "notes": "STAGE 3: N/A \u2014 no hypotheses"
+  },
+  {
+    "commit_id": "55dcbe801e76",
+    "project": "camel",
+    "hypothesis_id": "H_NA",
+    "hypothesis_text": "No defect hypotheses (test-only/style commit)",
+    "expected_tier": "UNVERIFIABLE",
+    "evidence_quote": "",
+    "curation": "auto",
+    "notes": "STAGE 3: N/A \u2014 no hypotheses"
+  },
+  {
+    "commit_id": "572f3cee35fe",
+    "project": "camel",
+    "hypothesis_id": "H_NA",
+    "hypothesis_text": "No defect hypotheses (test-only/style commit)",
+    "expected_tier": "UNVERIFIABLE",
+    "evidence_quote": "",
+    "curation": "auto",
+    "notes": "STAGE 3: N/A \u2014 no hypotheses"
+  },
+  {
+    "commit_id": "7cff0990283b",
+    "project": "camel",
+    "hypothesis_id": "H1",
+    "hypothesis_text": "HYPOTHESIS 1 \u2014 SUPPORTED: The diff shows a direct substitution at UnwrapStreamProcessor.java lines 84-88, replacing the target message object with no pattern guard. In Apache Camel, for InOnly exchang",
+    "expected_tier": "SUPPORTED",
+    "evidence_quote": "a direct substitution at UnwrapStreamProcessor",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "7cff0990283b",
+    "project": "camel",
+    "hypothesis_id": "H2",
+    "hypothesis_text": "HYPOTHESIS 2 \u2014 UNVERIFIABLE: The diff shows all in-scope implementors updated. External implementors in OSGi bundles or downstream modules cannot be assessed from the visible diff.",
+    "expected_tier": "UNVERIFIABLE",
+    "evidence_quote": "all in-scope implementors updated",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "7cff0990283b",
+    "project": "camel",
+    "hypothesis_id": "H3",
+    "hypothesis_text": "HYPOTHESIS 3 \u2014 SPECULATIVE: The diff updates both the @ConditionalOnProperty annotation and application.yml consistently. No evidence of other consumers of the old key is visible in the diff.",
+    "expected_tier": "SPECULATIVE",
+    "evidence_quote": "ConditionalOnProperty",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "90846b586c51",
+    "project": "camel",
+    "hypothesis_id": "HA",
+    "hypothesis_text": "HYPOTHESIS A \u2014 SUPPORTED: The diff shows the concrete asymmetry at the changed call site. In get(): 'String lookupName = serviceName != null ? serviceName : \"\";' \u2014 null serviceName yields lookupName=\"",
+    "expected_tier": "SUPPORTED",
+    "evidence_quote": "String lookupName = serviceName != null ? serviceName : \"\";",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "90846b586c51",
+    "project": "camel",
+    "hypothesis_id": "HB",
+    "hypothesis_text": "HYPOTHESIS B \u2014 SUPPORTED: The old code returned a local variable 'service' that was unconditionally assigned before return. The new code returns 'context.hasService(CamelReactiveStreamsService.class)'",
+    "expected_tier": "SUPPORTED",
+    "evidence_quote": " that was unconditionally assigned before return. The new code returns ",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "90846b586c51",
+    "project": "camel",
+    "hypothesis_id": "HC",
+    "hypothesis_text": "HYPOTHESIS C \u2014 SPECULATIVE: Whether the strong-reference retention causes observable memory exhaustion depends on GC pressure and environment (OSGi, test runner lifecycle), none of which are visible i",
+    "expected_tier": "SPECULATIVE",
+    "evidence_quote": "SPECULATIVE",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "9530370f7642",
+    "project": "camel",
+    "hypothesis_id": "H1",
+    "hypothesis_text": "HYPOTHESIS 1 \u2014 SPECULATIVE: The QueryFactory<Query> \u2192 QueryFactory change is a direct mechanical adaptation to the Infinispan 9.x API, which removed the generic parameter from QueryFactory. No inverte",
+    "expected_tier": "SPECULATIVE",
+    "evidence_quote": "incompatibility",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "9530370f7642",
+    "project": "camel",
+    "hypothesis_id": "H2",
+    "hypothesis_text": "HYPOTHESIS 2 \u2014 REFUTED: Diff inspection of onRemoveAsync shows the if/else branches are mutually exclusive; each branch calls setResult() exactly once on its typed future variable. The original single",
+    "expected_tier": "REFUTED",
+    "evidence_quote": "removeAsync(key, value)",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "9530370f7642",
+    "project": "camel",
+    "hypothesis_id": "H3",
+    "hypothesis_text": "HYPOTHESIS 3 \u2014 UNVERIFIABLE: The diff is truncated at 16,000 of 31,449 total characters. The jgroups NotifyingFuture import was added while the infinispan variant was removed, yet all visible async re",
+    "expected_tier": "UNVERIFIABLE",
+    "evidence_quote": "InfinispanProducer",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "b9f1653151e2",
+    "project": "camel",
+    "hypothesis_id": "H1",
+    "hypothesis_text": "HYPOTHESIS 1: SPECULATIVE. The deleted comment explicitly documented the 9.3.15 threshold and the new version (9.3.21) clearly crosses it. However, no production call-site evidence appears in the diff",
+    "expected_tier": "SPECULATIVE",
+    "evidence_quote": "incompatibility",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "b9f1653151e2",
+    "project": "camel",
+    "hypothesis_id": "H2",
+    "hypothesis_text": "HYPOTHESIS 2: SPECULATIVE. The behavioral change (null \u2192 \"\") is confirmed real by the test diff, establishing a genuine upstream behavioral delta in empty-header handling. However, no production code ",
+    "expected_tier": "SPECULATIVE",
+    "evidence_quote": "establishing",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "b9f1653151e2",
+    "project": "camel",
+    "hypothesis_id": "H3",
+    "hypothesis_text": "HYPOTHESIS 3: SPECULATIVE. The atmosphere bump is a patch-range increment (2.4.10 \u2192 2.4.14); no API changes or conflicting call sites appear in the diff.",
+    "expected_tier": "SPECULATIVE",
+    "evidence_quote": "SPECULATIVE",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "ce2d5bfa5f84",
+    "project": "hadoop",
+    "hypothesis_id": "H1",
+    "hypothesis_text": "HYPOTHESIS 1 \u2014 SUPPORTED: The diff in AHSWebServices.java shows explicit removal of 'throw new IOException(\"Can not find logs for container:\" + containerIdStr)' replaced with 'os.write((\"Can not find ",
+    "expected_tier": "SUPPORTED",
+    "evidence_quote": "throw new IOException(\"Can not find logs for container:\" + containerIdStr)",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "ce2d5bfa5f84",
+    "project": "hadoop",
+    "hypothesis_id": "H2",
+    "hypothesis_text": "HYPOTHESIS 2 \u2014 SUPPORTED: The diff in ContainerLogsInfo.java shows '@XmlElement(name = \"logType\")' changed to '@XmlElement(name = \"logAggregationType\")'. This is a public REST API response field renam",
+    "expected_tier": "SUPPORTED",
+    "evidence_quote": "@XmlElement(name = \"logAggregationType\")",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "ce2d5bfa5f84",
+    "project": "hadoop",
+    "hypothesis_id": "H3",
+    "hypothesis_text": "HYPOTHESIS 3 \u2014 SUPPORTED: The diff in LogToolUtils.java shows 'sb.append(\"FileName:\" + fileName + \"\\n\")' renamed to 'sb.append(\"LogType:\" + fileName + \"\\n\")'. The value bound to this label is still fi",
+    "expected_tier": "SUPPORTED",
+    "evidence_quote": "sb.append(\"FileName:\" + fileName + \"\\n\")",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "f897d46870ba",
+    "project": "camel",
+    "hypothesis_id": "H1",
+    "hypothesis_text": "H1 \u2014 SUPPORTED. Diff shows that in the enum branch of createConnectorConfigurationSource the local variable 'type' is set to option.getJavaType() (the enum's fully-qualified class name). The branch co",
+    "expected_tier": "SUPPORTED",
+    "evidence_quote": " is set to option.getJavaType() (the enum",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "f897d46870ba",
+    "project": "camel",
+    "hypothesis_id": "H2",
+    "hypothesis_text": "H2 \u2014 SUPPORTED. Diff shows two consecutive statements: 'String prefix = \"camel.connector.\" + model.getScheme()' immediately followed by 'prefix = connectorScheme.toLowerCase(Locale.US)'. The second as",
+    "expected_tier": "SUPPORTED",
+    "evidence_quote": "String prefix = \"camel.connector.\" + model.getScheme()",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "f897d46870ba",
+    "project": "camel",
+    "hypothesis_id": "H3",
+    "hypothesis_text": "H3 \u2014 SPECULATIVE. FileUtils.write without an append flag is directly visible in the diff, but whether multiple connectors in a single Maven module write to the same spring.factories is not shown by th",
+    "expected_tier": "SPECULATIVE",
+    "evidence_quote": "SPECULATIVE",
+    "curation": "auto",
+    "notes": ""
+  },
+  {
+    "commit_id": "fbf0ffad627b",
+    "project": "camel",
+    "hypothesis_id": "H_NA",
+    "hypothesis_text": "No defect hypotheses (test-only/style commit)",
+    "expected_tier": "UNVERIFIABLE",
+    "evidence_quote": "",
+    "curation": "auto",
+    "notes": "STAGE 3: N/A \u2014 no hypotheses"
+  }
+]

@@ -1,0 +1,99 @@
+{
+  "task_id": "iter-3a-extract",
+  "timestamp": "2026-06-10T23:58:00Z",
+  "eval_round": 2,
+  "overall": "PASS",
+  "computational_checks": {
+    "pytest": {
+      "command": ".venv/bin/pytest -q",
+      "passed": 157,
+      "failed": 0,
+      "status": "pass"
+    },
+    "orchestrator_line_count": {
+      "command": "wc -l src/commit_investigator/orchestrator.py",
+      "lines": 352,
+      "threshold": 450,
+      "status": "pass"
+    },
+    "duplicated_logic_grep": {
+      "command": "grep -rc '_LIFECYCLE_RE\\|_apply_clean_commit\\|_matches_clean' src/commit_investigator/orchestrator.py",
+      "hits": 0,
+      "status": "pass"
+    },
+    "ruff": {
+      "command": ".venv/bin/ruff check src/commit_investigator/",
+      "errors": 3,
+      "files": ["context_builder.py", "investigate.py", "run_eval.py"],
+      "status": "fail",
+      "note": "Pre-existing F401 in non-extracted files; not an acceptance criterion"
+    },
+    "mypy": {
+      "command": ".venv/bin/python -m mypy src/commit_investigator/ --ignore-missing-imports",
+      "errors": 27,
+      "files": ["jira_client.py", "eval_judge.py", "router.py", "eval_harness.py", "run_eval.py"],
+      "status": "fail",
+      "note": "Pre-existing; extracted modules report zero mypy errors"
+    },
+    "circular_import_check": {
+      "command": "python -c \"from commit_investigator.risk_policy import evaluate_risk\"",
+      "status": "pass"
+    },
+    "_apply_clean_commit_risk_cap_removed": {
+      "command": "grep -r '_apply_clean_commit_risk_cap' src/commit_investigator/orchestrator.py",
+      "hits": 0,
+      "status": "pass"
+    }
+  },
+  "criteria": [
+    {
+      "id": "AC-1",
+      "status": "pass",
+      "evidence": "archetype.py, risk_policy.py, quality_gate.py exist. tests/test_archetype.py (20), tests/test_risk_policy.py (28+), tests/test_quality_gate.py (6) all pass."
+    },
+    {
+      "id": "AC-2",
+      "status": "pass",
+      "evidence": "orchestrator.py imports prompts, quality_gate, response_parser, risk_policy. grep duplicated symbols in orchestrator returns 0 hits."
+    },
+    {
+      "id": "AC-3",
+      "status": "pass",
+      "evidence": "pytest -q: 157 passed (threshold ≥89)."
+    },
+    {
+      "id": "AC-4",
+      "status": "pass",
+      "evidence": "wc -l orchestrator.py = 352 (threshold ≤450)."
+    },
+    {
+      "id": "AC-5",
+      "status": "pass",
+      "evidence": "tests/test_regression_panel.py: 12/12 passed."
+    },
+    {
+      "id": "AC-6",
+      "status": "pass",
+      "evidence": "TestEvaluateRiskDeterminism: 3 tests ×1000 iterations passed."
+    },
+    {
+      "id": "AC-7",
+      "status": "pass",
+      "evidence": "834fa1c adds tests/test_risk_policy.py importing orchestrator._apply_clean_commit_risk_cap. 0395e83 adds archetype.py/risk_policy.py. git log --diff-filter=A confirms test commit (834fa1c) predates module commit (0395e83)."
+    }
+  ],
+  "edge_cases": [
+    {
+      "id": "EC-1",
+      "status": "pass",
+      "evidence": "7cff0990283b panel test passed: HIGH+SUPPORTED+method-rename → MEDIUM via archetype cap."
+    },
+    {
+      "id": "EC-2",
+      "status": "pass",
+      "evidence": "orchestrator._assemble_report() line 320: metadata['clean_commit_risk_cap_applied'] = True when verdict.cap_applied."
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "Round-2 retest after builder fix: two-commit TDD gate established (834fa1c tests → 0395e83 extraction). All 7 AC and 2 EC pass. Ruff/mypy failures pre-existing, not in acceptance criteria."
+}
