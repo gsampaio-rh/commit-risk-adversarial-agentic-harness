@@ -13,8 +13,8 @@ from typing import Any
 from commit_investigator.git_context import (
     FileHistoryEntry,
     GitContextProvider,
-    GitRepoNotFoundError,
 )
+from commit_investigator.smart_diff import AssembledDiff, assemble_diff
 
 
 @dataclass
@@ -46,6 +46,7 @@ class InvestigationContext:
     missing_reasons: list[str] = field(default_factory=list)
     router_probability: float | None = None
     router_route: str | None = None
+    truncation_metadata: AssembledDiff | None = None
 
 
 class AuthorStatsIndex:
@@ -146,15 +147,18 @@ class CommitContextBuilder:
         commit_id: str,
         project: str,
         csv_row: dict[str, Any] | None = None,
+        max_diff_chars: int = 16_000,
     ) -> InvestigationContext:
         """Build a complete investigation context for a commit.
 
         Handles missing data gracefully — partial context is valid.
+        Applies smart diff assembly: ranks files by defect-signal relevance
+        and guarantees per-file hunk inclusion before the global cap.
         """
         missing_reasons: list[str] = []
 
-        diff = self._git.get_diff(commit_id)
-        if diff is None:
+        raw_diff = self._git.get_diff(commit_id)
+        if raw_diff is None:
             missing_reasons.append(f"Diff unavailable for {commit_id}")
 
         message = self._git.get_commit_message(commit_id)
@@ -175,6 +179,9 @@ class CommitContextBuilder:
         else:
             missing_reasons.append("No CSV row provided")
 
+        assembled = assemble_diff(raw_diff, max_chars=max_diff_chars)
+        diff = assembled.text if assembled.text else raw_diff
+
         file_histories: dict[str, list[FileHistoryEntry]] = {}
         for fpath in touched_files[:10]:
             history = self._git.get_file_history(fpath, n=3)
@@ -193,6 +200,7 @@ class CommitContextBuilder:
             file_histories=file_histories,
             author_stats=author_stats,
             missing_reasons=missing_reasons,
+            truncation_metadata=assembled,
         )
 
     def _resolve_author_stats(

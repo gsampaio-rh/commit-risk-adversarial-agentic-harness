@@ -1,0 +1,113 @@
+{
+  "task_id": "iter-3d-smart-diff",
+  "timestamp": "2026-06-11T00:39:10Z",
+  "eval_round": 1,
+  "overall": "PASS",
+  "computational_checks": {
+    "pytest_smart_diff": {
+      "command": ".venv/bin/pytest tests/test_smart_diff.py -v",
+      "passed": 19,
+      "failed": 0,
+      "status": "pass"
+    },
+    "pytest_panel_smart_diff": {
+      "command": ".venv/bin/pytest tests/test_panel_smart_diff.py -v",
+      "passed": 6,
+      "failed": 0,
+      "status": "pass"
+    },
+    "pytest_full_suite": {
+      "command": ".venv/bin/pytest -q",
+      "passed": 261,
+      "failed": 0,
+      "status": "pass"
+    },
+    "ruff_lint": {
+      "command": ".venv/bin/ruff check src/commit_investigator/smart_diff.py src/commit_investigator/context_builder.py src/commit_investigator/orchestrator.py",
+      "status": "pass"
+    },
+    "adversarial_ac2_ranking": {
+      "command": "python3 -c _file_rank assertions (pom=3, Test=2, prod=1, signal=0)",
+      "status": "pass"
+    },
+    "adversarial_ac6_cap_invariant": {
+      "command": "python3 -c 100 random assemble_diff cap checks",
+      "iterations": 100,
+      "violations": 0,
+      "status": "pass"
+    },
+    "adversarial_ec3_none_diff": {
+      "command": "python3 -c assemble_diff(None) empty AssembledDiff",
+      "status": "pass"
+    },
+    "adversarial_ec2_build_config": {
+      "command": "python3 -c 3 build/config files at cap=500",
+      "included_files": ["Dockerfile", "pom.xml", "build.gradle"],
+      "status": "pass",
+      "note": "At impossibly tight cap (200) one file may be fully excluded; consistent with 'if budget allows' in assemble_diff docstring."
+    },
+    "d6_panel_metrics": {
+      "panel_size": 12,
+      "mean_d6": 0.75,
+      "min_d6": 0.25,
+      "threshold": 0.70,
+      "status": "pass"
+    }
+  },
+  "criteria": [
+    {
+      "id": "AC-1",
+      "status": "pass",
+      "evidence": "test_per_file_minimum_hunk_guarantee passes. assemble_diff() lines 192-199: first hunk included when full section exceeds budget. Adversarial cap invariant 100/100."
+    },
+    {
+      "id": "AC-2",
+      "status": "pass",
+      "evidence": "TestFileRank (5 tests) pass. Adversarial _file_rank: pom.xml=3, FooTest.java=2, Foo.java=1, defect-signal Foo.java=0. test_defect_signal_file_prioritized_over_build confirms ranking drives inclusion."
+    },
+    {
+      "id": "AC-3",
+      "status": "pass",
+      "evidence": "test_truncation_metadata_populated + panel TestTruncationMetadataPresence (3 tests): included_files[], truncated_files[], total_chars on AssembledDiff."
+    },
+    {
+      "id": "AC-4",
+      "status": "pass",
+      "evidence": "TestFixture572f3::test_xmpp_file_present_in_assembled_diff and test_forced_signal_file_always_included pass. XmppGroupChatProducer.java present at cap=2000."
+    },
+    {
+      "id": "AC-5",
+      "status": "pass",
+      "evidence": "TestPanelNoRegressionSanity::test_smart_diff_on_panel_no_exception passes on 12-commit panel. Full suite 261 tests, zero regressions."
+    },
+    {
+      "id": "AC-6",
+      "status": "pass",
+      "evidence": "test_total_cap_never_exceeded + default max_chars=16_000 unchanged. Adversarial 100 random cap checks: 0 violations."
+    },
+    {
+      "id": "AC-7",
+      "status": "pass",
+      "evidence": "TestD6OnPanel::test_d6_on_panel passes. Mean D6=0.750 on 12-commit panel (threshold >= 0.70). Script-only, no LLM."
+    }
+  ],
+  "edge_cases": [
+    {
+      "id": "EC-1",
+      "status": "pass",
+      "evidence": "test_ec1_single_file_commit passes: single Foo.java fully included, no truncation."
+    },
+    {
+      "id": "EC-2",
+      "status": "pass",
+      "evidence": "No dedicated pytest; adversarial check at cap=500 with pom.xml + build.gradle + Dockerfile: all 3 in included_files with >=1 hunk each. Per-file guarantee applies when budget allows."
+    },
+    {
+      "id": "EC-3",
+      "status": "pass",
+      "evidence": "test_ec3_none_diff + panel test_none_diff_has_empty_metadata + adversarial assemble_diff(None): text='', total_chars=0, empty file lists."
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "All 7 AC and 3 EC pass on first eval round. smart_diff.py implements ranked per-file assembly with AssembledDiff metadata. Full suite 261 tests (+25 over iter-3c baseline of 236). D6 mean=0.750 maintained. Ruff clean on smart_diff.py, context_builder.py, orchestrator.py."
+}

@@ -1,22 +1,25 @@
 {
-  "task_id": "iter-3c-bundle-inject",
-  "feature": "Fix context bundle: inject file_histories + author_stats + per_stage metadata",
-  "problem": "LLM context is missing file_histories and author_stats, limiting STAGE 3 evidence grounding. report.metadata has no per-stage token/cost/latency tracking.",
-  "proposed_solution": "Inject file_histories as ## File History section in _build_initial_messages(). Inject author_stats as ## Author Stats. Fall back to missing_reasons[] when data unavailable. Add per_stage list to metadata with {stage, tier, tokens_in, tokens_out, latency_ms, cost_usd} from TurnCheckpoint data.",
+  "task_id": "iter-3d-smart-diff",
+  "feature": "Smart per-file diff assembly with ranking and per-file hunk guarantees",
+  "problem": "Current diff assembly naively truncates the full diff string at 16K chars. Files with high defect-signal relevance may be cut off while unimportant build/config files fill the budget. Commit 572f3cee35fe demonstrates the failure: XmppGroupChatProducer.java (the defect-signal file) is truncated away before the LLM sees it.",
+  "proposed_solution": "New smart_diff.py module: parse diff by file, rank files (defect_signal > production > test > build/config), allocate per-file minimum hunk budget (≥1 hunk per file), then fill remaining budget from top-ranked files. Result: AssembledDiff{text, included_files[], truncated_files[], total_chars}. context_builder injects it into InvestigationContext. Orchestrator reads assembled diff instead of raw diff[:16000].",
   "acceptance_criteria": [
-    "AC-1: _build_initial_messages() injects file_histories as '## File History' section when context.file_histories is non-empty; otherwise adds 'File history unavailable' to missing_reasons",
-    "AC-2: _build_initial_messages() injects author_stats as '## Author Stats' section when context.author_stats is not None; otherwise adds 'Author statistics unavailable' to missing_reasons",
-    "AC-3: report.metadata has per_stage list with at least one entry containing {stage, tier, tokens_used, cost_usd, latency_ms} per investigation turn",
-    "AC-4: Integration test verifies that mock context with file_histories produces '## File History' in the assembled user message",
-    "AC-5: D6 >= 0.70 on existing 12-commit panel reports (automated, no LLM calls)"
+    "AC-1: Per-file minimum hunk guarantee before global 16K cap (at least 1 hunk from each touched file up to budget)",
+    "AC-2: File ranking: defect_signal_files > other_production > test > build/config",
+    "AC-3: truncation_metadata present: {truncated_files[], included_files[], total_chars}",
+    "AC-4: Fixture 572f3cee35fe: XmppGroupChatProducer.java hunk MUST be present in assembled diff",
+    "AC-5: Regression panel 12-commit: D1 ≥ 0.65, buggy recall ≥ 0.80 (no regression from iter-2a/iter-3b)",
+    "AC-6: Total cap unchanged at 16000 chars",
+    "AC-7: D6 ≥ 0.70 on 12-commit panel (script-only, no LLM)"
   ],
   "edge_cases": [
-    "EC-1: Empty file_histories dict {} must NOT add ## File History section and MUST add to missing_reasons",
-    "EC-2: file_histories with only empty lists per file (no history entries) must be treated as unavailable"
+    "EC-1: Single file commit — no ranking needed, full hunk up to cap",
+    "EC-2: All files are build/config — still include at least 1 hunk per file",
+    "EC-3: diff is None (e.g. merge commit) — return empty AssembledDiff with truncation_metadata"
   ],
-  "verification_method": "pytest tests/test_bundle_inject.py -v (AC-1,2,3,4); pytest tests/test_panel_script_gate.py -k d6 -v (AC-5); grep -n 'File History' src/commit_investigator/orchestrator.py (expect >=1 hit)",
-  "rubrics": ["code-quality"],
-  "rubric_mode": "warn",
+  "verification_method": "pytest tests/test_smart_diff.py -v; pytest tests/test_panel_smart_diff.py -v; pytest -q for regression",
+  "rubrics": {},
+  "rubric_mode": "criteria",
   "negotiation_rounds": 0,
   "phase": "evaluating",
   "verified": true

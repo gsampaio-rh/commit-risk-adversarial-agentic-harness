@@ -188,3 +188,7 @@
 {"ts":"2026-06-11T03:45:00-03:00","role":"builder","type":"build","feat":"iter-3c-bundle-inject","msg":"Build complete. file_histories + author_stats injection, per_stage metadata, D6>=0.70. 236 tests. Contract evaluating.","result":"pass"}
 {"ts":"2026-06-11T00:27:09Z","role":"evaluator","type":"eval","feat":"iter-3c-bundle-inject","msg":"PASS 5/5 AC, 2/2 EC. file_histories+author_stats injection, per_stage metadata, D6=0.75 on 12-commit panel; 236 tests pass.","result":"pass"}
 {"ts":"2026-06-11T00:27:38","role":"builder","type":"checkpoint","feat":"iter-3c-bundle-inject","msg":"Commit:  (4 files)"}
+{"ts":"2026-06-11T00:29:24","role":"builder","type":"checkpoint","feat":"iter-3c-bundle-inject","msg":"Commit:  (6 files)"}
+{"ts":"2026-06-11T04:00:00-03:00","role":"builder","type":"build","feat":"iter-3d-smart-diff","msg":"Contract written. Starting implementation: smart_diff.py per-file ranking + hunk assembly.","result":"pass"}
+{"ts":"2026-06-11T04:30:00-03:00","role":"builder","type":"build","feat":"iter-3d-smart-diff","msg":"Build complete. smart_diff.py created. Ranking + hunk guarantees. 261 tests pass. Contract evaluating.","result":"pass"}
+{"ts":"2026-06-11T00:39:10Z","role":"evaluator","type":"eval","feat":"iter-3d-smart-diff","msg":"PASS 7/7 AC, 3/3 EC","result":"pass"}

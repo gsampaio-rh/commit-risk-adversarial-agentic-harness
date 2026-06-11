@@ -201,11 +201,11 @@ class AgentOrchestrator:
             context_parts.append(f"## Commit Message\n{context.message.strip()}\n")
 
         if context.diff:
-            limit = self._max_diff_chars
-            diff_preview = context.diff[:limit]
-            if len(context.diff) > limit:
-                diff_preview += f"\n... (truncated, {len(context.diff)} chars total)"
-            context_parts.append(f"## Diff\n```\n{diff_preview}\n```\n")
+            diff_text = context.diff
+            tm = context.truncation_metadata
+            if tm and tm.truncated_files:
+                diff_text += f"\n... (smart-truncated: {len(tm.truncated_files)} file(s) omitted: {', '.join(tm.truncated_files)})"
+            context_parts.append(f"## Diff\n```\n{diff_text}\n```\n")
 
         if context.touched_files:
             context_parts.append("## Touched Files\n" + "\n".join(f"- {f}" for f in context.touched_files))
@@ -287,7 +287,8 @@ class AgentOrchestrator:
         validation_error: str | None = None,
     ) -> HypothesisArtifact:
         """Build HypothesisArtifact from parsed LLM output and context signals."""
-        diff_truncated = len(context.diff or "") >= self._max_diff_chars
+        tm = context.truncation_metadata
+        diff_truncated = bool(tm and tm.truncated_files) or len(context.diff or "") >= self._max_diff_chars
         return HypothesisArtifact(
             supported_count=verdict.supported_count,
             production_defect_signals=has_production_defect_signals(context),
@@ -430,6 +431,13 @@ class AgentOrchestrator:
             "missing_reasons": list(context.missing_reasons),
             "per_stage": per_stage,
         }
+        tm = context.truncation_metadata
+        if tm is not None:
+            metadata["truncation_metadata"] = {
+                "included_files": tm.included_files,
+                "truncated_files": tm.truncated_files,
+                "total_chars": tm.total_chars,
+            }
         if verdict.cap_applied:
             metadata["clean_commit_risk_cap_applied"] = True  # backward compat key
             metadata["cap_applied"] = True

@@ -3,7 +3,7 @@
 import pytest
 
 from commit_investigator.context_builder import InvestigationContext
-from commit_investigator.llm import LLMMessage, LLMProvider, LLMResponse, MockLLMProvider
+from commit_investigator.llm import LLMProvider, LLMResponse, MockLLMProvider
 from commit_investigator.orchestrator import (
     DEFAULT_MAX_DIFF_CHARS,
     INVESTIGATION_SYSTEM_PROMPT,
@@ -85,15 +85,22 @@ class TestInvestigationPrompt:
     def test_default_diff_limit_is_16k(self):
         assert DEFAULT_MAX_DIFF_CHARS == 16_000
 
-    def test_diff_truncation_at_configured_limit(self):
+    def test_diff_truncation_note_when_truncation_metadata_present(self):
+        """Smart diff truncation note shown when truncation_metadata has truncated_files."""
+        from commit_investigator.smart_diff import AssembledDiff
         orchestrator = AgentOrchestrator(llm_provider=MockLLMProvider(), max_diff_chars=100)
         ctx = _mock_context()
-        ctx.diff = "x" * 200
+        ctx.diff = "x" * 100
+        ctx.truncation_metadata = AssembledDiff(
+            text="x" * 100,
+            included_files=["Foo.java"],
+            truncated_files=["Bar.java"],
+            total_chars=100,
+        )
         messages = orchestrator._build_initial_messages(ctx)
         user_content = messages[1].content
-        assert "truncated, 200 chars total" in user_content
-        assert "x" * 100 in user_content
-        assert "x" * 101 not in user_content
+        assert "smart-truncated" in user_content
+        assert "Bar.java" in user_content
 
     def test_diff_not_truncated_when_under_limit(self):
         orchestrator = AgentOrchestrator(llm_provider=MockLLMProvider(), max_diff_chars=500)
@@ -101,7 +108,7 @@ class TestInvestigationPrompt:
         ctx.diff = "y" * 200
         messages = orchestrator._build_initial_messages(ctx)
         user_content = messages[1].content
-        assert "truncated" not in user_content
+        assert "smart-truncated" not in user_content
         assert "y" * 200 in user_content
 
 
