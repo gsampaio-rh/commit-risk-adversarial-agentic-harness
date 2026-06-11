@@ -229,3 +229,8 @@
 {"ts":"2026-06-11T06:12:43","role":"builder","type":"checkpoint","feat":"iter-3-n20-d2-filter","msg":"Commit:  (7 files)"}
 {"ts":"2026-06-11T09:00:00Z","role":"builder","type":"build","feat":"iter-n50-delivery","msg":"Ran n=50 stratified delivery gate (2026-06-11_06-13-50_real_n50). Cost=$0.2933. All 6 gates PASS: D1=0.700 D2=0.190 D3=0.230 D4=0.894 D5=0.413 D6=0.770. Clean FP=32% buggy recall=72%.","result":"pass"}
 {"ts":"2026-06-11T09:00:00Z","role":"evaluator","type":"eval","feat":"iter-n50-delivery","msg":"DELIVERY GATE PASSED. AC-1..AC-11 PASS. All 6 gates ≥ threshold at n=50. FP rate 32% ≤ 35%. Recall 72% ≥ 70%. vs iter-1: D1+0.10 D3+0.03 D5+0.04. V1 feature-complete.","result":"pass"}
+{"ts":"2026-06-11T07:00:24","role":"builder","type":"checkpoint","feat":"iter-n50-delivery","msg":"Commit:  (4 files)"}
+{"ts":"2026-06-11T12:30:00Z","role":"evaluator","type":"eval","feat":"iter-n50-delivery","msg":"FAIL 10/11 AC, 2/3 EC. Metrics gate PASS (D1=0.700 hairline, FP=32%, recall=72%). AC-11 FAIL: archive byte-copy lacks iter-1/iter-3 baseline comparison. EC-3 FAIL: judge_model undocumented. 327 tests pass. fix_and_retest.","result":"fail"}
+{"ts":"2026-06-11T07:04:28","role":"builder","type":"checkpoint","feat":"iter-n50-delivery","msg":"Commit:  (2 files)"}
+{"ts":"2026-06-11T14:45:00Z","role":"evaluator","type":"eval","feat":"iter-n50-delivery","msg":"RETEST: AC-11 PASS, EC-3 PASS. Overall PASS. Archive now has judge_model and baseline_comparison with verified deltas; D1=0.700 exact (18/25 buggy, 8/25 clean FP).","result":"pass"}
+{"ts":"2026-06-11T07:06:59","role":"builder","type":"checkpoint","feat":"iter-n50-delivery","msg":"Commit:  (1 files)"}
