@@ -1,41 +1,26 @@
 {
-  "task_id": "v2-forensics-n50",
-  "feature": "Deep n=50 per-commit failure taxonomy — JSON + Markdown forensics reports",
-  "problem": "V1 delivered all 6 gates at n=50, but D1=0.700 (hairline), D2=0.190, D3=0.230 are below V2 targets. The v2_failure_taxonomy in state.json is a preliminary estimate by the planner. V2 implementation tasks (FP tightening, localization precision, contrastive hypothesis) need a validated, per-commit failure matrix to be prioritized correctly. Without it, we might fix the wrong thing.",
-  "proposed_solution": "A deterministic Python script (scripts/v2_forensics_n50.py) that reads eval-iter-n50-delivery.json + 50 investigation JSONs from the n=50 run. Applies rule-based taxonomy (d3_tag, d1_tag, d2_tag) via regex extraction of D2/D3 judge details. Produces two artifacts: v2-forensics-n50.json (machine-readable, 50 commits fully tagged) and v2-forensics-n50.md (human-readable, 6 sections). Zero LLM calls. ~$0 cost.",
+  "task_id": "v2-d3-h1h4-t3",
+  "feature": "D3 Layer 1 experiment — symptom-first prompt (H1) + changed-line evidence forcing (H4) + mechanism evaluator loop (T3)",
+  "problem": "D3=0.230 at V1 n=50. 91% of D3=0 failures are wrong-mechanism: agent cites correct files but wrong causal chain. Root cause: abstraction bias (LLM applies familiar code pattern template instead of reasoning from changed lines). The fix: (1) restructure prompt to reason from observable symptom first; (2) require +/- changed line citation in evidence; (3) loop to challenge context-only citations.",
+  "proposed_solution": "Add HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 to hypothesis_engine.py: (H1) mechanism field starts from user-observable failure before code structure; (H4) evidence_quote must cite at least one +/- prefixed changed line for primary mechanism. Add mechanism_evaluator_loop() in hypothesis_engine.py: after first LLM call, check if primary hypotheses cite +/- lines; if not, send targeted challenge and re-run (max 2 rounds, deterministic criterion — no LLM in evaluator). Add enable_mechanism_evaluator: bool flag to AgentOrchestrator. Add experiment script scripts/run_d3_experiment_layer1.py to run hard panel n=18 with baseline vs H1H4T3 variant and report D3 delta.",
   "acceptance_criteria": [
-    "AC-1: .harness/evals/v2-forensics-n50.json exists with top-level keys meta, aggregate_scores, d3_failure_taxonomy, clean_fp_analysis, d2_gap_analysis, priority_matrix, hard_commit_panel, commits; meta.n_commits==50; commits[] has exactly 50 entries each with commit_id (full SHA), commit_prefix (12-char), project, buggy, scores{D1–D6 floats}, tags{d3_tag,d1_tag,d2_tag}, pipeline{supported_count, cap_applied, truncation_status, judge_oracle, archetype_detected}, evidence{d2_jaccard,d3_judge_details_excerpt}",
-    "AC-2: .harness/evals/v2-forensics-n50.md exists with exactly 6 level-2 headings in order: ## Executive Summary, ## D3 Failure Taxonomy, ## D1 FP Analysis, ## D2 Gap, ## Priority Matrix, ## Hard-Commit Panel",
-    "AC-3: All 11 buggy commits with scores.D3==0.0 (prefixes from state.v2_failure_taxonomy.buggy_d3_distribution.D3=0.commits) each have tags.d3_tag exactly one of {wrong-mechanism, missing-context, judge-infra}; tiebreaker order when multiple rules match: (1) judge-infra if judge_oracle==unavailable OR (judge_oracle==fix-diff-fallback AND details match /no description|untestable|cannot score/i), (2) else missing-context if truncated_files non-empty AND d2_jaccard<0.25 OR commit_prefix in {572f3cee35fe}, (3) else wrong-mechanism; distribution counts sum to 11",
-    "AC-4: All 8 clean FP commits (state.v2_failure_taxonomy.clean_fp_analysis.fp_commits prefixes) have tags.d1_tag==false_positive AND pipeline fields archetype_detected (bool), supported_count (int≥0), cap_applied (bool) populated (not null)",
-    "AC-5: priority_matrix is a JSON array of exactly 5 entries with fields rank, dimension, intervention, expected_delta, task_id; task_id values MUST be v2-d3-contrastive-hypothesis, v2-fp-risk-tightening, v2-d2-localization-precision, EXP-BUNDLE-EXPAND, v2-evidence-strict-supported (one each); expected_delta is non-empty string referencing at least one of D1|D2|D3",
-    "AC-6: hard_commit_panel.tier_1_d3_zero lists exactly 11 commit_prefixes (all buggy D3==0.0); hard_commit_panel.tier_2_d3_partial lists exactly 7 commit_prefixes (all buggy 0.25<=D3<0.50); union_count==18; recommended_rerun_order sorts tier_1 first then tier_2 by truncation_status heavy→partial→none"
+    "AC-1: hypothesis_engine.py exports HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 — a variant of the current prompt with: (a) mechanism field description requires format 'Observable: [user-visible failure]. Root change: [+/- line]. Mechanism: [causal chain at file:area]'; (b) new CHANGED-LINE EVIDENCE section stating primary mechanism evidence_quote must contain at least one line starting with + or -.",
+    "AC-2: hypothesis_engine.py exports _has_changed_line_citation(evidence_quote: str) -> bool that returns True iff evidence_quote contains at least one line matching ^[+-] (not +++ or --- header lines). Unit tested: empty string→False, context-only quote→False, quote with +line→True, quote with -line→True, quote with diff header (+++/---)→False.",
+    "AC-3: hypothesis_engine.py exports mechanism_evaluator_loop() that wraps complete_with_parse_retry: after first LLM response, checks primary hypotheses (first 3) for changed-line citation; if any have a non-empty evidence_quote with no +/- line, appends a targeted challenge message naming the mechanism and re-runs (max 2 rounds total). Returns on first pass if all primary hypotheses have empty or grounded evidence_quotes.",
+    "AC-4: AgentOrchestrator accepts enable_mechanism_evaluator: bool = False. When True, investigate() uses mechanism_evaluator_loop() with HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 instead of the current complete_with_parse_retry() + HYPOTHESIS_SYSTEM_PROMPT. When False, behavior is identical to current (no regression).",
+    "AC-5: scripts/run_d3_experiment_layer1.py runs both variants (baseline, h1h4t3) on the hard panel commits defined in .harness/state.json v2_baseline.hard_panel. Outputs a table: commit | baseline_D3 | h1h4t3_D3 | delta. Reports aggregate: n_improved, n_regressed, mean_delta_D3.",
+    "AC-6: pytest -q passes (all existing tests + new tests for AC-2 + AC-3). Minimum 6 new test cases covering _has_changed_line_citation and mechanism_evaluator_loop."
   ],
   "edge_cases": [
-    "EC-1: Investigation JSON missing for a commit — script logs WARNING to stderr containing commit_prefix; entry still emitted with tags.d3_tag==data_missing, tags.d1_tag==data_missing, tags.d2_tag==data_missing, pipeline.supported_count/cap_applied/archetype_detected/truncation_status/judge_oracle all null, evidence.d3_judge_details_excerpt==null; AC-1 count remains 50",
-    "EC-2: D3 details string matches no taxonomy regex — if judge_oracle==unavailable tag judge-infra; else tag wrong-mechanism and set evidence.d3_judge_details_excerpt to first 200 chars of scores.D3.details (non-null)",
-    "EC-3: data/repos unavailable for archetype re-derivation — archetype_detected inferred from cap_reason.startswith('clean_archetype') only; script exits 0 (no crash)",
-    "EC-4: Delivery JSON field disagrees with per-commit evaluation file — prefer eval-iter-n50-delivery.json results[] values; log single INFO line per mismatch with commit_prefix"
+    "EC-1: All primary hypotheses already have empty evidence_quote (model returned no quotes) — evaluator does NOT challenge, returns immediately. Correct behavior: empty quote is not a context-only quote.",
+    "EC-2: Model returns same wrong evidence_quote after challenge (max_rounds=2 hit) — evaluator returns whatever was returned on round 2 without infinite loop. Must be covered by a test with a mock LLM that always returns context-only quotes.",
+    "EC-3: enable_mechanism_evaluator=False (baseline mode) — mechanism_evaluator_loop is never called, original HYPOTHESIS_SYSTEM_PROMPT is used. Existing test suite must pass unchanged.",
+    "EC-4: Diff header lines (+++ b/file or --- a/file) must NOT count as changed-line citations — they are metadata, not code changes. _has_changed_line_citation must filter them out."
   ],
-  "verification_method": "(1) python scripts/v2_forensics_n50.py --delivery-json .harness/evals/eval-iter-n50-delivery.json --run-dir output/runs/2026-06-11_06-13-50_real_n50 --output-json .harness/evals/v2-forensics-n50.json --output-md .harness/evals/v2-forensics-n50.md — exit 0; (2) python scripts/v2_forensics_n50.py --validate — exit 0 with inline assertions for AC-1–AC-6 (--validate implemented in same script per implementation_plan step 12); fallback if --validate absent: pytest tests/test_v2_forensics_n50.py -q — exit 0; (3) python -c \"import json;d=json.load(open('.harness/evals/v2-forensics-n50.json'));assert len(d['commits'])==50\"; (4) grep -cE '^## ' .harness/evals/v2-forensics-n50.md | test 6 -eq; (5) spot-check 3 D3=0 commits (572f3cee35fe, dd6f9ba60fb4, 8780086dbe23) and 2 FP commits (95b7f1d29a5e, f548bfffbdcd) — tags match investigation JSON metadata and delivery scores",
+  "verification_method": "(1) pytest tests/ -q — exit 0, ≥6 new test cases pass; (2) python -c \"from commit_investigator.hypothesis_engine import HYPOTHESIS_SYSTEM_PROMPT_H1H4T3, _has_changed_line_citation, mechanism_evaluator_loop; print('imports OK')\"; (3) python -c \"from commit_investigator.orchestrator import AgentOrchestrator; o=AgentOrchestrator(enable_mechanism_evaluator=True); print('flag OK')\"; (4) python scripts/run_d3_experiment_layer1.py --dry-run — prints table with all hard panel commit IDs (no LLM calls, uses mock data)",
   "rubrics": ["code-quality"],
   "rubric_mode": "warn",
-  "negotiation_rounds": 1,
-  "phase": "evaluating",
-  "verified": true,
-  "negotiation_notes": {
-    "round_1": {
-      "AC-1": "STRENGTHENED — added top-level schema keys and nested commits[] field paths beyond flat field list",
-      "AC-2": "STRENGTHENED — exact ## heading strings and order",
-      "AC-3": "STRENGTHENED — named 11 commit source, exhaustive enum, tiebreaker priority order, count sum",
-      "AC-4": "STRENGTHENED — explicit fp_commits source list, d1_tag==false_positive, non-null pipeline fields",
-      "AC-5": "STRENGTHENED — exactly 5 entries with required task_id slugs matching downstream V2 tasks",
-      "AC-6": "STRENGTHENED — exact tier counts, D3 score bands, union_count, rerun sort order",
-      "EC-1": "STRENGTHENED — data_missing tag semantics and null vs default per field",
-      "EC-2": "ACCEPTED with minor clarify on excerpt requirement",
-      "EC-3": "ADDED — repos-unavailable archetype fallback",
-      "EC-4": "ADDED — delivery vs evaluation file precedence",
-      "verification_method": "STRENGTHENED — full CLI args, --validate in scope (step 12), pytest fallback, spot-check commit IDs"
-    }
-  }
+  "negotiation_rounds": 0,
+  "phase": "negotiating",
+  "verified": false
 }
