@@ -203,3 +203,5 @@
 {"ts":"2026-06-11T01:08:16","role":"builder","type":"checkpoint","feat":"FIX-JUDGE-INFRA","msg":"Commit:  (8 files)"}
 {"ts":"2026-06-11T01:15:30Z","role":"builder","type":"build","feat":"EXP-JUDGE-SWAP","msg":"Cross-model judge swap: claude-sonnet-4-6 vs claude-haiku-4-5. n=10 buggy. Δ=+0.075 (cross better). 1 gate flip. Decision: same-model-acceptable. All 6 ACs met.","result":"pass"}
 {"ts":"2026-06-11T01:16:51","role":"builder","type":"checkpoint","feat":"FIX-JUDGE-INFRA","msg":"Commit:  (2 files)"}
+{"ts":"2026-06-11T01:17:16","role":"builder","type":"checkpoint","feat":"FIX-JUDGE-INFRA","msg":"Commit:  (4 files)"}
+{"ts":"2026-06-11T01:25:00Z","role":"builder","type":"checkpoint","feat":"iter-3-validate","msg":"PASS 7/7 AC. D1=0.667, buggy_recall=0.833, D6=0.75. n=12 panel. per_stage observability confirmed. cap_reason present. EXP-JUDGE-SWAP decision applied.","result":"pass"}
