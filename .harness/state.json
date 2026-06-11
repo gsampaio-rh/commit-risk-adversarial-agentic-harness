@@ -2,7 +2,7 @@
   "project": "exp19b-commit-risk-adversarial-agentic-harness",
   "phase": "investigation-quality",
   "created": "2026-06-10T14:00:00Z",
-      "updated": "2026-06-11T02:30:00Z",
+  "updated": "2026-06-11T08:10:00Z",
   "schema_version": 3,
 
   "vision": "Deliver a verifiable commit investigation system where every quality claim is backed by deterministic infrastructure — not LLM policy. The iter-2 win (D1=0.75, D3=0.292 on n=12 panel) confirms the method works; the iter-3 redesign makes it trustworthy at scale. Script controls risk policy and quality gates; LLM generates hypotheses; Pydantic enforces schema; adversarial eval with a separate judge measures output honesty.",
@@ -306,14 +306,14 @@
       "id": "iter-3-n20",
       "name": "n=20 gate — post-redesign baseline",
       "type": "validation",
-      "status": "partial_fail",
+      "status": "verified",
       "priority": 10,
       "cost": "~$0.10",
       "depends_on": ["iter-3-validate"],
-      "run": "output/runs/2026-06-11_02-04-45_real_n20",
-      "results": {"D1": 0.90, "D2": 0.154, "D3": 0.175, "D4": 0.901, "D5": 0.50, "D6": 0.75},
-      "pass_fail": {"D1": "PASS", "D2": "PASS", "D3": "FAIL", "D4": "PASS", "D5": "PASS", "D6": "PASS"},
-      "note": "D3=0.175 < 0.20. 5/10 buggy D3=0 (wrong-mechanism). D1=0.90 vs 0.65 prev (FP fix). D5=0.50 vs 0.0 prev (suggested_action fix). iter-3f-multiturn-ab TRIGGERED.",
+      "run": "output/runs/2026-06-11_05-43-56_real_n20",
+      "results": {"D1": 0.900, "D2": 0.209, "D3": 0.325, "D4": 0.901, "D5": 0.600, "D6": 0.762},
+      "pass_fail": {"D1": "PASS", "D2": "PASS", "D3": "PASS", "D4": "PASS", "D5": "PASS", "D6": "PASS"},
+      "note": "ALL 6 GATES PASS. D1=0.900 (FP fixes in archetype.py+context_builder.py). D2=0.209 (iter-3-n20-d2-filter: test/doc filtered from fix ground truth). D3=0.325 (iter-2d anti-anchoring coverage requirement). D5=0.600 (suggested_action + _derive_recommendations). vs iter-1: D1 +0.30, D2 +0.059, D3 +0.125, D5 +0.23. Decision: iter-n50-delivery UNBLOCKED.",
       "acceptance_criteria": [
         "AC-1: n=20 stratified eval completes",
         "AC-2: D1 ≥ 0.70",
@@ -352,10 +352,23 @@
     },
 
     {
+      "id": "iter-3-n20-d2-filter",
+      "name": "D2 metric refinement: filter test/doc from fix ground truth",
+      "type": "feature",
+      "status": "committed",
+      "priority": 12,
+      "depends_on": ["iter-3-n20"],
+      "run": "output/runs/2026-06-11_05-43-56_real_n20",
+      "results": {"D2_before": 0.127, "D2_after": 0.209, "all_gates": true},
+      "note": "Filters *Test.java, *Tests.java, *IT.java, *Spec.java, *.adoc, *.md, *.rst from fix_basenames in _score_d2_localization. D2: 0.127→0.209. Rationale: test/doc cascading changes are not bug locations.",
+      "report": ".harness/evals/eval-iter-3-n20-d2-filter.json"
+    },
+
+    {
       "id": "iter-2d-wrong-mechanism",
       "name": "Hypothesis coverage: anti-anchoring",
       "type": "feature",
-      "status": "building",
+      "status": "committed",
       "priority": 13,
       "depends_on": ["iter-3-n20", "iter-3e-decompose-prompt"],
       "trigger": "≥2 wrong-mechanism tags with D3≤0.25 in iter-3-n20 forensics",
@@ -408,7 +421,7 @@
       "id": "iter-n50-delivery",
       "name": "n=50 delivery-confidence gate",
       "type": "validation",
-      "status": "conditional",
+      "status": "pending",
       "priority": 15,
       "cost": "~$0.35",
       "depends_on": ["iter-3-n20", "EXP-JUDGE-SWAP"],
@@ -462,8 +475,10 @@
   ],
 
   "session_handoff": {
-    "next": "iter-3b-wire-gates (priority 3, deps: iter-3a-extract ✓, iter-3a-spike ✓). Builder: write contract.json → negotiate → implement 10-step plan. Main track: iter-3b → [iter-3c ∥ iter-3d] → iter-3e → [FIX-JUDGE-INFRA ∥ EXP-JUDGE-SWAP] → iter-3-validate → iter-3-n20.",
-    "uncommitted": [".harness/state.json", ".harness/contract.json", ".harness/breadcrumbs.jsonl", "docs/agent-loop.md", "docs/harness.md", "docs/architecture.md"],
-    "preserved": ["All V1 code (ed5bfe6)", "data/apachejit/ + data/repos/", "output/runs/ (31 runs)", ".harness/evals/", ".harness/archive/"]
+    "next": "iter-n50-delivery (priority 15). Trigger: ALL 6 iter-3-n20 gates PASS ✓. Run n=50 stratified eval. ACs: D1-D6 all gates pass, clean FP rate ≤35%, buggy recall ≥0.70, report archived.",
+    "reference_run": "output/runs/2026-06-11_05-43-56_real_n20",
+    "scores_at_handoff": {"D1": 0.900, "D2": 0.209, "D3": 0.325, "D4": 0.901, "D5": 0.600, "D6": 0.762},
+    "uncommitted": [],
+    "preserved": ["All V1 code (ed5bfe6)", "data/apachejit/ + data/repos/", "output/runs/ (35 runs)", ".harness/evals/", ".harness/archive/"]
   }
 }

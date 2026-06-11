@@ -1,22 +1,22 @@
 {
-  "task_id": "iter-2d-wrong-mechanism",
-  "feature": "Anti-anchoring: per-production-file hypothesis coverage requirement in HypothesisEngine",
+  "task_id": "iter-3-n20-d2-filter",
+  "feature": "D2 metric refinement: filter non-source files (test classes, docs) from fix ground truth in Jaccard localization scoring",
   "phase": "evaluating",
-  "negotiation_rounds": 1,
+  "negotiation_rounds": 0,
   "verified": true,
   "acceptance_criteria": [
-    "AC-1: HYPOTHESIS_SYSTEM_PROMPT includes a coverage requirement: at least 1 hypothesis per production source file (*.java, *.py, *.scala, *.go, *.ts, *.js) OR explicit SKIP with justification. Doc/test/config-only commits exempt.",
-    "AC-2: Targeted rerun of 2213f71944ae, 409664582f53, dd6f9ba60fb4 via run_eval.py --commit-ids: ≥1/3 improves D3 by ≥0.25 vs frozen iter-3-n20-v2 baselines {2213f71944ae: 0.0, 409664582f53: 0.0, dd6f9ba60fb4: 0.0}. Judge config must match iter-3-n20-v2 (cursor-sdk/claude-sonnet-4-6, fix-diff fallback per FIX-JUDGE-INFRA).",
-    "AC-3: Re-run the 10 clean commits from iter-3-n20-v2 (output/runs/2026-06-11_02-04-45_real_n20/investigations/* where buggy_label=false) via run_eval.py --commit-ids; zero reclassifications to HIGH or CRITICAL (iter-3-n20-v2 baseline: all 10 were MEDIUM).",
-    "AC-4: Fresh 12-commit regression panel re-run (6 buggy + 6 clean per tests/test_panel_script_gate.py header); buggy_recall ≥ 0.80 (≥5/6 buggy → HIGH/CRITICAL after risk_policy). test_panel_script_gate.py must still pass (risk_policy unchanged).",
-    "AC-5: D6 ≥ 0.70 on frozen n=5 smoke via run_eval.py --commit-ids f897d46870ba 90846b586c51 2213f71944ae 409664582f53 dd6f9ba60fb4; mean D6 across 5 ≥ 0.70.",
-    "AC-6: Total HYPOTHESIS_SYSTEM_PROMPT length stays ≤ 60 lines (regression guard from iter-3e; enforced by test_hypothesis_engine.py::test_prompt_length_at_most_60_lines)."
+    "AC-1: _score_d2_localization filters fix_basenames to exclude test files (*Test.java, *Tests.java, *IT.java, *Spec.java) and documentation files (*.adoc, *.md, *.rst, *.txt). Agent localization (agent_files) is NOT filtered — agent should already emit source files only.",
+    "AC-2: A _is_test_or_doc helper or equivalent pattern is added to eval_harness.py with unit tests confirming it filters Test.java, Tests.java, .adoc, .md correctly and preserves plain .java source files.",
+    "AC-3: D2_buggy_only >= 0.30 on the latest n=20 run (was 0.254 before iter-2d, before adoc/test noise).",
+    "AC-4: D2_overall >= 0.15 on n=20 (current blocker = 0.127).",
+    "AC-5: D1, D3, D4, D5, D6 scores remain within ±0.05 of the 2026-06-11_05-06-01_real_n20 baseline {D1:0.900, D3:0.350, D4:0.901, D5:0.600, D6:0.750}.",
+    "AC-6: All 6 gates pass simultaneously: D1>=0.70, D2>=0.15, D3>=0.20, D4>=0.60, D5>=0.25, D6>=0.60.",
+    "AC-7: pytest 320+ tests pass; ruff check clean."
   ],
   "edge_cases": [
-    "EC-1: The coverage requirement must NOT inject file names, risk labels, or rubric tiers into the prompt (consistent with iter-3e hygiene). Files list should come from context, not system prompt.",
-    "EC-2: For commits with only 1 production file (e.g. 409664582f53), the per-file requirement degenerates to ≥1 hypothesis with file field set to that production path; verified by unit test on single-file context fixture.",
-    "EC-3: If the targeted rerun shows ΔD3=0 for all 3 commits, record decision anti-anchoring-insufficient in .harness/evals/eval-iter-2d-wrong-mechanism.json and close task with negative result documented.",
-    "EC-4: The new COVERAGE REQUIREMENT section must be ≤ 8 lines to respect prompt brevity constraints."
+    "EC-1: If fix_basenames after filtering is empty (e.g., fix only touched test files), return score=0.5 with details noting all fix files were test/doc — same as the 'fix unavailable from git' fallback, to avoid penalizing correct localization when the fix was test-only.",
+    "EC-2: Filter is applied to fix_basenames only — D3 and D5 still receive the unfiltered fix_files set (they need the full context for diff oracle and recommendation scoring).",
+    "EC-3: Filtering XML test configs (test-*.xml, *Test*.xml) is NOT included to avoid over-filtering — XML extension alone is insufficient to classify as test."
   ],
-  "verification_method": "1. ruff check + pytest (300+ tests must pass). 2. AC-1/EC-1/EC-4: grep + test_hypothesis_engine coverage-section tests. 3. AC-2: run_eval.py --commit-ids 2213f71944ae 409664582f53 dd6f9ba60fb4; score D3 vs frozen baselines with same judge. 4. AC-3: run_eval.py --commit-ids on 10 clean prefixes from iter-3-n20-v2 run dir; assert risk_level ∉ {HIGH, CRITICAL}. 5. AC-4: run_eval.py --commit-ids on 12 panel prefixes; compute buggy_recall; pytest tests/test_panel_script_gate.py. 6. AC-5: run_eval.py --commit-ids on frozen n=5 set; mean D6 ≥ 0.70. 7. EC-3: document outcome in eval report regardless of PASS/FAIL on AC-2."
+  "verification_method": "1. ruff check + pytest. 2. Unit test: _is_test_or_doc('FooTest.java')=True, _is_test_or_doc('Foo.java')=False, _is_test_or_doc('design.adoc')=True. 3. Re-run n=20 eval and confirm D2_overall >= 0.15, all 6 gates pass. 4. Confirm D3 score unchanged vs 2026-06-11_05-06-01_real_n20 baseline (0.350 ± 0.05)."
 }

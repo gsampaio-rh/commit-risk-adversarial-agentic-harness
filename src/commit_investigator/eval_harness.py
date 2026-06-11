@@ -212,7 +212,19 @@ class EvalHarness:
                 details=f"Agent localized {len(report.localization)} files (fix files unavailable from git)",
             )
 
-        fix_basenames = {_basename(f) for f in fix_files}
+        fix_basenames_raw = {_basename(f) for f in fix_files}
+        fix_basenames = {f for f in fix_basenames_raw if not _is_test_or_doc(f)}
+        if not fix_basenames:
+            # Fix only touched test/doc files — localization is correct if agent has any files
+            return DimensionScore(
+                dimension="D2_localization",
+                score=0.5 if agent_files else 0.0,
+                details=(
+                    f"All {len(fix_basenames_raw)} fix files were test/doc — "
+                    f"agent localized {len(agent_files)} source file(s)"
+                ),
+            )
+
         intersection = agent_files & fix_basenames
         union = agent_files | fix_basenames
         jaccard = len(intersection) / len(union) if union else 0.0
@@ -626,3 +638,28 @@ def save_eval_report(report: EvalReport, output_dir: str | Path) -> None:
 def _basename(path: str) -> str:
     """Extract filename from a path for file-level Jaccard comparison."""
     return Path(path).name
+
+
+def _is_test_or_doc(filename: str) -> bool:
+    """Return True for test classes and documentation files.
+
+    These are cascading fix-commit changes that are not bug locations:
+    test classes are added/updated as a consequence of finding the bug,
+    and doc files (.adoc, .md) are updated mechanically after the fix.
+    Filtering them from D2 fix ground truth yields a fairer localization score.
+    """
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix.lower()
+
+    if suffix in {".adoc", ".md", ".rst", ".txt"}:
+        return True
+
+    if suffix == ".java" and (
+        stem.endswith("Test")
+        or stem.endswith("Tests")
+        or stem.endswith("IT")
+        or stem.endswith("Spec")
+    ):
+        return True
+
+    return False

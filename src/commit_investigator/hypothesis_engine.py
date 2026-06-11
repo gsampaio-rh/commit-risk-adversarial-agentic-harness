@@ -41,9 +41,10 @@ Respond ONLY with valid JSON (no markdown, no text outside JSON):
 ## COVERAGE REQUIREMENT
 
 For each production source file (*.java, *.py, *.scala, *.go, *.ts, *.js)
-in Touched Files or the Diff: emit ≥1 hypothesis with `file` matching that
-path, OR cite SKIP:<path> with reason (test-only, doc-only, config-only,
-message-only). Cover all production files before adding extras.
+in Touched Files or the Diff with SUBSTANTIVE changes (>3 lines added or
+removed): emit ≥1 hypothesis with `file` matching that path, OR cite
+SKIP:<path> with reason (test-only, doc-only, config-only, message-only,
+minor-change). Cover all substantive files before adding extras.
 Do not anchor on the most salient hunk alone.
 
 ## INVESTIGATION FOCUS
