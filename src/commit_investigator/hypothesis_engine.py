@@ -32,7 +32,8 @@ Respond ONLY with valid JSON (no markdown, no text outside JSON):
       "mechanism": "If <specific condition> then <specific failure> at <file>:<area>",
       "evidence_quote": "exact line(s) from the diff showing this mechanism (empty string if not visible)",
       "file": "primary file this hypothesis concerns",
-      "lines": [start_line, end_line]
+      "lines": [start_line, end_line],
+      "suggested_action": "what to verify or fix if this hypothesis is confirmed (1 sentence)"
     }
   ]
 }
@@ -58,6 +59,10 @@ class HypothesisSpec(BaseModel):
     evidence_quote: str = Field(default="", description="Exact diff line(s) supporting this hypothesis")
     file: str = Field(default="", description="Primary file this hypothesis concerns")
     lines: list[int] = Field(default_factory=list, description="[start_line, end_line] optional")
+    suggested_action: str = Field(
+        default="",
+        description="What to verify or fix if this hypothesis is confirmed (1 sentence)",
+    )
 
 
 class HypothesisResponse(BaseModel):

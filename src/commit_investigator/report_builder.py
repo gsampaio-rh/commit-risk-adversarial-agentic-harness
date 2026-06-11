@@ -17,7 +17,10 @@ from commit_investigator.report import (
     EvidenceItem,
     EvidenceType,
     LocalizationClaim,
+    Recommendation,
+    RecommendationPriority,
     RiskAssessment,
+    RiskLevel,
 )
 from commit_investigator.risk_policy import PolicyVerdict
 
@@ -75,6 +78,8 @@ def build_report(
         if tag.tier == "SUPPORTED"
     ]
 
+    recommendations = _derive_recommendations(hyp_response.hypotheses, tagged, verdict)
+
     per_stage = [
         {
             "stage": cp.turn,
@@ -117,11 +122,48 @@ def build_report(
         findings=findings,
         localization=localization,
         reasoning_summary=hyp_response.summary,
-        recommendations=[],
+        recommendations=recommendations,
         tools_used=tools_used,
         turn_count=turns,
         metadata=metadata,
     )
+
+
+def _derive_recommendations(
+    hypotheses: list[HypothesisSpec],
+    tagged: list[TagResult],
+    verdict: PolicyVerdict,
+) -> list[Recommendation]:
+    """Derive actionable recommendations from SUPPORTED hypotheses.
+
+    Each SUPPORTED hypothesis contributes one recommendation using its
+    suggested_action (from LLM) or a fallback derived from the mechanism.
+    Speculative and refuted hypotheses are excluded.
+    """
+    recs: list[Recommendation] = []
+    priority = (
+        RecommendationPriority.HIGH
+        if verdict.risk_level in (RiskLevel.HIGH, RiskLevel.CRITICAL)
+        else RecommendationPriority.MEDIUM
+    )
+
+    for h, tag in zip(hypotheses, tagged):
+        if tag.tier != "SUPPORTED":
+            continue
+
+        action = h.suggested_action.strip() if h.suggested_action else ""
+        if not action:
+            # Fallback: derive action from mechanism
+            file_ref = f" in {h.file}" if h.file else ""
+            action = f"Investigate and test the failure mode{file_ref}: {h.mechanism[:120]}"
+
+        recs.append(Recommendation(
+            action=action,
+            priority=priority,
+            rationale=f"Hypothesis SUPPORTED — evidence quote present: {bool(h.evidence_quote)}",
+        ))
+
+    return recs
 
 
 def _safe_lines(lines: list[int]) -> tuple[int, int] | None:

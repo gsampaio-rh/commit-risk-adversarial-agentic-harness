@@ -60,6 +60,7 @@ class TestPromptConstraints:
         assert "hypotheses" in HYPOTHESIS_SYSTEM_PROMPT
         assert "mechanism" in HYPOTHESIS_SYSTEM_PROMPT
         assert "evidence_quote" in HYPOTHESIS_SYSTEM_PROMPT
+        assert "suggested_action" in HYPOTHESIS_SYSTEM_PROMPT
 
     # AC-2: no rubric tier labels
     def test_prompt_has_no_rubric_tiers(self):
@@ -91,6 +92,7 @@ class TestHypothesisModels:
         assert spec.evidence_quote == ""
         assert spec.file == ""
         assert spec.lines == []
+        assert spec.suggested_action == ""
 
     def test_hypothesis_response_minimal(self):
         resp = HypothesisResponse(summary="Minor change", hypotheses=[])
