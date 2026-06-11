@@ -47,6 +47,9 @@ class InvestigationContext:
     router_probability: float | None = None
     router_route: str | None = None
     truncation_metadata: AssembledDiff | None = None
+    # raw_diff is the untruncated git diff, used for archetype/signal detection.
+    # context.diff is the assembled/truncated diff used for LLM injection.
+    raw_diff: str | None = None
 
 
 class AuthorStatsIndex:
@@ -201,6 +204,7 @@ class CommitContextBuilder:
             author_stats=author_stats,
             missing_reasons=missing_reasons,
             truncation_metadata=assembled,
+            raw_diff=raw_diff,
         )
 
     def _resolve_author_stats(

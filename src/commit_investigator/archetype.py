@@ -33,6 +33,10 @@ _COMPAT_COMMENT_RE = re.compile(
     r"^-.*(?:incompatible|compatibility|breaking threshold|binary incompatible)",
     re.MULTILINE | re.IGNORECASE,
 )
+_ITERATOR_SAFETY_RE = re.compile(
+    r"^\+.*(?:\.iterator\(\)|itr\.remove\(\)|iterator\.remove\(\)|Iterator<)",
+    re.MULTILINE,
+)
 _VERSION_PROPERTY_RE = re.compile(
     r"^[-+].*(?:-version>|<[\w-]*version>)",
     re.MULTILINE | re.IGNORECASE,
@@ -43,11 +47,17 @@ _VERSION_PROPERTY_RE = re.compile(
 # ---------------------------------------------------------------------------
 
 _LIFECYCLE_RE = re.compile(
-    r"SmartLifecycle|@Order|shutdown|startup|@EventListener|lifecycle",
+    # @Order alone is excluded: it's a routine Spring bean ordering annotation
+    # that does NOT indicate a lifecycle defect risk. LifecyclePhase, SmartLifecycle,
+    # shutdown/startup hooks, and @EventListener are materially higher-risk.
+    r"SmartLifecycle|LifecyclePhase|shutdown|startup|@EventListener|\blifecycle\b",
     re.IGNORECASE,
 )
 _GUARD_REMOVAL_RE = re.compile(
-    r"^-\s+.*(?:if\s*\(|guard|null\s*==|!=\s*null|nullcheck)",
+    r"^-\s+.*(?:"
+    r"guard\b|nullcheck|checkNotNull|requireNonNull|Assert\.notNull"
+    r"|null\s*==|==\s*null|!=\s*null|null\s*!="
+    r")",
     re.MULTILINE | re.IGNORECASE,
 )
 _CONCURRENCY_CHANGE_RE = re.compile(
@@ -62,8 +72,11 @@ def has_production_defect_signals(context: InvestigationContext) -> bool:
     Detects guard removal, lifecycle ordering changes, and concurrency
     modifications — signals that opt-out from the clean-commit risk cap.
     Routine return-statement edits and JIRA-ticket references do NOT trigger.
+
+    Uses raw_diff when available so assembled/truncated diffs don't suppress
+    signal detection.
     """
-    diff = context.diff or ""
+    diff = context.raw_diff or context.diff or ""
 
     if _GUARD_REMOVAL_RE.search(diff):
         return True
@@ -83,8 +96,11 @@ def detect_archetype(context: InvestigationContext) -> bool:
     NOTE: This function checks commit patterns only. It does NOT check for
     production defect signals — that gate lives in risk_policy.evaluate_risk(),
     which calls has_production_defect_signals() before consulting this function.
+
+    Uses raw_diff when available so assembled/truncated diffs don't drop
+    archetype evidence (e.g. method signature changes in secondary files).
     """
-    diff = context.diff or ""
+    diff = context.raw_diff or context.diff or ""
     touched = " ".join(context.touched_files or [])
 
     version_touched = any(name in touched for name in ("pom.xml", "build.gradle", ".gradle"))
@@ -109,6 +125,15 @@ def detect_archetype(context: InvestigationContext) -> bool:
     plus_methods = len(re.findall(r"^\+\s*(?:public|protected)[^\n]*\(", diff, re.MULTILINE))
     if minus_methods >= 1 and plus_methods >= 1 and import_changes <= 1:
         if not has_production_defect_signals(context):
+            return True
+
+    # Iterator safety refactoring: replaces direct collection mutation with
+    # iterator-based removal to prevent ConcurrentModificationException.
+    # Only clean when no guards are removed (guard removal is still a risk signal).
+    if _ITERATOR_SAFETY_RE.search(diff) and not _GUARD_REMOVAL_RE.search(diff):
+        minus_direct_remove = len(re.findall(r"^-.*\.(remove|put)\(", diff, re.MULTILINE))
+        plus_itr_remove = len(re.findall(r"^\+.*itr(?:erator)?\.remove\(\)", diff, re.MULTILINE))
+        if minus_direct_remove >= 1 and plus_itr_remove >= 1:
             return True
 
     return False

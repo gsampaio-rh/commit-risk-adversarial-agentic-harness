@@ -206,3 +206,6 @@
 {"ts":"2026-06-11T01:17:16","role":"builder","type":"checkpoint","feat":"FIX-JUDGE-INFRA","msg":"Commit:  (4 files)"}
 {"ts":"2026-06-11T01:25:00Z","role":"builder","type":"checkpoint","feat":"iter-3-validate","msg":"PASS 7/7 AC. D1=0.667, buggy_recall=0.833, D6=0.75. n=12 panel. per_stage observability confirmed. cap_reason present. EXP-JUDGE-SWAP decision applied.","result":"pass"}
 {"ts":"2026-06-11T01:27:45","role":"builder","type":"checkpoint","feat":"FIX-JUDGE-INFRA","msg":"Commit:  (3 files)"}
+{"ts":"2026-06-11T01:48:00Z","role":"builder","type":"build","feat":"iter-3-n20","msg":"iter-3-n20 PARTIAL FAIL: D1=0.65 (FP), D5=0.0 (regression). Fix: added suggested_action to HypothesisSpec, _derive_recommendations from SUPPORTED hypotheses. 300 tests pass. Re-run needed.","result":"fail"}
+{"ts":"2026-06-11T01:42:50","role":"builder","type":"checkpoint","feat":"FIX-JUDGE-INFRA","msg":"Commit:  (6 files)"}
+{"ts":"2026-06-11T02:20:00Z","role":"builder","type":"build","feat":"iter-3-n20-fp-fix","msg":"FP fix: 5/5 clean-commit FPs addressed. FIX-1: raw_diff in context. FIX-2: tightened _GUARD_REMOVAL_RE. FIX-3: removed @Order from lifecycle signals + added LifecyclePhase. FIX-4: iterator-safety archetype. 300 tests pass.","result":"pass"}
