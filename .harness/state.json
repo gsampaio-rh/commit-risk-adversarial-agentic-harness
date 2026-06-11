@@ -421,7 +421,7 @@
       "id": "iter-n50-delivery",
       "name": "n=50 delivery-confidence gate",
       "type": "validation",
-      "status": "verified",
+      "status": "committed",
       "priority": 15,
       "cost": "~$0.35",
       "cost_actual": "$0.2933",
