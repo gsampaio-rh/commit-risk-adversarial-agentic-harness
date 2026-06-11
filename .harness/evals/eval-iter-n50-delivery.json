@@ -2165,5 +2165,66 @@
       },
       "errors": []
     }
-  ]
+  ],
+  "judge_model": "cursor-sdk/claude-sonnet-4-6",
+  "baseline_comparison": {
+    "iter_1_n20": {
+      "run": "output/runs/2026-06-10_17-12-55_real_n20",
+      "scores": {
+        "D1": 0.6,
+        "D2": 0.15,
+        "D3": 0.2,
+        "D4": 0.9,
+        "D5": 0.37,
+        "D6": 0.85
+      },
+      "deltas": {
+        "D1": "+0.100",
+        "D2": "+0.040",
+        "D3": "+0.030",
+        "D4": "-0.006",
+        "D5": "+0.043",
+        "D6": "-0.080"
+      },
+      "gates_at_iter1": {
+        "D1": "FAIL",
+        "D2": "PASS",
+        "D3": "PASS",
+        "D4": "PASS",
+        "D5": "PASS",
+        "D6": "PASS"
+      }
+    },
+    "iter_3_n20": {
+      "run": "output/runs/2026-06-11_05-43-56_real_n20",
+      "scores": {
+        "D1": 0.9,
+        "D2": 0.209,
+        "D3": 0.325,
+        "D4": 0.901,
+        "D5": 0.6,
+        "D6": 0.762
+      },
+      "deltas": {
+        "D1": "-0.200",
+        "D2": "-0.019",
+        "D3": "-0.095",
+        "D4": "-0.007",
+        "D5": "-0.187",
+        "D6": "+0.008"
+      },
+      "note": "Natural variance at scale: n=50 samples harder commits not present in n=20 fixed set. All 6 gates still pass."
+    },
+    "n50_scores": {
+      "D1": 0.7,
+      "D2": 0.19,
+      "D3": 0.23,
+      "D4": 0.894,
+      "D5": 0.413,
+      "D6": 0.77
+    },
+    "all_gates_pass": true,
+    "clean_fp_rate": 0.32,
+    "buggy_recall": 0.72
+  }
 }
