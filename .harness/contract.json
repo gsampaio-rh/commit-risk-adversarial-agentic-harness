@@ -1,26 +1,41 @@
 {
-  "task_id": "iter-n50-delivery",
-  "feature": "n=50 stratified delivery-confidence gate: verify all 6 quality dimensions hold at scale",
-  "phase": "evaluating",
-  "negotiation_rounds": 0,
-  "verified": true,
+  "task_id": "v2-forensics-n50",
+  "feature": "Deep n=50 per-commit failure taxonomy — JSON + Markdown forensics reports",
+  "problem": "V1 delivered all 6 gates at n=50, but D1=0.700 (hairline), D2=0.190, D3=0.230 are below V2 targets. The v2_failure_taxonomy in state.json is a preliminary estimate by the planner. V2 implementation tasks (FP tightening, localization precision, contrastive hypothesis) need a validated, per-commit failure matrix to be prioritized correctly. Without it, we might fix the wrong thing.",
+  "proposed_solution": "A deterministic Python script (scripts/v2_forensics_n50.py) that reads eval-iter-n50-delivery.json + 50 investigation JSONs from the n=50 run. Applies rule-based taxonomy (d3_tag, d1_tag, d2_tag) via regex extraction of D2/D3 judge details. Produces two artifacts: v2-forensics-n50.json (machine-readable, 50 commits fully tagged) and v2-forensics-n50.md (human-readable, 6 sections). Zero LLM calls. ~$0 cost.",
   "acceptance_criteria": [
-    "AC-1: n=50 stratified eval completes (25 buggy + 25 clean, same apachejit_test_small.csv dataset).",
-    "AC-2: D1 >= 0.70 at n=50.",
-    "AC-3: D2 >= 0.15 at n=50.",
-    "AC-4: D3 >= 0.20 at n=50.",
-    "AC-5: D4 >= 0.60 at n=50.",
-    "AC-6: D5 >= 0.25 at n=50.",
-    "AC-7: D6 >= 0.60 at n=50.",
-    "AC-8: All 6 gates pass simultaneously.",
-    "AC-9: Clean FP rate <= 35% (HIGH/CRITICAL on clean commits / total clean <= 0.35).",
-    "AC-10: Buggy recall >= 0.70 (HIGH/CRITICAL on buggy commits / total buggy >= 0.70).",
-    "AC-11: Report archived at .harness/evals/eval-iter-n50-delivery.json with D1-D6 and comparison vs iter-1 n=20 baseline {D1:0.60, D2:0.15, D3:0.20, D4:0.90, D5:0.37, D6:0.85} and iter-3 n=20 baseline {D1:0.900, D2:0.209, D3:0.325, D4:0.901, D5:0.600, D6:0.762}."
+    "AC-1: .harness/evals/v2-forensics-n50.json exists with top-level keys meta, aggregate_scores, d3_failure_taxonomy, clean_fp_analysis, d2_gap_analysis, priority_matrix, hard_commit_panel, commits; meta.n_commits==50; commits[] has exactly 50 entries each with commit_id (full SHA), commit_prefix (12-char), project, buggy, scores{D1–D6 floats}, tags{d3_tag,d1_tag,d2_tag}, pipeline{supported_count, cap_applied, truncation_status, judge_oracle, archetype_detected}, evidence{d2_jaccard,d3_judge_details_excerpt}",
+    "AC-2: .harness/evals/v2-forensics-n50.md exists with exactly 6 level-2 headings in order: ## Executive Summary, ## D3 Failure Taxonomy, ## D1 FP Analysis, ## D2 Gap, ## Priority Matrix, ## Hard-Commit Panel",
+    "AC-3: All 11 buggy commits with scores.D3==0.0 (prefixes from state.v2_failure_taxonomy.buggy_d3_distribution.D3=0.commits) each have tags.d3_tag exactly one of {wrong-mechanism, missing-context, judge-infra}; tiebreaker order when multiple rules match: (1) judge-infra if judge_oracle==unavailable OR (judge_oracle==fix-diff-fallback AND details match /no description|untestable|cannot score/i), (2) else missing-context if truncated_files non-empty AND d2_jaccard<0.25 OR commit_prefix in {572f3cee35fe}, (3) else wrong-mechanism; distribution counts sum to 11",
+    "AC-4: All 8 clean FP commits (state.v2_failure_taxonomy.clean_fp_analysis.fp_commits prefixes) have tags.d1_tag==false_positive AND pipeline fields archetype_detected (bool), supported_count (int≥0), cap_applied (bool) populated (not null)",
+    "AC-5: priority_matrix is a JSON array of exactly 5 entries with fields rank, dimension, intervention, expected_delta, task_id; task_id values MUST be v2-d3-contrastive-hypothesis, v2-fp-risk-tightening, v2-d2-localization-precision, EXP-BUNDLE-EXPAND, v2-evidence-strict-supported (one each); expected_delta is non-empty string referencing at least one of D1|D2|D3",
+    "AC-6: hard_commit_panel.tier_1_d3_zero lists exactly 11 commit_prefixes (all buggy D3==0.0); hard_commit_panel.tier_2_d3_partial lists exactly 7 commit_prefixes (all buggy 0.25<=D3<0.50); union_count==18; recommended_rerun_order sorts tier_1 first then tier_2 by truncation_status heavy→partial→none"
   ],
   "edge_cases": [
-    "EC-1: If any gate fails at n=50 that passed at n=20, record the regression and trigger forensic analysis on failing commits before declaring the run a failure.",
-    "EC-2: If D3 < 0.20 at n=50 but was 0.325 at n=20, inspect D3=0 commits for wrong-mechanism vs judge-infra failure. Document whether the regression is within expected variance (CI at n=20 is wide).",
-    "EC-3: judge_model must be the same model (cursor-sdk) as iter-3 n=20 baseline for comparability."
+    "EC-1: Investigation JSON missing for a commit — script logs WARNING to stderr containing commit_prefix; entry still emitted with tags.d3_tag==data_missing, tags.d1_tag==data_missing, tags.d2_tag==data_missing, pipeline.supported_count/cap_applied/archetype_detected/truncation_status/judge_oracle all null, evidence.d3_judge_details_excerpt==null; AC-1 count remains 50",
+    "EC-2: D3 details string matches no taxonomy regex — if judge_oracle==unavailable tag judge-infra; else tag wrong-mechanism and set evidence.d3_judge_details_excerpt to first 200 chars of scores.D3.details (non-null)",
+    "EC-3: data/repos unavailable for archetype re-derivation — archetype_detected inferred from cap_reason.startswith('clean_archetype') only; script exits 0 (no crash)",
+    "EC-4: Delivery JSON field disagrees with per-commit evaluation file — prefer eval-iter-n50-delivery.json results[] values; log single INFO line per mismatch with commit_prefix"
   ],
-  "verification_method": "1. Run: python -m commit_investigator.run_eval --train data/apachejit/apachejit_train.csv --test data/apachejit/apachejit_test_small.csv --zip data/apachejit/apachejit_dataset_replication.zip --max-evals 50. 2. Parse eval-report.md for D1-D6 dimension_averages. 3. Check all 6 gates pass. 4. Compute clean FP rate from stratum_averages.clean.D1 (inverted). 5. Compute buggy recall from stratum_averages.buggy.D1. 6. Archive eval-report.json to .harness/evals/eval-iter-n50-delivery.json."
+  "verification_method": "(1) python scripts/v2_forensics_n50.py --delivery-json .harness/evals/eval-iter-n50-delivery.json --run-dir output/runs/2026-06-11_06-13-50_real_n50 --output-json .harness/evals/v2-forensics-n50.json --output-md .harness/evals/v2-forensics-n50.md — exit 0; (2) python scripts/v2_forensics_n50.py --validate — exit 0 with inline assertions for AC-1–AC-6 (--validate implemented in same script per implementation_plan step 12); fallback if --validate absent: pytest tests/test_v2_forensics_n50.py -q — exit 0; (3) python -c \"import json;d=json.load(open('.harness/evals/v2-forensics-n50.json'));assert len(d['commits'])==50\"; (4) grep -cE '^## ' .harness/evals/v2-forensics-n50.md | test 6 -eq; (5) spot-check 3 D3=0 commits (572f3cee35fe, dd6f9ba60fb4, 8780086dbe23) and 2 FP commits (95b7f1d29a5e, f548bfffbdcd) — tags match investigation JSON metadata and delivery scores",
+  "rubrics": ["code-quality"],
+  "rubric_mode": "warn",
+  "negotiation_rounds": 1,
+  "phase": "evaluating",
+  "verified": true,
+  "negotiation_notes": {
+    "round_1": {
+      "AC-1": "STRENGTHENED — added top-level schema keys and nested commits[] field paths beyond flat field list",
+      "AC-2": "STRENGTHENED — exact ## heading strings and order",
+      "AC-3": "STRENGTHENED — named 11 commit source, exhaustive enum, tiebreaker priority order, count sum",
+      "AC-4": "STRENGTHENED — explicit fp_commits source list, d1_tag==false_positive, non-null pipeline fields",
+      "AC-5": "STRENGTHENED — exactly 5 entries with required task_id slugs matching downstream V2 tasks",
+      "AC-6": "STRENGTHENED — exact tier counts, D3 score bands, union_count, rerun sort order",
+      "EC-1": "STRENGTHENED — data_missing tag semantics and null vs default per field",
+      "EC-2": "ACCEPTED with minor clarify on excerpt requirement",
+      "EC-3": "ADDED — repos-unavailable archetype fallback",
+      "EC-4": "ADDED — delivery vs evaluation file precedence",
+      "verification_method": "STRENGTHENED — full CLI args, --validate in scope (step 12), pytest fallback, spot-check commit IDs"
+    }
+  }
 }
