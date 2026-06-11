@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -32,12 +33,14 @@ from commit_investigator.report import (
 from commit_investigator.report_builder import build_report, tag_hypotheses
 from commit_investigator.risk_policy import evaluate_risk_from_hypotheses
 from commit_investigator.tools import ToolRegistry, build_default_registry
+from commit_investigator.turn2_context import Turn2ContextBundle, build_turn2_follow_up
 
 INVESTIGATION_SYSTEM_PROMPT = HYPOTHESIS_SYSTEM_PROMPT
 
 __all__ = [
     "INVESTIGATION_SYSTEM_PROMPT",
     "AgentOrchestrator",
+    "FollowUpMode",
     "InvalidInvestigationResponseError",
     "BudgetState",
     "TurnCheckpoint",
@@ -45,6 +48,13 @@ __all__ = [
 ]
 
 DEFAULT_MAX_DIFF_CHARS = 16_000
+
+
+class FollowUpMode(str, Enum):
+    """How turn-2+ follow-up is triggered."""
+
+    GATE = "gate"
+    ALWAYS = "always"
 
 
 class InvalidInvestigationResponseError(ValueError):
@@ -83,6 +93,7 @@ class TurnCheckpoint:
     cost: float
     follow_up_needed: bool
     latency_ms: float = 0.0
+    turn2_injection: str | None = None
 
 
 class AgentOrchestrator:
@@ -100,6 +111,7 @@ class AgentOrchestrator:
         max_cost: float = 0.50,
         checkpoint_dir: str | Path | None = None,
         max_diff_chars: int = DEFAULT_MAX_DIFF_CHARS,
+        follow_up_mode: FollowUpMode = FollowUpMode.GATE,
     ) -> None:
         self._llm = llm_provider or get_provider()
         self._max_turns = max_turns
@@ -107,6 +119,8 @@ class AgentOrchestrator:
         self._checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
         self._checkpoints: list[TurnCheckpoint] = []
         self._max_diff_chars = max_diff_chars
+        self._follow_up_mode = follow_up_mode
+        self._last_turn2_bundle: Turn2ContextBundle | None = None
 
     def investigate(
         self,
@@ -119,6 +133,7 @@ class AgentOrchestrator:
         """Run a bounded multi-turn investigation on a commit."""
         self._budget = BudgetState(max_tokens=self._budget.max_tokens, max_cost=self._budget.max_cost)
         self._checkpoints = []
+        self._last_turn2_bundle = None
 
         if git_provider is None and context is None:
             raise ValueError("Either git_provider or pre-built context required")
@@ -157,18 +172,22 @@ class AgentOrchestrator:
                 continue
 
             follow_up_needed = self._should_follow_up(hyp_response, context, turn)
+            turn2_injection: str | None = None
+            if follow_up_needed and turn < self._max_turns and git_provider is not None:
+                bundle = build_turn2_follow_up(context, git_provider)
+                self._last_turn2_bundle = bundle
+                turn2_injection = bundle.message
+                messages.append(LLMMessage(role="user", content=bundle.message))
+
             self._save_checkpoint(TurnCheckpoint(
                 turn=turn, timestamp=time.time(), messages_sent=len(messages),
                 tool_calls_made=all_tool_calls.copy(), tokens_used=self._budget.total_tokens,
                 cost=self._budget.total_cost, follow_up_needed=follow_up_needed,
                 latency_ms=turn_latency_ms,
+                turn2_injection=turn2_injection,
             ))
             if not follow_up_needed:
                 break
-            messages.append(LLMMessage(
-                role="user",
-                content="Continue the investigation. Focus on areas of uncertainty.",
-            ))
 
         if hyp_response is None or last_response is None:
             raise InvalidInvestigationResponseError("No LLM response received")
@@ -184,6 +203,7 @@ class AgentOrchestrator:
             budget=self._budget,
             tools_used=list(set(tools_used + all_tool_calls)),
             turns=self._budget.turns_used,
+            turn2_bundle=self._last_turn2_bundle,
         )
 
     def _parse_response(self, response: LLMResponse) -> HypothesisResponse:
@@ -197,9 +217,16 @@ class AgentOrchestrator:
                 f"Invalid LLM JSON (missing summary/hypotheses): {content[:300]!r}"
             ) from exc
 
-    def _should_follow_up(self, hyp_response: HypothesisResponse, context: InvestigationContext, turn: int) -> bool:
+    def _should_follow_up(
+        self,
+        hyp_response: HypothesisResponse,
+        context: InvestigationContext,
+        turn: int,
+    ) -> bool:
         if turn >= self._max_turns:
             return False
+        if self._follow_up_mode == FollowUpMode.ALWAYS:
+            return True
         tagged = tag_hypotheses(hyp_response.hypotheses, context.diff, context.truncation_metadata)
         supported_count = sum(1 for t in tagged if t.tier == "SUPPORTED")
         tm = context.truncation_metadata
@@ -225,12 +252,19 @@ class AgentOrchestrator:
         if self._checkpoint_dir:
             self._checkpoint_dir.mkdir(parents=True, exist_ok=True)
             path = self._checkpoint_dir / f"turn_{checkpoint.turn}.json"
-            path.write_text(json.dumps({
-                "turn": checkpoint.turn, "timestamp": checkpoint.timestamp,
-                "messages_sent": checkpoint.messages_sent, "tool_calls_made": checkpoint.tool_calls_made,
-                "tokens_used": checkpoint.tokens_used, "cost": checkpoint.cost,
+            payload: dict[str, Any] = {
+                "turn": checkpoint.turn,
+                "timestamp": checkpoint.timestamp,
+                "messages_sent": checkpoint.messages_sent,
+                "tool_calls_made": checkpoint.tool_calls_made,
+                "tokens_used": checkpoint.tokens_used,
+                "cost": checkpoint.cost,
                 "follow_up_needed": checkpoint.follow_up_needed,
-            }, indent=2))
+                "latency_ms": checkpoint.latency_ms,
+            }
+            if checkpoint.turn2_injection:
+                payload["turn2_injection"] = checkpoint.turn2_injection
+            path.write_text(json.dumps(payload, indent=2))
 
 
 def _build_tools(

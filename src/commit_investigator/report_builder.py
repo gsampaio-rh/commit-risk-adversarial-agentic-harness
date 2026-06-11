@@ -26,6 +26,7 @@ from commit_investigator.risk_policy import PolicyVerdict
 
 if TYPE_CHECKING:
     from commit_investigator.orchestrator import BudgetState, TurnCheckpoint
+    from commit_investigator.turn2_context import Turn2ContextBundle
 
 
 def tag_hypotheses(
@@ -51,6 +52,7 @@ def build_report(
     budget: BudgetState,
     tools_used: list[str],
     turns: int,
+    turn2_bundle: Turn2ContextBundle | None = None,
 ) -> CommitInvestigationReport:
     """Assemble a CommitInvestigationReport from hypothesis response + script verdicts."""
     risk_level = verdict.risk_level
@@ -95,10 +97,21 @@ def build_report(
         "model": last_response.model,
         "total_tokens": budget.total_tokens,
         "total_cost": budget.total_cost,
+        "total_cost_usd": round(budget.total_cost, 6),
         "budget_exceeded": budget.budget_exceeded,
         "missing_reasons": list(context.missing_reasons),
         "per_stage": per_stage,
+        "turn_count": turns,
     }
+
+    if turn2_bundle is not None:
+        metadata["turn2_injection"] = {
+            "truncated_files": turn2_bundle.truncated_files,
+            "blame_files": turn2_bundle.blame_files,
+            "has_truncated_section": turn2_bundle.has_truncated_section,
+            "has_blame_section": turn2_bundle.has_blame_section,
+            "message_preview": turn2_bundle.message[:500],
+        }
 
     tm = context.truncation_metadata
     if tm is not None:

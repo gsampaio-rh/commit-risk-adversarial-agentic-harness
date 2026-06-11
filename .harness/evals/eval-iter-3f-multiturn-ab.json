@@ -1,0 +1,82 @@
+{
+  "task_id": "iter-3f-multiturn-ab",
+  "timestamp": "2026-06-11T02:45:00Z",
+  "overall": "PASS",
+  "computational_checks": {
+    "lint": "PASS — no linter errors on changed files",
+    "types": "NOT_RUN — no mypy configured",
+    "tests": "PASS — PYTHONPATH=src pytest: 311 passed in 9.75s",
+    "build": "PASS — run_multiturn_ab completes end-to-end with real cursor-sdk/claude-sonnet-4-6"
+  },
+  "criteria": [
+    {
+      "criterion": "AC-1: Experiment runs on exactly the 3 D3=0 hard commits",
+      "result": "PASS",
+      "evidence": "exp-multiturn-ab.json per_commit has 3 entries: 2213f71944ae..., 409664582f53..., 572f3cee35fe... (full hashes). run_dir=output/runs/2026-06-11_02-35-02_multiturn_ab. HARD_COMMITS constant matches exactly."
+    },
+    {
+      "criterion": "AC-2: Turn-2 structured context with section headers; no generic follow-up strings",
+      "result": "PASS",
+      "evidence": "checkpoints/2213f71944ae/turn_1.json turn2_injection contains '## Git Blame', len=3455, forbidden strings absent. grep src/ for generic follow-up → 0 hits."
+    },
+    {
+      "criterion": "AC-3: ΔD3 computed vs frozen control; ≥2/3 improvement check applied",
+      "result": "PASS",
+      "evidence": "exp-multiturn-ab.json: delta_d3=0.0, mean_d3_1turn_control=0.0, mean_d3_2turn=0.0, improved_count=0. criteria.delta_d3_pass=false → decision=single-turn-maintained per AC-5. Experiment executed and threshold evaluated correctly (negative result is valid A/B outcome)."
+    },
+    {
+      "criterion": "AC-4: Cost/commit ≤ $0.01044 documented",
+      "result": "PASS",
+      "evidence": "per_commit costs: 0.008511, 0.007503, 0.008049 — all ≤ 0.01043 cap. criteria.all_costs_under_cap=true. investigation JSON metadata.total_cost_usd matches."
+    },
+    {
+      "criterion": "AC-5: Decision in .harness/evals/exp-multiturn-ab.json",
+      "result": "PASS",
+      "evidence": "File exists with decision=single-turn-maintained, delta_d3=0.0, per_commit[3], run_dir, judge_model=cursor-sdk/claude-sonnet-4-6."
+    },
+    {
+      "criterion": "AC-6: max_turns=1 defaults; dedicated experiment entry",
+      "result": "PASS",
+      "evidence": "run_eval.py L339 max_turns=1. investigate.py L41 default=1. run_multiturn_ab.py uses max_turns=2 + FollowUpMode.ALWAYS without changing defaults."
+    },
+    {
+      "criterion": "AC-7: 3 investigation JSONs with turn_count=2 and per_stage",
+      "result": "PASS",
+      "evidence": "output/runs/2026-06-11_02-35-02_multiturn_ab/investigations/ has 3 JSON files. 2213f71944ae_camel.json: turn_count=2, per_stage has 2 entries with cost_usd and latency_ms."
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "EC-1: No oracle leakage in turn-2 context",
+      "result": "PASS",
+      "evidence": "Real checkpoint turn2_injection contains only git blame output; no JIRA keys or bug labels in turn2_context.py sources."
+    },
+    {
+      "case": "EC-2: Truncation vs blame-only paths",
+      "result": "PASS",
+      "evidence": "All 3 commits used blame-only path (truncated_files empty post smart-diff). ## Git Blame present in all checkpoints. Code supports ## Truncated Files when truncated_files non-empty (unit tested)."
+    },
+    {
+      "case": "EC-3: Same judge as iter-3-n20-v2",
+      "result": "PASS",
+      "evidence": "judge_model=cursor-sdk/claude-sonnet-4-6. d3_details include [judge_oracle=jira] on all 3 commits matching FIX-JUDGE-INFRA path."
+    },
+    {
+      "case": "EC-4: Frozen control scores, no single-turn re-run",
+      "result": "PASS",
+      "evidence": "All d3_1turn=0.0 from FROZEN_CONTROL_D3 dict; no single-turn orchestrator invocation in run_multiturn_ab.py."
+    },
+    {
+      "case": "EC-5: max_turns=2; D3 on final turn-2 output",
+      "result": "PASS",
+      "evidence": "All reports turn_count=2. reasoning_summary from turn-2 LLM response. exp report uses final report for D3 judge scoring."
+    },
+    {
+      "case": "EC-6: Turn-2 injection in checkpoint/metadata",
+      "result": "PASS",
+      "evidence": "turn_1.json checkpoints contain full turn2_injection field. investigation metadata.turn2_injection present with message_preview."
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "Fix applied: wrong default paths (replication.zip→apachejit_dataset_replication.zip, test.csv→test_large.csv), _load_dotenv(), turn-2 context budget caps (_MAX_TURN2_CHARS=8000). A/B result: multi-turn does NOT lift D3 on hard subset (ΔD3=0.0); single-turn-maintained is correct decision. iter-2d-wrong-mechanism remains next lever."
+}

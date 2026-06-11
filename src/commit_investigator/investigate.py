@@ -38,7 +38,7 @@ def main() -> None:
     parser.add_argument("--repos-dir", default="data/repos", help="Path to cloned repos")
     parser.add_argument("--train-csv", default="data/apachejit/apachejit_train.csv", help="Train CSV for author stats")
     parser.add_argument("--data-csv", default=None, help="CSV to look up commit features")
-    parser.add_argument("--max-turns", type=int, default=3, help="Max investigation turns")
+    parser.add_argument("--max-turns", type=int, default=1, help="Max investigation turns")
     parser.add_argument("--output", default=None, help="Output JSON file path")
     parser.add_argument("--checkpoint-dir", default=None, help="Directory for turn checkpoints")
 

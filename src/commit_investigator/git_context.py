@@ -96,6 +96,34 @@ class GitContextProvider:
         """Return the author email for a commit."""
         return self._run_git(["log", "-1", "--format=%ae", commit_id])
 
+    def get_file_at_commit(self, commit_id: str, path: str) -> str | None:
+        """Return file contents at a specific commit (git show commit:path)."""
+        spec = f"{commit_id}:{path}"
+        return self._run_git(["show", spec])
+
+    def get_blame_snippet(
+        self,
+        commit_id: str,
+        path: str,
+        line_start: int,
+        line_end: int,
+        context_lines: int = 2,
+    ) -> str | None:
+        """Return git blame output for a line range at a commit."""
+        if line_start < 1:
+            line_start = 1
+        if line_end < line_start:
+            line_end = line_start
+        start = max(1, line_start - context_lines)
+        end = line_end + context_lines
+        return self._run_git([
+            "blame",
+            "-L", f"{start},{end}",
+            commit_id,
+            "--",
+            path,
+        ])
+
     def commit_exists(self, commit_id: str) -> bool:
         """Check if a commit exists in the repository."""
         result = self._run_git(["cat-file", "-t", commit_id])
