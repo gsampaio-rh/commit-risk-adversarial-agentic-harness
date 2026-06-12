@@ -10,18 +10,24 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from commit_investigator.context_builder import InvestigationContext  # noqa: E402
-from commit_investigator.hypothesis_engine import (  # noqa: E402
+from commit_investigator.context.context_builder import InvestigationContext  # noqa: E402
+from commit_investigator.hypothesis.hypothesis_engine import (  # noqa: E402
     COVERAGE_SECTION_HEADER,
     HYPOTHESIS_SYSTEM_PROMPT,
+    HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE,
+    HYPOTHESIS_SYSTEM_PROMPT_H1H4T3,
     HypothesisResponse,
     HypothesisSpec,
     _format_author_stats,
     _format_file_histories,
+    has_changed_line_citation,
     build_investigation_messages,
     extract_coverage_section,
+    generate_contrastive_hypotheses,
     is_production_source_file,
     parse_hypothesis_response,
+    _select_primary_sort_key,
+    select_primary_by_evidence,
 )
 
 
@@ -283,7 +289,7 @@ class TestBuildInvestigationMessages:
         assert "Missing Context" in msgs[1].content or "File history unavailable" in msgs[1].content
 
     def test_truncation_metadata_note_added(self):
-        from commit_investigator.smart_diff import AssembledDiff
+        from commit_investigator.context.smart_diff import AssembledDiff
 
         tm = AssembledDiff(
             text="+ new line",
@@ -366,3 +372,263 @@ class TestFormatAuthorStats:
         ctx = _make_context(author_stats=self._make_stats(buggy_rate=0.0667))
         result = _format_author_stats(ctx)
         assert "6.67%" in result
+
+
+# ---------------------------------------------------------------------------
+# HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE — prompt structure
+# ---------------------------------------------------------------------------
+
+
+_CONTRASTIVE_CATEGORIES = (
+    "null-reference",
+    "lifecycle-ordering",
+    "concurrency",
+    "api-contract",
+    "input-validation",
+    "resource-leak",
+    "error-handling",
+    "logic-error",
+)
+
+
+class TestContrastivePrompt:
+    def test_prompt_distinct_from_baseline_and_h1h4t3(self):
+        assert HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE != HYPOTHESIS_SYSTEM_PROMPT
+        assert HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE != HYPOTHESIS_SYSTEM_PROMPT_H1H4T3
+
+    def test_prompt_contains_diversity_requirement(self):
+        assert "CONTRASTIVE" in HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
+
+    def test_prompt_lists_all_eight_causal_categories(self):
+        for category in _CONTRASTIVE_CATEGORIES:
+            assert category in HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
+
+    def test_prompt_requires_category_label_in_brackets(self):
+        assert "category label in brackets" in HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
+
+    def test_prompt_enforces_distinct_categories_in_first_3(self):
+        assert "No two of the first 3" in HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
+
+    def test_prompt_includes_changed_line_evidence_requirement(self):
+        assert "CHANGED-LINE EVIDENCE" in HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
+
+    def test_prompt_includes_coverage_section(self):
+        assert COVERAGE_SECTION_HEADER in HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
+
+    def test_prompt_includes_output_format(self):
+        assert "summary" in HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
+        assert "hypotheses" in HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
+        assert "mechanism" in HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
+
+    def test_prompt_forbids_rubric_output(self):
+        assert "Do NOT include risk_level" in HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
+
+    def test_prompt_anchors_h1_highest_confidence(self):
+        """AC-7: position-0 anchor co-occurs with highest-confidence language."""
+        prompt = HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE.lower()
+        assert "highest-confidence" in prompt or "highest confidence" in prompt
+        assert "position 0" in prompt or "first hypothesis" in prompt
+        assert "h2" in prompt or "second" in prompt or "beyond" in prompt
+
+
+# ---------------------------------------------------------------------------
+# select_primary_by_evidence — unit tests
+# ---------------------------------------------------------------------------
+
+
+def _make_hyp(
+    mechanism: str = "m",
+    evidence_quote: str = "",
+    file: str = "f.py",
+) -> HypothesisSpec:
+    return HypothesisSpec(mechanism=mechanism, evidence_quote=evidence_quote, file=file)
+
+
+class TestSelectPrimaryByEvidence:
+    def test_single_hypothesis_unchanged(self):
+        hyp = _make_hyp(evidence_quote="+ foo = bar")
+        result = select_primary_by_evidence([hyp])
+        assert result == [hyp]
+
+    def test_empty_list_returns_empty(self):
+        assert select_primary_by_evidence([]) == []
+
+    def test_grounded_promoted_over_ungrounded(self):
+        ungrounded = _make_hyp("m1", evidence_quote="context line only")
+        grounded = _make_hyp("m2", evidence_quote="+ new_field = get_value()")
+        result = select_primary_by_evidence([ungrounded, grounded])
+        assert result[0].mechanism == "m2"
+        assert result[1].mechanism == "m1"
+
+    def test_already_best_first_order_preserved(self):
+        h1 = _make_hyp("m1", evidence_quote="+ add line")
+        h2 = _make_hyp("m2", evidence_quote="- remove line")
+        h3 = _make_hyp("m3", evidence_quote="")
+        result = select_primary_by_evidence([h1, h2, h3])
+        assert result[0].mechanism == "m1"
+        assert result[1].mechanism == "m2"
+        assert result[2].mechanism == "m3"
+
+    def test_sort_key_all_ungrounded_is_two_tuple(self):
+        """EC-1: no grounded candidates → (citation_bit, original_index) only."""
+        hyp = _make_hyp("m1", evidence_quote="context only")
+        assert _select_primary_sort_key((3, hyp), any_grounded=False) == (1, 3)
+
+    def test_sort_key_quote_len_after_index(self):
+        """AC-2/EC-3: index precedes quote_len; longer quote breaks index ties only."""
+        short = _make_hyp("s", evidence_quote="+ ab", file="src/Foo.java")
+        long = _make_hyp("l", evidence_quote="+ longer", file="src/Foo.java")
+        assert _select_primary_sort_key((0, short), any_grounded=True) == (0, -1, 0, -4)
+        assert _select_primary_sort_key((0, long), any_grounded=True) == (0, -1, 0, -8)
+
+    def test_all_ungrounded_preserves_original_order(self):
+        h1 = _make_hyp("m1", evidence_quote="context only")
+        h2 = _make_hyp("m2", evidence_quote="")
+        h3 = _make_hyp("m3", evidence_quote="unchanged line")
+        result = select_primary_by_evidence([h1, h2, h3])
+        assert [r.mechanism for r in result] == ["m1", "m2", "m3"]
+
+    def test_grounded_at_index_three_promoted_to_first(self):
+        h1 = _make_hyp("m1", evidence_quote="")
+        h2 = _make_hyp("m2", evidence_quote="")
+        h3 = _make_hyp("m3", evidence_quote="")
+        h4 = _make_hyp("m4", evidence_quote="+ grounded at index three")
+        result = select_primary_by_evidence([h1, h2, h3, h4])
+        assert result[0].mechanism == "m4"
+
+    def test_eba3689_position5_grounded_promoted(self):
+        hyps = [
+            _make_hyp("m0", evidence_quote=""),
+            _make_hyp("m1", evidence_quote="context only"),
+            _make_hyp("m2", evidence_quote=""),
+            _make_hyp("m3", evidence_quote="unchanged line"),
+            _make_hyp("m4", evidence_quote="+ correct mechanism at position five"),
+        ]
+        result = select_primary_by_evidence(hyps)
+        assert result[0] is hyps[4]
+        assert result[0].mechanism == "m4"
+
+    def test_third_grounded_candidate_promoted_to_first(self):
+        h1 = _make_hyp("m1", evidence_quote="context")
+        h2 = _make_hyp("m2", evidence_quote="")
+        h3 = _make_hyp("m3", evidence_quote="- removed guard")
+        result = select_primary_by_evidence([h1, h2, h3])
+        assert result[0].mechanism == "m3"
+
+    def test_returns_new_list_not_mutated(self):
+        original = [_make_hyp("m1"), _make_hyp("m2", evidence_quote="+ x")]
+        result = select_primary_by_evidence(original)
+        assert result is not original
+
+    def test_all_ungrounded_h1_anchor(self):
+        """Position-0 preserved when all candidates lack changed-line citations."""
+        h1 = _make_hyp("anchor_mechanism", evidence_quote="context only")
+        h2 = _make_hyp("alt_m2", evidence_quote="")
+        h3 = _make_hyp("alt_m3", evidence_quote="unchanged line")
+        h4 = _make_hyp("alt_m4", evidence_quote="more context")
+        result = select_primary_by_evidence([h1, h2, h3, h4])
+        assert result[0].mechanism == "anchor_mechanism"
+        assert [r.mechanism for r in result] == [
+            "anchor_mechanism",
+            "alt_m2",
+            "alt_m3",
+            "alt_m4",
+        ]
+
+    def test_composite_grounded_prefers_production_file(self):
+        """Production-file citation beats test-file citation at equal quote length."""
+        equal_quote = "+ x = getValue()"
+        test_file = _make_hyp(
+            "test_path",
+            evidence_quote=equal_quote,
+            file="src/FooTest.java",
+        )
+        production_file = _make_hyp(
+            "prod_path",
+            evidence_quote=equal_quote,
+            file="src/FooService.java",
+        )
+        result = select_primary_by_evidence([test_file, production_file])
+        assert result[0].mechanism == "prod_path"
+        assert result[1].mechanism == "test_path"
+
+
+# ---------------------------------------------------------------------------
+# generate_contrastive_hypotheses — delegates to complete_with_parse_retry
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateContrastiveHypotheses:
+    @staticmethod
+    def _run_with_counting_llm(payload: str) -> tuple[HypothesisResponse, int]:
+        from commit_investigator.infra.llm import LLMMessage, LLMResponse, LLMProvider
+
+        class _SingleCallLLM(LLMProvider):
+            def __init__(self) -> None:
+                self.calls = 0
+
+            @property
+            def model_name(self) -> str:
+                return "single-call-test"
+
+            def complete(self, messages, tools=None, temperature=0.0, max_tokens=4096):
+                self.calls += 1
+                return LLMResponse(
+                    content=payload,
+                    tool_calls=[],
+                    tokens_used=10,
+                    estimated_cost=0.0,
+                    model=self.model_name,
+                    finish_reason="stop",
+                )
+
+        llm = _SingleCallLLM()
+        msgs = [LLMMessage(role="user", content="test")]
+
+        def parse_fn(r):
+            return parse_hypothesis_response(r.content or "")
+
+        result, _ = generate_contrastive_hypotheses(
+            llm, msgs, None, parse_fn, lambda r: None, ValueError,
+        )
+        return result, llm.calls
+
+    def test_returns_hypothesis_response_from_mock_llm(self):
+        payload = json.dumps({
+            "summary": "test summary",
+            "hypotheses": [
+                {
+                    "mechanism": "[null-reference] Observable: NPE. Root change: - null check removed. Mechanism: chain",
+                    "evidence_quote": "- if (x != null)",
+                    "file": "Foo.java",
+                    "lines": [10, 12],
+                    "suggested_action": "Add null guard back",
+                }
+            ],
+        })
+        result, calls = self._run_with_counting_llm(payload)
+        assert isinstance(result, HypothesisResponse)
+        assert result.summary == "test summary"
+        assert len(result.hypotheses) == 1
+        assert "null-reference" in result.hypotheses[0].mechanism
+        assert calls == 1
+
+    def test_single_llm_call_on_parse_success(self):
+        payload = json.dumps({
+            "summary": "ok",
+            "hypotheses": [{"mechanism": "m", "evidence_quote": "+ line", "file": "a.py", "lines": []}],
+        })
+        _, calls = self._run_with_counting_llm(payload)
+        assert calls == 1
+
+    def test_ungrounded_hypotheses_still_single_call(self):
+        payload = json.dumps({
+            "summary": "all ungrounded",
+            "hypotheses": [
+                {"mechanism": "m1", "evidence_quote": "context only", "file": "a.py", "lines": []},
+                {"mechanism": "m2", "evidence_quote": "", "file": "b.py", "lines": []},
+            ],
+        })
+        result, calls = self._run_with_counting_llm(payload)
+        assert calls == 1
+        assert len(result.hypotheses) == 2

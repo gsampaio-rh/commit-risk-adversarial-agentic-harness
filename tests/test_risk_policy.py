@@ -7,12 +7,14 @@ contract is unchanged — every case that passed pre-move must pass post-move.
 
 import pytest
 
-from commit_investigator.context_builder import InvestigationContext
-from commit_investigator.report import RiskLevel
-from commit_investigator.risk_policy import (
+from commit_investigator.context.context_builder import InvestigationContext
+from commit_investigator.analysis.evidence_tagger import TagResult
+from commit_investigator.analysis.report import RiskLevel
+from commit_investigator.analysis.risk_policy import (
     PolicyVerdict,
     _reasoning_all_speculative_or_unverifiable,
     evaluate_risk,
+    evaluate_risk_from_hypotheses,
 )
 
 
@@ -88,6 +90,16 @@ def _concurrency_context() -> InvestigationContext:
         file_histories={},
         author_stats=None,
     )
+
+
+def _tag(tier: str = "SPECULATIVE") -> TagResult:
+    """Minimal TagResult for evaluate_risk_from_hypotheses branch tests."""
+    return TagResult(tier=tier, quote_in_diff=False, match_method="absent")
+
+
+def _with_router(ctx: InvestigationContext, probability: float | None) -> InvestigationContext:
+    ctx.router_probability = probability
+    return ctx
 
 
 # ---------------------------------------------------------------------------
@@ -353,3 +365,142 @@ class TestEvaluateRiskDeterminism:
         for _ in range(999):
             result = evaluate_risk(RiskLevel.CRITICAL, ctx, reasoning)
             assert result == first
+
+
+# ---------------------------------------------------------------------------
+# evaluate_risk_from_hypotheses — live orchestrator path (TagResult input)
+# ---------------------------------------------------------------------------
+
+class TestEvaluateRiskFromHypotheses:
+    def test_base_medium_passthrough_empty_tags(self):
+        """AC-2a / EC-1: no supported, defect, or router → MEDIUM passthrough."""
+        verdict = evaluate_risk_from_hypotheses([], _generic_diff_context())
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is False
+        assert verdict.cap_reason == ""
+        assert verdict.applied_rules == []
+        assert verdict.supported_count == 0
+
+    def test_supported_non_archetype_passthrough(self):
+        """AC-2b: one SUPPORTED on generic diff → HIGH, no cap."""
+        verdict = evaluate_risk_from_hypotheses([_tag("SUPPORTED")], _generic_diff_context())
+        assert verdict.risk_level == RiskLevel.HIGH
+        assert verdict.cap_applied is False
+        assert verdict.cap_reason == ""
+        assert verdict.applied_rules == []
+        assert verdict.supported_count == 1
+
+    def test_supported_clean_archetype_cap(self):
+        """AC-2c: SUPPORTED inside clean archetype still capped."""
+        verdict = evaluate_risk_from_hypotheses([_tag("SUPPORTED")], _version_bump_context())
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
+        assert verdict.cap_reason == "clean_archetype_no_production_defect_signals"
+        assert verdict.applied_rules == ["cap_to_MEDIUM:clean_archetype"]
+        assert verdict.supported_count == 1
+
+    def test_defect_override_on_archetype(self):
+        """AC-2d: defect signals bypass cap (guard/lifecycle/concurrency contexts)."""
+        for ctx_factory in (_guard_removal_context, _lifecycle_context, _concurrency_context):
+            verdict = evaluate_risk_from_hypotheses([], ctx_factory())
+            assert verdict.risk_level == RiskLevel.HIGH
+            assert verdict.cap_applied is False
+            assert verdict.cap_reason == ""
+            assert verdict.applied_rules == []
+            assert verdict.supported_count == 0
+
+    def test_router_boundary_speculative_cap(self):
+        """AC-2e / EC-2: router 0.70 inclusive → HIGH base, speculative cap on generic."""
+        ctx = _with_router(_generic_diff_context(), 0.70)
+        verdict = evaluate_risk_from_hypotheses([], ctx)
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
+        assert verdict.cap_reason == "speculative_or_unverifiable_only"
+        assert verdict.applied_rules == ["cap_to_MEDIUM:speculative_only"]
+        assert verdict.supported_count == 0
+
+    def test_router_below_threshold_medium(self):
+        """AC-2f / EC-2: router 0.69 → MEDIUM passthrough."""
+        ctx = _with_router(_generic_diff_context(), 0.69)
+        verdict = evaluate_risk_from_hypotheses([], ctx)
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is False
+        assert verdict.cap_reason == ""
+        assert verdict.applied_rules == []
+        assert verdict.supported_count == 0
+
+    def test_router_on_archetype_clean_cap(self):
+        """AC-2g: router on archetype → clean_archetype cap_reason wins."""
+        ctx = _with_router(_version_bump_context(), 0.80)
+        verdict = evaluate_risk_from_hypotheses([], ctx)
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
+        assert verdict.cap_reason == "clean_archetype_no_production_defect_signals"
+        assert verdict.applied_rules == ["cap_to_MEDIUM:clean_archetype"]
+        assert verdict.supported_count == 0
+
+    def test_router_on_non_archetype_speculative_cap(self):
+        """AC-2h: router on generic diff → speculative_only cap."""
+        ctx = _with_router(_generic_diff_context(), 0.80)
+        verdict = evaluate_risk_from_hypotheses([], ctx)
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
+        assert verdict.cap_reason == "speculative_or_unverifiable_only"
+        assert verdict.applied_rules == ["cap_to_MEDIUM:speculative_only"]
+        assert verdict.supported_count == 0
+
+    def test_defect_only_high_no_cap(self):
+        """AC-2i: defect alone drives HIGH without cap (_guard_removal_context per contract)."""
+        verdict = evaluate_risk_from_hypotheses([], _guard_removal_context())
+        assert verdict.risk_level == RiskLevel.HIGH
+        assert verdict.cap_applied is False
+        assert verdict.cap_reason == ""
+        assert verdict.applied_rules == []
+        assert verdict.supported_count == 0
+
+    def test_supported_router_non_archetype_passthrough(self):
+        """AC-2j: SUPPORTED + high router on generic → HIGH passthrough."""
+        ctx = _with_router(_generic_diff_context(), 0.85)
+        verdict = evaluate_risk_from_hypotheses([_tag("SUPPORTED")], ctx)
+        assert verdict.risk_level == RiskLevel.HIGH
+        assert verdict.cap_applied is False
+        assert verdict.cap_reason == ""
+        assert verdict.applied_rules == []
+        assert verdict.supported_count == 1
+
+    def test_router_none_coerced_to_zero(self):
+        """EC-3: router_probability=None coerced to 0.0 — same as unset."""
+        unset_verdict = evaluate_risk_from_hypotheses([], _generic_diff_context())
+        none_ctx = _with_router(_generic_diff_context(), None)
+        none_verdict = evaluate_risk_from_hypotheses([], none_ctx)
+        assert none_verdict == unset_verdict
+        assert none_verdict.risk_level == RiskLevel.MEDIUM
+        assert none_verdict.cap_applied is False
+        assert none_verdict.supported_count == 0
+
+    def test_multiple_supported_count(self):
+        """EC-4: multiple SUPPORTED tags increment supported_count."""
+        tagged = [_tag("SUPPORTED"), _tag("SUPPORTED")]
+        verdict = evaluate_risk_from_hypotheses(tagged, _generic_diff_context())
+        assert verdict.supported_count == 2
+        assert verdict.risk_level == RiskLevel.HIGH
+        assert verdict.cap_applied is False
+
+    def test_mixed_tiers_supported_count(self):
+        """EC-5: only SUPPORTED tier increments supported_count."""
+        tagged = [_tag("SPECULATIVE"), _tag("SUPPORTED"), _tag("UNVERIFIABLE"), _tag("REFUTED")]
+        verdict = evaluate_risk_from_hypotheses(tagged, _generic_diff_context())
+        assert verdict.supported_count == 1
+        assert verdict.risk_level == RiskLevel.HIGH
+        assert verdict.cap_applied is False
+
+    def test_speculative_tags_only_router_cap(self):
+        """EC-6: non-SUPPORTED tags do not block speculative_only cap."""
+        ctx = _with_router(_generic_diff_context(), 0.80)
+        tagged = [_tag("SPECULATIVE"), _tag("UNVERIFIABLE")]
+        verdict = evaluate_risk_from_hypotheses(tagged, ctx)
+        assert verdict.supported_count == 0
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
+        assert verdict.cap_reason == "speculative_or_unverifiable_only"
+        assert verdict.applied_rules == ["cap_to_MEDIUM:speculative_only"]

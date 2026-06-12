@@ -2,7 +2,7 @@
 
 import pytest
 
-from commit_investigator.git_context import GitContextProvider, GitRepoNotFoundError
+from commit_investigator.context.git_context import GitContextProvider, GitRepoNotFoundError
 
 from tests.conftest import skip_no_repos
 

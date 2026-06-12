@@ -6,10 +6,10 @@ import json
 
 import pytest
 
-from commit_investigator.context_builder import InvestigationContext
-from commit_investigator.llm import LLMProvider, LLMResponse
-from commit_investigator.orchestrator import AgentOrchestrator, FollowUpMode
-from commit_investigator.smart_diff import AssembledDiff
+from commit_investigator.context.context_builder import InvestigationContext
+from commit_investigator.infra.llm import LLMProvider, LLMResponse
+from commit_investigator.pipeline.orchestrator import AgentOrchestrator, FollowUpMode
+from commit_investigator.context.smart_diff import AssembledDiff
 
 
 class _FakeGitProvider:

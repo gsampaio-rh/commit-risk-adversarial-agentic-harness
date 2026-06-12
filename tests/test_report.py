@@ -5,7 +5,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from commit_investigator.report import (
+from commit_investigator.analysis.report import (
     CommitInvestigationReport,
     EvidenceItem,
     EvidenceType,

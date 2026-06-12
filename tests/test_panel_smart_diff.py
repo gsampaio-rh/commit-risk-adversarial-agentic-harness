@@ -16,8 +16,8 @@ import pytest
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from commit_investigator.eval_judge import ReasoningJudge  # noqa: E402
-from commit_investigator.report import (  # noqa: E402
+from commit_investigator.runners.eval_judge import ReasoningJudge  # noqa: E402
+from commit_investigator.analysis.report import (  # noqa: E402
     CommitInvestigationReport,
     EvidenceItem,
     EvidenceType,
@@ -25,7 +25,7 @@ from commit_investigator.report import (  # noqa: E402
     RiskAssessment,
     RiskLevel,
 )
-from commit_investigator.smart_diff import assemble_diff  # noqa: E402
+from commit_investigator.context.smart_diff import assemble_diff  # noqa: E402
 
 PANEL_DIR = PROJECT_ROOT / "output" / "runs" / "2026-06-10_21-07-21_real_n12" / "investigations"
 

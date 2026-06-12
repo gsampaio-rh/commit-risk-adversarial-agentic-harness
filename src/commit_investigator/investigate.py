@@ -11,10 +11,10 @@ import json
 import sys
 from pathlib import Path
 
-from commit_investigator.context_builder import AuthorStatsIndex, CommitContextBuilder
-from commit_investigator.git_context import GitContextProvider, GitRepoNotFoundError
-from commit_investigator.llm import get_provider
-from commit_investigator.orchestrator import AgentOrchestrator
+from commit_investigator.context.context_builder import AuthorStatsIndex, CommitContextBuilder
+from commit_investigator.context.git_context import GitContextProvider, GitRepoNotFoundError
+from commit_investigator.infra.llm import get_provider
+from commit_investigator.pipeline.orchestrator import AgentOrchestrator
 
 
 def find_csv_row(commit_id: str, csv_path: Path) -> dict[str, str] | None:

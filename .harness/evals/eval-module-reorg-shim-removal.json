@@ -1,0 +1,59 @@
+{
+  "task_id": "module-reorg-shim-removal",
+  "ts": "2026-06-11T17:02:48Z",
+  "role": "evaluator",
+  "verdict": "PASS",
+  "ac_results": [
+    {
+      "id": "AC-1",
+      "result": "PASS",
+      "evidence": "ls src/commit_investigator/ | grep -v __pycache__ → __init__.py, __main__.py, investigate.py, and 7 subpackage dirs (analysis, context, hypothesis, infra, pipeline, routing, runners). No shim .py files at root. Glob confirms only 3 *.py files at root."
+    },
+    {
+      "id": "AC-2",
+      "result": "PASS",
+      "evidence": "Python grep over tests/ and scripts/ for old flat import paths → CLEAN (zero hits). Repo-wide grep for same pattern in *.py also zero hits."
+    },
+    {
+      "id": "AC-3",
+      "result": "PASS",
+      "evidence": "Python grep over tests/ for mock.patch() lines containing old flat module paths → CLEAN (zero hits)."
+    },
+    {
+      "id": "AC-4",
+      "result": "PASS",
+      "evidence": ".venv/bin/python -m pytest tests/ -q --tb=short → 395 passed in 10.52s"
+    },
+    {
+      "id": "AC-5",
+      "result": "PASS",
+      "evidence": "head -3 src/commit_investigator/investigate.py → real CLI entry module preserved ('CLI entry point for commit investigation')."
+    }
+  ],
+  "ec_results": [
+    {
+      "id": "EC-1",
+      "result": "PASS",
+      "evidence": "pytest tests/test_mechanism_evaluator_h1h4t3.py tests/test_run_eval.py -v --tb=short → 33 passed in 1.01s (includes orchestrator contrastive patch tests and run_eval import/patch tests)."
+    },
+    {
+      "id": "EC-2",
+      "result": "PASS",
+      "evidence": ".venv/bin/python -m pytest tests/ -q --cache-clear → 395 passed in 10.55s (no stale .pyc dependency on removed shims)."
+    }
+  ],
+  "rubric_findings": [
+    {
+      "rubric": "code-quality",
+      "severity": "info",
+      "finding": "No sys.modules compat shims or shim references remain under src/commit_investigator/."
+    },
+    {
+      "rubric": "organization",
+      "severity": "info",
+      "finding": "Root namespace is clean: only entry points (__init__, __main__, investigate) plus 7 canonical subpackages. Import paths consistently use subpackage locations."
+    }
+  ],
+  "fix_recommendation": null,
+  "notes": "All 5 acceptance criteria and 2 edge cases verified. Shim removal complete with full test regression green on fresh cache."
+}

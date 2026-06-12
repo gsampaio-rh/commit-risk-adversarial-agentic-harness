@@ -3,7 +3,7 @@
 AC-7: One test per canonical trigger (T1-T4) plus no-trigger baseline.
 """
 
-from commit_investigator.quality_gate import (
+from commit_investigator.analysis.quality_gate import (
     T1_NO_SUPPORTED_WITH_DEFECT,
     T2_AMBIGUOUS_EMPTY_LOC_TRUNCATED,
     T3_SCHEMA_VALIDATION_FAILURE,

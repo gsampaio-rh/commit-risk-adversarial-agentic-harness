@@ -4,9 +4,9 @@ import pytest
 
 from tests.conftest import skip_no_data
 
-from commit_investigator.eval_harness import EvalHarness, _is_test_or_doc
-from commit_investigator.ground_truth import GroundTruthGraph
-from commit_investigator.report import (
+from commit_investigator.runners.eval_harness import EvalHarness, _is_test_or_doc
+from commit_investigator.infra.ground_truth import GroundTruthGraph
+from commit_investigator.analysis.report import (
     CommitInvestigationReport,
     EvidenceItem,
     EvidenceType,
@@ -14,7 +14,7 @@ from commit_investigator.report import (
     RiskAssessment,
     RiskLevel,
 )
-from commit_investigator.router import Route
+from commit_investigator.routing.router import Route
 
 
 def _make_report(

@@ -1,0 +1,86 @@
+{
+  "task_id": "EXP-BUNDLE-EXPAND",
+  "timestamp": "2026-06-11T22:26:22Z",
+  "phase": "phase_3_re_evaluation",
+  "retest_of": "eval-EXP-BUNDLE-EXPAND.json (2026-06-11T22:12:00Z)",
+  "refactor_under_test": "Removed BUNDLE_EXPAND_PREFIXES + resolve_bundle_expand_flags from run_eval.py; --bundle-expand is global boolean; experiment script owns TARGET_PREFIXES + --commit-ids scoping",
+  "overall": "PASS",
+  "computational_checks": {
+    "lint": "NOT_RUN",
+    "types": "NOT_RUN",
+    "tests": "PASS — PYTHONPATH=src pytest tests/test_bundle_expand_wiring.py tests/test_context_builder.py -v: 17/17 passed; PYTHONPATH=src pytest -q: 415 passed",
+    "build": "PASS — prior live run output/runs/exp-bundle-expand-v2-live unchanged; artifact exp-bundle-expand-v2.json intact"
+  },
+  "criteria": [
+    {
+      "criterion": "AC-1: build() flags default False; golden no-op byte-identical",
+      "result": "PASS",
+      "evidence": "context_builder.py:152-159 defines include_test_adjacency: bool = False and include_blame_snippets: bool = False. TestBundleExpandGoldenNoOp::test_default_flags_match_golden_snapshot PASSED — ctx.diff matches bundle_expand_golden_no_expand.json; no ## Test Adjacency or ## Git Blame headers."
+    },
+    {
+      "criterion": "AC-2 (refactored): run_eval.py has NO per-commit allowlist; --bundle-expand global boolean applies both flags to ALL commits; experiment script scopes via --commit-ids",
+      "result": "PASS",
+      "evidence": "grep: BUNDLE_EXPAND_PREFIXES and resolve_bundle_expand_flags absent from run_eval.py and entire src/. run_eval.py:430 sets self.bundle_expand from args; :512-517 passes include_test_adjacency=self.bundle_expand, include_blame_snippets=self.bundle_expand to builder.build(). CLI --bundle-expand at :637-639. exp_bundle_expand_eval.py:29 defines local TARGET_PREFIXES; :223-231 invokes run_eval with --commit-ids *TARGET_PREFIXES --bundle-expand; no import of BUNDLE_EXPAND_PREFIXES from run_eval. test_run_eval_has_no_hardcoded_commit_allowlist PASSED (294c169/572f3cee/520f7eb/BUNDLE_EXPAND_PREFIXES absent from run_eval source)."
+    },
+    {
+      "criterion": "AC-3: Live 3-commit D3 lift + D6 guard (prior verification, artifact re-checked)",
+      "result": "PASS",
+      "evidence": "exp-bundle-expand-v2.json dry_run:false. 294c169 baseline_D3=0.0 post_D3=0.5 delta_D3=+0.5 (n20-pair lift). 572f3cee and 520f7eb post_D3=0.0. ≥1/3 commits post D3≥0.25 (1/3) AND ≥1 of {294c169,572f3cee} post D3≥0.25 (294c169=0.5). All delta_D6=0.0 — no drop >0.15 vs pinned baselines."
+    },
+    {
+      "criterion": "AC-4: exp-bundle-expand-v2.json with per_commit fields and computed decision",
+      "result": "PASS",
+      "evidence": "Report at .harness/evals/exp-bundle-expand-v2.json contains per_commit entries with commit_prefix, baseline_D3, post_D3, delta_D3, baseline_D6, post_D6, delta_D6, sections_injected. decision=expand_to_hard_panel matches _compute_decision() (exactly 1/3 D3≥0.25, n20-pair lift, no D6 regression)."
+    },
+    {
+      "criterion": "AC-5: ≥415 pytest pass; expansion tests cover flags, adjacency, blame, budget, raw_diff=None",
+      "result": "PASS",
+      "evidence": "415 passed (PYTHONPATH=src pytest -q). test_context_builder.py: 6 bundle-expand tests (golden no-op, adjacency inject, no-overlap EC-1, blame≤2 calls context_lines=2, budget cap, raw_diff=None). test_bundle_expand_wiring.py: 4 tests including test_run_eval_has_no_hardcoded_commit_allowlist."
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "EC-1: No *Test.java or no identifier overlap → omit ## Test Adjacency",
+      "result": "PASS",
+      "evidence": "TestBundleExpandAdjacency::test_no_section_when_no_identifier_overlap PASSED; missing_reasons contains test_adjacency note."
+    },
+    {
+      "case": "EC-2: get_blame_snippet returns None → skip silently",
+      "result": "PASS",
+      "evidence": "bundle_expand.py:135-136 skips None blame; TestBundleExpandBlame exercises blame path with mock returns."
+    },
+    {
+      "case": "EC-3: Expansion exceeds budget → truncate tail only",
+      "result": "PASS",
+      "evidence": "TestBundleExpandBudget::test_combined_expansion_stays_within_max_diff_chars PASSED; append_context_expansion adds '(expansion truncated for budget)' when needed."
+    },
+    {
+      "case": "EC-4 (original): --bundle-expand set but commit not in allowlist → flags False",
+      "result": "NOT_APPLICABLE",
+      "evidence": "Allowlist removed by intentional refactor. Scoping moved to --commit-ids at experiment/run level. Equivalent default-off behavior verified: test_bundle_expand_false_skips_expansion PASSED (no --bundle-expand → append_context_expansion not called)."
+    },
+    {
+      "case": "EC-5: raw_diff=None with flags True → skip expansion, no get_blame_snippet",
+      "result": "PASS",
+      "evidence": "TestBundleExpandRawDiffNone::test_raw_diff_none_skips_expansion PASSED; get_blame_snippet.assert_not_called()."
+    }
+  ],
+  "refactor_verification": {
+    "BUNDLE_EXPAND_PREFIXES_in_run_eval": false,
+    "resolve_bundle_expand_flags_in_run_eval": false,
+    "TARGET_PREFIXES_in_exp_script": true,
+    "global_bundle_expand_wiring": true,
+    "test_run_eval_has_no_hardcoded_commit_allowlist": "PASS"
+  },
+  "live_run_summary": {
+    "run_dir": "output/runs/exp-bundle-expand-v2-live",
+    "decision": "expand_to_hard_panel",
+    "key_flip": "294c169f6d66 D3 0.0→0.5 (+0.5)"
+  },
+  "notes": [
+    "Contract.json AC-2/EC-4 text still references BUNDLE_EXPAND_PREFIXES allowlist; post-refactor behavior evaluated per Phase 3 re-interpretation (global boolean + --commit-ids scoping).",
+    "Full pytest requires PYTHONPATH=src (or editable install); 415 passed in this environment.",
+    "Live eval not re-run in Phase 3 — AC-3/AC-4 validated against existing exp-bundle-expand-v2.json from prior verified live run."
+  ],
+  "recommendation": "proceed"
+}

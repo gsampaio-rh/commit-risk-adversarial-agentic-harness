@@ -1,0 +1,89 @@
+{
+  "task_id": "v2-d2-localization-precision",
+  "timestamp": "2026-06-11T22:33:21Z",
+  "overall": "PASS",
+  "computational_checks": {
+    "lint": "NOT_RUN — not in verification_method",
+    "types": "NOT_RUN — not in verification_method",
+    "tests": "PASS — PYTHONPATH=src pytest tests/test_report_builder.py -v: 10/10 passed; PYTHONPATH=src pytest -q: 425 passed",
+    "build": "PASS — imports succeed; build_report integration test passed"
+  },
+  "criteria": [
+    {
+      "criterion": "AC-1: Unit test: when all hypotheses are SPECULATIVE or REFUTED, localization == []",
+      "result": "PASS",
+      "evidence": "test_all_speculative_produces_empty_localization and test_all_refuted_produces_empty_localization PASSED. _build_localization line 159 skips tag.tier != 'SUPPORTED'."
+    },
+    {
+      "criterion": "AC-2: Unit test: with mixed tiers (2 SUPPORTED + 2 SPECULATIVE), localization contains exactly 2 claims from the SUPPORTED hypotheses only",
+      "result": "PASS",
+      "evidence": "test_mixed_tiers_only_supported_included PASSED: len(result)==2, files=={'Supported1.java','Supported2.java'}."
+    },
+    {
+      "criterion": "AC-3: Unit test: when multiple SUPPORTED hypotheses exist, the one whose file matches defect-signal tier (smart_diff._file_rank==0) is ranked first",
+      "result": "PASS",
+      "evidence": "test_defect_signal_file_ranked_first PASSED with _DEFECT_SIGNAL_DIFF; result[0].file=='src/main/java/FooManager.java'. report_builder.py:151-155 builds defect_signal_files via parse_file_diffs + _file_rank==0; rank_signal=0 when h.file in defect_signal_files."
+    },
+    {
+      "criterion": "AC-4: build_report() integration: localization output never contains a claim from a non-SUPPORTED hypothesis",
+      "result": "PASS",
+      "evidence": "build_report() line 67 calls _build_localization(hyp_response.hypotheses, tagged, context.raw_diff). test_build_report_localization_only_supported PASSED: 'Production.java' in localization_files, 'Speculative.java' not in localization_files with tags [SUPPORTED, SPECULATIVE]."
+    },
+    {
+      "criterion": "AC-5: 415+ pytest pass; no existing test regressions",
+      "result": "PASS",
+      "evidence": "PYTHONPATH=src pytest -q → '425 passed in 10.49s' (415 baseline + 10 new tests, zero failures)."
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "EC-1: Zero SUPPORTED hypotheses → localization=[] (not error, not None)",
+      "result": "PASS",
+      "evidence": "test_zero_supported_hypotheses PASSED with _build_localization([], [], None) → result==[]."
+    },
+    {
+      "case": "EC-2: SUPPORTED hypothesis with empty h.file → excluded from localization",
+      "result": "PASS",
+      "evidence": "test_empty_file_excluded_even_if_supported PASSED: len(result)==1, result[0].file=='Real.java'. Implementation line 159: `not h.file` guard."
+    },
+    {
+      "case": "EC-3: raw_diff is None → skip defect-signal ranking; preserve SUPPORTED hypotheses in original order",
+      "result": "PASS",
+      "evidence": "test_raw_diff_none_preserves_supported_order PASSED: ['First.java','Second.java']. Adversarial check: raw_diff='' yields identical order (if raw_diff: is falsy for both None and '')."
+    },
+    {
+      "case": "EC-4: Multiple SUPPORTED claims on same (file, lines) → deduplicated, keep first ranked",
+      "result": "PASS",
+      "evidence": "test_deduplication_by_file_and_lines PASSED: len(result)==1, rationale=='bug A'. Dedup key at lines 169-171: (h.file, _safe_lines(h.lines)) — tuple of file + lines, not file alone."
+    }
+  ],
+  "adversarial_checks": [
+    {
+      "check": "_build_localization does not modify findings",
+      "result": "PASS",
+      "evidence": "findings remains separate list comprehension at report_builder.py:69-73 filtering tag.tier=='SUPPORTED' on mechanisms only. _build_localization returns LocalizationClaim list; no shared mutation."
+    },
+    {
+      "check": "raw_diff=None vs empty string ordering equivalence",
+      "result": "PASS",
+      "evidence": "Inline python3: EC-3 None and empty both ['First.java','Second.java']; match=True."
+    },
+    {
+      "check": "_is_production_file soundness for TestUtils.java",
+      "result": "PASS",
+      "evidence": "Note: _is_production_file('src/main/java/com/foo/TestUtils.java') returns False (substring 'test' in path). This is a ranking tie-break only — file is still included in localization. smart_diff uses suffix regex _TEST_FILE_RE which would rank TestUtils.java as production (rank 1). Heuristic inconsistency is pre-existing pattern risk, not a contract violation."
+    },
+    {
+      "check": "Dedup key uses (file, lines) not file alone",
+      "result": "PASS",
+      "evidence": "report_builder.py:169 key = (h.file, _safe_lines(h.lines))."
+    },
+    {
+      "check": "tagged/hypotheses length mismatch safety",
+      "result": "PASS",
+      "evidence": "zip(hypotheses, tagged) silently truncates to shorter list (3 hyps + 2 tags → 2 claims). No crash; production always pairs equal-length lists from tag_hypotheses(). Not a contract requirement; documented as latent edge case."
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "Implementation matches negotiated contract. build_report wires _build_localization at line 67. All 10 unit/integration tests are binary and specific. Full suite 425 passed with PYTHONPATH=src (required for commit_investigator imports, consistent with prior evals)."
+}

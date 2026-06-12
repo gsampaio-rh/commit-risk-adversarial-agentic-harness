@@ -4,15 +4,15 @@ import json
 
 import pytest
 
-from commit_investigator.eval_judge import (
+from commit_investigator.runners.eval_judge import (
     D3_FIX_DIFF_FALLBACK_RUBRIC,
     JudgeResult,
     ReasoningJudge,
     _parse_judge_response,
 )
-from commit_investigator.jira_client import JiraIssue
-from commit_investigator.llm import LLMProvider, LLMResponse
-from commit_investigator.report import (
+from commit_investigator.infra.jira_client import JiraIssue
+from commit_investigator.infra.llm import LLMProvider, LLMResponse
+from commit_investigator.analysis.report import (
     CommitInvestigationReport,
     EvidenceItem,
     EvidenceType,
@@ -254,7 +254,7 @@ class TestEvalHarnessD6Integration:
         from unittest.mock import MagicMock
         gt = MagicMock()
         gt.get_chain.return_value = MagicMock(fix_hashes=[], issue_keys=[])
-        from commit_investigator.eval_harness import EvalHarness
+        from commit_investigator.runners.eval_harness import EvalHarness
         return EvalHarness(ground_truth=gt)
 
     def test_d6_present_in_results(self, _harness):
@@ -282,7 +282,7 @@ class TestEvalHarnessJudgeFallback:
         jira = MagicMock()
         jira.get_issue.return_value = _make_jira_issue()
 
-        from commit_investigator.eval_harness import EvalHarness
+        from commit_investigator.runners.eval_harness import EvalHarness
         return EvalHarness(ground_truth=gt, jira_client=jira)
 
     def test_d3_uses_word_overlap_fallback(self, _harness_no_judge):
@@ -327,7 +327,7 @@ class TestD3FixDiffFallback:
     def test_harness_empty_description_with_fix_files_uses_fallback(self):
         from unittest.mock import MagicMock
 
-        from commit_investigator.eval_harness import EvalHarness
+        from commit_investigator.runners.eval_harness import EvalHarness
 
         gt = MagicMock()
         gt.get_chain.return_value = MagicMock(fix_hashes=["fix123"], issue_keys=["CAMEL-5678"])
@@ -366,7 +366,7 @@ class TestD3FixDiffFallback:
     def test_harness_non_empty_description_uses_jira_path(self):
         from unittest.mock import MagicMock
 
-        from commit_investigator.eval_harness import EvalHarness
+        from commit_investigator.runners.eval_harness import EvalHarness
 
         gt = MagicMock()
         gt.get_chain.return_value = MagicMock(fix_hashes=["fix123"], issue_keys=["CAMEL-1234"])
@@ -392,7 +392,7 @@ class TestD3FixDiffFallback:
     def test_harness_empty_description_no_fix_files_returns_zero(self):
         from unittest.mock import MagicMock
 
-        from commit_investigator.eval_harness import EvalHarness
+        from commit_investigator.runners.eval_harness import EvalHarness
 
         gt = MagicMock()
         gt.get_chain.return_value = MagicMock(fix_hashes=[], issue_keys=["CAMEL-9999"])
@@ -435,7 +435,7 @@ class TestEvalHarnessWithJudge:
         jira = MagicMock()
         jira.get_issue.return_value = _make_jira_issue()
 
-        from commit_investigator.eval_harness import EvalHarness
+        from commit_investigator.runners.eval_harness import EvalHarness
         return EvalHarness(
             ground_truth=gt,
             jira_client=jira,

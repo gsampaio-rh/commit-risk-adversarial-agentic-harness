@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from commit_investigator.context_builder import InvestigationContext
-from commit_investigator.git_context import GitContextProvider
-from commit_investigator.smart_diff import AssembledDiff
-from commit_investigator.turn2_context import build_turn2_follow_up, parse_diff_touched_lines
+from commit_investigator.context.context_builder import InvestigationContext
+from commit_investigator.context.git_context import GitContextProvider
+from commit_investigator.context.smart_diff import AssembledDiff
+from commit_investigator.context.turn2_context import build_turn2_follow_up, parse_diff_touched_lines
 
 
 class _FakeGitProvider:

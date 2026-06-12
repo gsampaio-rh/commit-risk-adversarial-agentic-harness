@@ -9,18 +9,21 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from commit_investigator.context_builder import InvestigationContext
-from commit_investigator.hypothesis_engine import (
+from commit_investigator.context.context_builder import InvestigationContext
+from commit_investigator.hypothesis.hypothesis_engine import (
     HYPOTHESIS_SYSTEM_PROMPT,
+    HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE,
     HYPOTHESIS_SYSTEM_PROMPT_H1H4T3,
     HypothesisResponse,
-    _has_changed_line_citation,
+    has_changed_line_citation,
     build_investigation_messages,
     extract_coverage_section,
+    generate_contrastive_hypotheses,
     mechanism_evaluator_loop,
+    select_primary_by_evidence,
 )
-from commit_investigator.llm import LLMProvider, LLMResponse
-from commit_investigator.orchestrator import AgentOrchestrator
+from commit_investigator.infra.llm import LLMProvider, LLMResponse
+from commit_investigator.pipeline.orchestrator import AgentOrchestrator
 
 
 class _CountingLLMProvider(LLMProvider):
@@ -48,7 +51,7 @@ class _CountingLLMProvider(LLMProvider):
 
 
 def _parse_response(response: LLMResponse) -> HypothesisResponse:
-    from commit_investigator.hypothesis_engine import parse_hypothesis_response
+    from commit_investigator.hypothesis.hypothesis_engine import parse_hypothesis_response
 
     return parse_hypothesis_response(response.content or "")
 
@@ -105,29 +108,29 @@ class TestH1H4T3Prompt:
 
 class TestHasChangedLineCitation:
     def test_empty_string_false(self):
-        assert _has_changed_line_citation("") is False
+        assert has_changed_line_citation("") is False
 
     def test_whitespace_only_false(self):
-        assert _has_changed_line_citation("   \n  \n") is False
+        assert has_changed_line_citation("   \n  \n") is False
 
     def test_context_only_false(self):
-        assert _has_changed_line_citation(" unchanged line\n  context") is False
+        assert has_changed_line_citation(" unchanged line\n  context") is False
 
     def test_plus_line_true(self):
-        assert _has_changed_line_citation("+added line") is True
+        assert has_changed_line_citation("+added line") is True
 
     def test_minus_line_true(self):
-        assert _has_changed_line_citation("-removed line") is True
+        assert has_changed_line_citation("-removed line") is True
 
     def test_diff_headers_only_false(self):
         quote = "+++ b/file\n--- a/file"
-        assert _has_changed_line_citation(quote) is False
+        assert has_changed_line_citation(quote) is False
 
 
 class TestMechanismEvaluatorLoop:
     def test_empty_quotes_no_challenge_single_call(self):
         llm = _CountingLLMProvider([_empty_quote_payload()])
-        from commit_investigator.llm import LLMMessage
+        from commit_investigator.infra.llm import LLMMessage
 
         msgs = [LLMMessage(role="system", content="sys"), LLMMessage(role="user", content="user")]
         result, _ = mechanism_evaluator_loop(
@@ -138,7 +141,7 @@ class TestMechanismEvaluatorLoop:
 
     def test_grounded_quotes_no_challenge_single_call(self):
         llm = _CountingLLMProvider([_grounded_payload()])
-        from commit_investigator.llm import LLMMessage
+        from commit_investigator.infra.llm import LLMMessage
 
         msgs = [LLMMessage(role="system", content="sys"), LLMMessage(role="user", content="user")]
         mechanism_evaluator_loop(llm, msgs, None, _parse_response, _record, ValueError)
@@ -149,7 +152,7 @@ class TestMechanismEvaluatorLoop:
             _context_only_payload(),
             _context_only_payload("Observable: still wrong. Root change: n/a. Mechanism: race"),
         ])
-        from commit_investigator.llm import LLMMessage
+        from commit_investigator.infra.llm import LLMMessage
 
         msgs = [LLMMessage(role="system", content="sys"), LLMMessage(role="user", content="user")]
         mechanism_evaluator_loop(llm, msgs, None, _parse_response, _record, ValueError)
@@ -177,7 +180,7 @@ class TestOrchestratorMechanismEvaluatorFlag:
             max_turns=1,
         )
         with patch(
-            "commit_investigator.orchestrator.mechanism_evaluator_loop",
+            "commit_investigator.pipeline.orchestrator.mechanism_evaluator_loop",
         ) as mock_loop:
             orchestrator.investigate(
                 commit_id="x",
@@ -194,7 +197,7 @@ class TestOrchestratorMechanismEvaluatorFlag:
             max_turns=1,
         )
         with patch(
-            "commit_investigator.orchestrator.mechanism_evaluator_loop",
+            "commit_investigator.pipeline.orchestrator.mechanism_evaluator_loop",
             wraps=mechanism_evaluator_loop,
         ) as mock_loop:
             orchestrator.investigate(
@@ -209,3 +212,101 @@ class TestOrchestratorMechanismEvaluatorFlag:
         msgs = build_investigation_messages(ctx, system_prompt=HYPOTHESIS_SYSTEM_PROMPT_H1H4T3)
         assert msgs[0].content == HYPOTHESIS_SYSTEM_PROMPT_H1H4T3
         assert "Observable:" in msgs[0].content
+
+
+class TestOrchestratorContrastiveFlag:
+    def _mock_context(self) -> InvestigationContext:
+        return InvestigationContext(
+            commit_id="test_commit_hash",
+            project="camel",
+            diff="+ risky code",
+            message="Fix bug",
+            touched_files=["src/Main.java"],
+            csv_features={},
+            file_histories={},
+            author_stats=None,
+        )
+
+    def test_flag_false_never_calls_contrastive_functions(self):
+        llm = _CountingLLMProvider([_empty_quote_payload()])
+        orchestrator = AgentOrchestrator(
+            llm_provider=llm,
+            enable_contrastive=False,
+            max_turns=1,
+        )
+        with (
+            patch("commit_investigator.pipeline.orchestrator.generate_contrastive_hypotheses") as mock_gen,
+            patch("commit_investigator.pipeline.orchestrator.select_primary_by_evidence") as mock_select,
+        ):
+            orchestrator.investigate(
+                commit_id="x",
+                project="camel",
+                context=self._mock_context(),
+            )
+            mock_gen.assert_not_called()
+            mock_select.assert_not_called()
+
+    def test_flag_true_calls_generate_contrastive_hypotheses_once(self):
+        llm = _CountingLLMProvider([_grounded_payload()])
+        orchestrator = AgentOrchestrator(
+            llm_provider=llm,
+            enable_contrastive=True,
+            max_turns=1,
+        )
+        with patch(
+            "commit_investigator.pipeline.orchestrator.generate_contrastive_hypotheses",
+            wraps=generate_contrastive_hypotheses,
+        ) as mock_gen:
+            orchestrator.investigate(
+                commit_id="x",
+                project="camel",
+                context=self._mock_context(),
+            )
+            mock_gen.assert_called_once()
+
+    def test_flag_true_calls_select_primary_by_evidence(self):
+        llm = _CountingLLMProvider([_grounded_payload()])
+        orchestrator = AgentOrchestrator(
+            llm_provider=llm,
+            enable_contrastive=True,
+            max_turns=1,
+        )
+        with patch(
+            "commit_investigator.pipeline.orchestrator.select_primary_by_evidence",
+            wraps=select_primary_by_evidence,
+        ) as mock_select:
+            orchestrator.investigate(
+                commit_id="x",
+                project="camel",
+                context=self._mock_context(),
+            )
+            mock_select.assert_called_once()
+
+    def test_both_flags_contrastive_precedence_over_mechanism_evaluator(self):
+        llm = _CountingLLMProvider([_grounded_payload()])
+        orchestrator = AgentOrchestrator(
+            llm_provider=llm,
+            enable_contrastive=True,
+            enable_mechanism_evaluator=True,
+            max_turns=1,
+        )
+        with (
+            patch(
+                "commit_investigator.pipeline.orchestrator.generate_contrastive_hypotheses",
+                wraps=generate_contrastive_hypotheses,
+            ) as mock_gen,
+            patch("commit_investigator.pipeline.orchestrator.mechanism_evaluator_loop") as mock_loop,
+        ):
+            orchestrator.investigate(
+                commit_id="x",
+                project="camel",
+                context=self._mock_context(),
+            )
+            mock_gen.assert_called_once()
+            mock_loop.assert_not_called()
+
+    def test_flag_true_uses_contrastive_system_prompt(self):
+        ctx = self._mock_context()
+        msgs = build_investigation_messages(ctx, system_prompt=HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE)
+        assert msgs[0].content == HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
+        assert "CONTRASTIVE" in msgs[0].content

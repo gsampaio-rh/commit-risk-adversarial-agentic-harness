@@ -7,7 +7,7 @@ import pytest
 
 from tests.conftest import skip_no_data
 
-from commit_investigator.router import Route, XGBoostRouter
+from commit_investigator.routing.router import Route, XGBoostRouter
 
 
 @pytest.fixture

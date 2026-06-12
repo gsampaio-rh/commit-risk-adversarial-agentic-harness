@@ -2,20 +2,20 @@
 
 import pytest
 
-from commit_investigator.context_builder import InvestigationContext
-from commit_investigator.hypothesis_engine import (
+from commit_investigator.context.context_builder import InvestigationContext
+from commit_investigator.hypothesis.hypothesis_engine import (
     HYPOTHESIS_SYSTEM_PROMPT,
     build_investigation_messages,
 )
-from commit_investigator.llm import LLMProvider, LLMResponse, MockLLMProvider
-from commit_investigator.orchestrator import (
+from commit_investigator.infra.llm import LLMProvider, LLMResponse, MockLLMProvider
+from commit_investigator.pipeline.orchestrator import (
     DEFAULT_MAX_DIFF_CHARS,
     INVESTIGATION_SYSTEM_PROMPT,
     AgentOrchestrator,
     InvalidInvestigationResponseError,
 )
-from commit_investigator.response_parser import coerce_text_field, normalize_findings
-from commit_investigator.report import CommitInvestigationReport, RiskLevel
+from commit_investigator.hypothesis.response_parser import coerce_text_field, normalize_findings
+from commit_investigator.analysis.report import CommitInvestigationReport, RiskLevel
 
 
 def _mock_context() -> InvestigationContext:
@@ -91,7 +91,7 @@ class TestInvestigationPrompt:
 
     def test_diff_truncation_note_when_truncation_metadata_present(self):
         """Smart diff truncation note shown when truncation_metadata has truncated_files."""
-        from commit_investigator.smart_diff import AssembledDiff
+        from commit_investigator.context.smart_diff import AssembledDiff
         ctx = _mock_context()
         ctx.diff = "x" * 100
         ctx.truncation_metadata = AssembledDiff(

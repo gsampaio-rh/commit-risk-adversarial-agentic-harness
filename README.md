@@ -71,13 +71,13 @@ Run a real evaluation (requires `CURSOR_API_KEY` or `OPENAI_API_KEY`):
 
 ```bash
 export CURSOR_API_KEY=your_key_here
-python -m commit_investigator.run_eval --max-evals 20
+python -m commit_investigator.runners.run_eval --max-evals 20
 ```
 
 Mock evaluation (no API key, methodology testing only):
 
 ```bash
-python -m commit_investigator.run_eval --max-evals 20 --mock
+python -m commit_investigator.runners.run_eval --max-evals 20 --mock
 ```
 
 ## Documentation

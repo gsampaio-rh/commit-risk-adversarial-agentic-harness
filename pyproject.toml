@@ -27,6 +27,7 @@ packages = ["src/commit_investigator"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.mypy]
 python_version = "3.12"

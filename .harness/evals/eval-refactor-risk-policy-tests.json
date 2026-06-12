@@ -1,0 +1,112 @@
+{
+  "task_id": "refactor-risk-policy-tests",
+  "timestamp": "2026-06-11T16:14:39Z",
+  "overall": "PASS",
+  "computational_checks": {
+    "lint": "NOT_RUN",
+    "types": "NOT_RUN",
+    "tests": "PASS — `.venv/bin/python -m pytest tests/test_risk_policy.py -v --tb=short`: 45 passed in 0.16s, 0 failures, 0 skips",
+    "build": "NOT_RUN"
+  },
+  "criteria": [
+    {
+      "criterion": "AC-1: imports evaluate_risk_from_hypotheses and TagResult; TestEvaluateRiskFromHypotheses with ≥10 methods; list[TagResult] only (no STAGE 3, no evaluate_risk)",
+      "result": "PASS",
+      "evidence": "tests/test_risk_policy.py:11 imports TagResult; :17 imports evaluate_risk_from_hypotheses; TestEvaluateRiskFromHypotheses has 14 methods (pytest --co); all 14 call evaluate_risk_from_hypotheses with [] or [_tag(...)]; no evaluate_risk or STAGE 3 strings in lines 374–507"
+    },
+    {
+      "criterion": "AC-2a (base MEDIUM passthrough): tagged=[], _generic_diff_context(), router unset → MEDIUM, cap_applied=False, cap_reason='', applied_rules=[], supported_count=0",
+      "result": "PASS",
+      "evidence": "test_base_medium_passthrough_empty_tags PASSED; asserts all PolicyVerdict fields per contract"
+    },
+    {
+      "criterion": "AC-2b (supported non-archetype passthrough): one SUPPORTED, _generic_diff_context(), no router → HIGH, cap_applied=False, cap_reason='', applied_rules=[], supported_count=1",
+      "result": "PASS",
+      "evidence": "test_supported_non_archetype_passthrough PASSED; exact field assertions"
+    },
+    {
+      "criterion": "AC-2c (supported + clean archetype cap): one SUPPORTED, _version_bump_context() → MEDIUM, cap_applied=True, cap_reason='clean_archetype_no_production_defect_signals', applied_rules=['cap_to_MEDIUM:clean_archetype'], supported_count=1",
+      "result": "PASS",
+      "evidence": "test_supported_clean_archetype_cap PASSED; exact cap_reason and applied_rules"
+    },
+    {
+      "criterion": "AC-2d (defect override on archetype): tagged=[], guard/lifecycle/concurrency contexts → HIGH, cap_applied=False, supported_count=0",
+      "result": "PASS",
+      "evidence": "test_defect_override_on_archetype PASSED; loops _guard_removal_context, _lifecycle_context, _concurrency_context with cap_applied=False and supported_count=0"
+    },
+    {
+      "criterion": "AC-2e (router boundary HIGH base): router_probability=0.70 → speculative cap on generic → MEDIUM, cap_applied=True, cap_reason='speculative_or_unverifiable_only', applied_rules=['cap_to_MEDIUM:speculative_only'], supported_count=0",
+      "result": "PASS",
+      "evidence": "test_router_boundary_speculative_cap PASSED; router 0.70 with empty tags on _generic_diff_context()"
+    },
+    {
+      "criterion": "AC-2f (router below threshold): router_probability=0.69 → MEDIUM, cap_applied=False",
+      "result": "PASS",
+      "evidence": "test_router_below_threshold_medium PASSED; cap_applied=False, cap_reason='', applied_rules=[]"
+    },
+    {
+      "criterion": "AC-2g (speculative-only cap via router on archetype): router 0.80 on _version_bump_context() → clean_archetype cap_reason wins",
+      "result": "PASS",
+      "evidence": "test_router_on_archetype_clean_cap PASSED; cap_reason='clean_archetype_no_production_defect_signals', applied_rules=['cap_to_MEDIUM:clean_archetype']"
+    },
+    {
+      "criterion": "AC-2h (speculative-only cap via router on non-archetype): router 0.80 on _generic_diff_context() → speculative_only cap",
+      "result": "PASS",
+      "evidence": "test_router_on_non_archetype_speculative_cap PASSED; cap_reason='speculative_or_unverifiable_only', applied_rules=['cap_to_MEDIUM:speculative_only']"
+    },
+    {
+      "criterion": "AC-2i (defect-only HIGH, no cap): _guard_removal_context(), router unset → HIGH, cap_applied=False",
+      "result": "PASS",
+      "evidence": "test_defect_only_high_no_cap PASSED; risk_level=HIGH, cap_applied=False, supported_count=0"
+    },
+    {
+      "criterion": "AC-2j (supported + router on non-archetype passthrough): one SUPPORTED, router 0.85 → HIGH, cap_applied=False, supported_count=1",
+      "result": "PASS",
+      "evidence": "test_supported_router_non_archetype_passthrough PASSED"
+    },
+    {
+      "criterion": "AC-3: all 31 pre-existing tests pass unchanged (0 failures, 0 skips)",
+      "result": "PASS",
+      "evidence": "45 total collected = 31 pre-existing + 14 new; pytest exit 0, 45 passed, 0 skipped"
+    },
+    {
+      "criterion": "AC-4: ≥10 TestEvaluateRiskFromHypotheses methods; evaluate_risk_from_hypotheses and TagResult imported",
+      "result": "PASS",
+      "evidence": "grep --co: 14 TestEvaluateRiskFromHypotheses methods; imports at lines 11 and 17"
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "EC-1: Empty TagResult list on _generic_diff_context() → MEDIUM, cap_applied=False, supported_count=0, cap_reason='', applied_rules=[]",
+      "result": "PASS",
+      "evidence": "test_base_medium_passthrough_empty_tags (docstring AC-2a / EC-1)"
+    },
+    {
+      "case": "EC-2: router_probability=0.70 inclusive ≥ triggers HIGH base; 0.69 does not",
+      "result": "PASS",
+      "evidence": "test_router_boundary_speculative_cap (0.70 cap) and test_router_below_threshold_medium (0.69 no cap) both PASSED"
+    },
+    {
+      "case": "EC-3: router_probability=None coerced to 0.0 — same as unset",
+      "result": "PASS",
+      "evidence": "test_router_none_coerced_to_zero PASSED; none_verdict == unset_verdict, MEDIUM passthrough"
+    },
+    {
+      "case": "EC-4: Multiple SUPPORTED → supported_count=len(SUPPORTED); HIGH, cap_applied=False on generic",
+      "result": "PASS",
+      "evidence": "test_multiple_supported_count PASSED; supported_count=2, risk_level=HIGH, cap_applied=False"
+    },
+    {
+      "case": "EC-5: Mixed tiers → supported_count=1 only; SUPPORTED alone drives count",
+      "result": "PASS",
+      "evidence": "test_mixed_tiers_supported_count PASSED; SPECULATIVE+SUPPORTED+UNVERIFIABLE+REFUTED → supported_count=1"
+    },
+    {
+      "case": "EC-6: supported_count=0 with SPECULATIVE/UNVERIFIABLE only and router 0.80 on non-archetype → speculative_only cap",
+      "result": "PASS",
+      "evidence": "test_speculative_tags_only_router_cap PASSED; supported_count=0, cap_reason='speculative_or_unverifiable_only'"
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "14 new TestEvaluateRiskFromHypotheses methods exceed ≥10 minimum. _tag() helper provides minimal TagResult fixtures. All branch paths in evaluate_risk_from_hypotheses covered with exact PolicyVerdict field assertions."
+}

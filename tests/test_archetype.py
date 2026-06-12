@@ -2,8 +2,8 @@
 
 import pytest
 
-from commit_investigator.archetype import detect_archetype, has_production_defect_signals, is_message_only_diff
-from commit_investigator.context_builder import InvestigationContext
+from commit_investigator.analysis.archetype import detect_archetype, has_production_defect_signals, is_message_only_diff
+from commit_investigator.context.context_builder import InvestigationContext
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +175,7 @@ class TestDetectArchetype:
 class TestMessageOnlyDiff:
     def test_e0bb867_exception_message_only(self):
         from pathlib import Path
-        from commit_investigator.git_context import GitContextProvider
+        from commit_investigator.context.git_context import GitContextProvider
 
         repo = Path("data/repos/hadoop")
         if not repo.exists():
@@ -202,3 +202,156 @@ class TestMessageOnlyDiff:
             "+            scheduler.rescheduleJob(existingTrigger.getTriggerBuilder()...\n"
         )
         assert is_message_only_diff(ctx.diff) is False
+
+
+# ---------------------------------------------------------------------------
+# New archetype rules: test-file-only and null-check refactoring
+# ---------------------------------------------------------------------------
+
+class TestTestFileOnlyArchetype:
+    """Test-only and example-only commits are clean archetypes."""
+
+    def _test_only_ctx(self, touched_files: list[str]) -> InvestigationContext:
+        return InvestigationContext(
+            commit_id="test001",
+            project="hadoop",
+            message="Reduce test runtime",
+            diff="+        int rsSize = 3;\n-        int rsSize = 6;\n",
+            touched_files=touched_files,
+            csv_features={},
+            file_histories={},
+            author_stats=None,
+        )
+
+    def test_all_test_files_returns_false_for_defect_signals(self):
+        ctx = self._test_only_ctx([
+            "hdfs/src/test/java/org/apache/hadoop/hdfs/TestWriteReadStripedFile.java",
+            "hdfs/src/test/java/org/apache/hadoop/hdfs/StripedFileTestUtil.java",
+        ])
+        assert has_production_defect_signals(ctx) is False
+
+    def test_all_test_files_returns_true_for_archetype(self):
+        ctx = self._test_only_ctx([
+            "hdfs/src/test/java/org/apache/hadoop/hdfs/TestWriteReadStripedFile.java",
+            "hdfs/src/test/java/org/apache/hadoop/hdfs/StripedFileTestUtil.java",
+        ])
+        assert detect_archetype(ctx) is True
+
+    def test_mixed_test_and_prod_not_test_only_archetype(self):
+        """Mixed commits are NOT test-only; detect_archetype must check other signals."""
+        ctx = self._test_only_ctx([
+            "hdfs/src/main/java/org/apache/hadoop/hdfs/Impl.java",
+            "hdfs/src/test/java/org/apache/hadoop/hdfs/TestImpl.java",
+        ])
+        # Diff has no signals, so no defect signal — but this is incidental.
+        # The key assertion: mixed file list → NOT a test-only archetype.
+        assert detect_archetype(ctx) is False
+
+    def test_mixed_test_and_prod_with_guard_removal_fires_signal(self):
+        """Mixed commits with real production guard removals must still fire defect signals."""
+        ctx = InvestigationContext(
+            commit_id="mixed001",
+            project="hadoop",
+            message="Refactor null handling",
+            diff="-        if (value != null) {\n-            process(value);\n-        }\n+        process(value);\n",
+            touched_files=[
+                "hdfs/src/main/java/org/apache/hadoop/hdfs/Impl.java",
+                "hdfs/src/test/java/org/apache/hadoop/hdfs/TestImpl.java",
+            ],
+            csv_features={},
+            file_histories={},
+            author_stats=None,
+        )
+        assert has_production_defect_signals(ctx) is True
+        assert detect_archetype(ctx) is False
+
+    def test_example_only_returns_false_for_defect_signals(self):
+        ctx = InvestigationContext(
+            commit_id="example001",
+            project="camel",
+            message="Add pojo example",
+            diff="+# automatic shutdown after 60 messages\n+camel.springboot.duration-max-messages = 60\n",
+            touched_files=[
+                "examples/camel-example-spring-boot-pojo/README.adoc",
+                "examples/camel-example-spring-boot-pojo/pom.xml",
+                "examples/camel-example-spring-boot-pojo/src/main/java/sample/camel/Application.java",
+            ],
+            csv_features={},
+            file_histories={},
+            author_stats=None,
+        )
+        assert has_production_defect_signals(ctx) is False
+
+    def test_example_only_returns_true_for_archetype(self):
+        ctx = InvestigationContext(
+            commit_id="example001",
+            project="camel",
+            message="Add pojo example",
+            diff="+# automatic shutdown after 60 messages\n",
+            touched_files=[
+                "examples/camel-example-spring-boot-pojo/README.adoc",
+                "examples/camel-example-spring-boot-pojo/pom.xml",
+            ],
+            csv_features={},
+            file_histories={},
+            author_stats=None,
+        )
+        assert detect_archetype(ctx) is True
+
+
+class TestNetGuardRemoval:
+    """Guard-removal ratio: refactoring vs genuine removal."""
+
+    def test_net_removal_is_defect_signal(self):
+        ctx = InvestigationContext(
+            commit_id="guard001",
+            project="camel",
+            message="Remove null guard",
+            diff="-        if (value != null) {\n-            process(value);\n-        }\n+        process(value);\n",
+            touched_files=["ServiceImpl.java"],
+            csv_features={},
+            file_histories={},
+            author_stats=None,
+        )
+        assert has_production_defect_signals(ctx) is True
+
+    def test_balanced_null_refactoring_not_defect_signal(self):
+        """Reorganizing null checks (equal remove/add) is a refactoring, not guard removal."""
+        ctx = InvestigationContext(
+            commit_id="guard002",
+            project="camel",
+            message="Refactor null checks",
+            diff=(
+                "-                if (parent != null && parent.getSpan() != null) {\n"
+                "-                if (managedSpan != null) {\n"
+                "-            if (managedSpan.getSpan() != null) {\n"
+                "+                    if (parent != null && parent.getSpan() != null) {\n"
+                "+                    if (managedSpan != null) {\n"
+                "+                if (managedSpan.getSpan() != null) {\n"
+            ),
+            touched_files=["OpenTracingTracer.java"],
+            csv_features={},
+            file_histories={},
+            author_stats=None,
+        )
+        assert has_production_defect_signals(ctx) is False
+
+    def test_partial_guard_removal_is_still_defect_signal(self):
+        """Removing guards with <75% replacement rate is a real guard removal."""
+        ctx = InvestigationContext(
+            commit_id="guard003",
+            project="camel",
+            message="Remove most null checks",
+            diff=(
+                "-        if (a != null) { process(a); }\n"
+                "-        if (b != null) { process(b); }\n"
+                "-        if (c != null) { process(c); }\n"
+                "-        if (d != null) { process(d); }\n"
+                "+        if (a != null) { process(a); }\n"  # only 1 of 4 preserved
+            ),
+            touched_files=["ServiceImpl.java"],
+            csv_features={},
+            file_histories={},
+            author_stats=None,
+        )
+        assert has_production_defect_signals(ctx) is True

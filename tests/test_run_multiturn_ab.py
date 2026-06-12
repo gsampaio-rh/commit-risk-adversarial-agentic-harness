@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from commit_investigator.run_multiturn_ab import HARD_COMMITS, FROZEN_CONTROL_D3
+from commit_investigator.runners.run_multiturn_ab import HARD_COMMITS, FROZEN_CONTROL_D3
 
 
 def test_hard_commits_exactly_three():

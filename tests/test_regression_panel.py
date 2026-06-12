@@ -16,9 +16,9 @@ If any of these fail, it means a cap logic regression was introduced during extr
 
 import pytest
 
-from commit_investigator.context_builder import InvestigationContext
-from commit_investigator.report import RiskLevel
-from commit_investigator.risk_policy import evaluate_risk
+from commit_investigator.context.context_builder import InvestigationContext
+from commit_investigator.analysis.report import RiskLevel
+from commit_investigator.analysis.risk_policy import evaluate_risk
 
 
 # ---------------------------------------------------------------------------

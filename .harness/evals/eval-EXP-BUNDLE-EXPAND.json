@@ -1,0 +1,59 @@
+{
+  "task_id": "EXP-BUNDLE-EXPAND",
+  "timestamp": "2026-06-11T22:12:00Z",
+  "overall": "PASS",
+  "retest_of": "eval-EXP-BUNDLE-EXPAND.json (2026-06-11T22:05:00Z)",
+  "computational_checks": {
+    "lint": "NOT_RUN",
+    "types": "NOT_RUN",
+    "tests": "PASS — pytest -q: 415 passed; contract subset 11/11 passed",
+    "build": "PASS — live run output/runs/exp-bundle-expand-v2-live completed exit 0"
+  },
+  "criteria": [
+    {
+      "criterion": "AC-1: default flags golden no-op",
+      "result": "PASS",
+      "evidence": "TestBundleExpandGoldenNoOp::test_default_flags_match_golden_snapshot PASSED (11/11 contract subset)."
+    },
+    {
+      "criterion": "AC-2: BUNDLE_EXPAND_PREFIXES + --bundle-expand wiring",
+      "result": "PASS",
+      "evidence": "run_eval.py BUNDLE_EXPAND_PREFIXES confirmed; test_bundle_expand_wiring.py 4/4 PASSED. run-config.json bundle_expand:true on live run."
+    },
+    {
+      "criterion": "AC-3: Live 3-commit D3 lift + D6 guard",
+      "result": "PASS",
+      "evidence": "exp-bundle-expand-v2.json dry_run:false. 294c169 post_D3=0.5 (baseline 0.0); 572f3cee post_D3=0.0; 520f7eb post_D3=0.0. ≥1/3 lifted (1/3) AND n20-pair met (294c169≥0.25). All delta_D6=0.0 (no drop >0.15). Live eval: output/runs/exp-bundle-expand-v2-live/evaluations/294c169f6d66_camel.json scores.D3.score=0.5."
+    },
+    {
+      "criterion": "AC-4: exp-bundle-expand-v2.json with computed decision",
+      "result": "PASS",
+      "evidence": "Report has per_commit baseline/post/delta fields populated. decision=expand_to_hard_panel (1/3 D3≥0.25, n20-pair 294c169 lifted, no D6 regression) matches _compute_decision() rules."
+    },
+    {
+      "criterion": "AC-5: ≥405 pytest + expansion tests (a–e)",
+      "result": "PASS",
+      "evidence": "415 passed; all sub-tests (a–e) present and passing."
+    }
+  ],
+  "edge_cases": [
+    {"case": "EC-1", "result": "PASS", "evidence": "test_no_section_when_no_identifier_overlap PASSED"},
+    {"case": "EC-2", "result": "PASS", "evidence": "Runtime verified: blame None skipped silently"},
+    {"case": "EC-3", "result": "PASS", "evidence": "TestBundleExpandBudget PASSED"},
+    {"case": "EC-4", "result": "PASS", "evidence": "resolve_bundle_expand_flags out-of-list + build → no expansion headers"},
+    {"case": "EC-5", "result": "PASS", "evidence": "TestBundleExpandRawDiffNone PASSED"}
+  ],
+  "live_run_summary": {
+    "run_dir": "output/runs/exp-bundle-expand-v2-live",
+    "cost_usd": 0.0227,
+    "provider": "cursor-sdk/claude-sonnet-4-6",
+    "mean_D3": 0.167,
+    "decision": "expand_to_hard_panel",
+    "key_flip": "294c169f6d66 D3 0.0→0.5 (+0.5)"
+  },
+  "notes": [
+    "Builder fix: ran scripts/exp_bundle_expand_eval.py --live; added v2-n20-gate-baselines-bundle-expand.json for pinned baselines when n20 eval dir absent.",
+    "Dry-run re-invocation overwrites exp-bundle-expand-v2.json — report regenerated from live run dir after accidental dry-run."
+  ],
+  "recommendation": "proceed"
+}

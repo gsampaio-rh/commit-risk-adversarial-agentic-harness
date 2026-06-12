@@ -19,9 +19,9 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from commit_investigator.archetype import detect_archetype
-from commit_investigator.context_builder import InvestigationContext
-from commit_investigator.git_context import GitContextProvider, GitRepoNotFoundError
+from commit_investigator.analysis.archetype import detect_archetype
+from commit_investigator.context.context_builder import InvestigationContext
+from commit_investigator.context.git_context import GitContextProvider, GitRepoNotFoundError
 
 TRUNCATION_ORDER: dict[str, int] = {"heavy": 0, "partial": 1, "none": 2}
 

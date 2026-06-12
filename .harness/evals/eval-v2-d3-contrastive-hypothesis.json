@@ -1,0 +1,77 @@
+{
+  "task_id": "v2-d3-contrastive-hypothesis",
+  "timestamp": "2026-06-11T14:42:00Z",
+  "overall": "PASS",
+  "computational_checks": {
+    "lint": "BLOCKED — ruff not installed in environment",
+    "types": "NOT_RUN — no mypy configured for this check",
+    "tests": "PASS — PYTHONPATH=src pytest tests/ -q: 373 passed; contrastive suite 27/27 passed",
+    "build": "PASS — prompt/sig/flag inline asserts OK; run_eval --help contains --enable-contrastive"
+  },
+  "criteria": [
+    {
+      "criterion": "AC-1: HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE distinct with required sections, 8 categories, TestContrastivePrompt ≥5",
+      "result": "PASS",
+      "evidence": "Inline asserts: != baseline and H1H4T3; all 8 categories + CONTRASTIVE + CHANGED-LINE EVIDENCE + COVERAGE_SECTION_HEADER + bracket instruction present. TestContrastivePrompt 9/9 pass incl. test_prompt_distinct_from_baseline_and_h1h4t3."
+    },
+    {
+      "criterion": "AC-2: select_primary_by_evidence with _has_changed_line_citation scoring, stable sort, ≥7 tests",
+      "result": "PASS",
+      "evidence": "Implementation at hypothesis_engine.py:431-449 uses sorted(..., key=(grounded_score, original_index)). TestSelectPrimaryByEvidence 9/9 pass: empty, single, grounded-over-ungrounded, all-grounded order, all-ungrounded order, beyond-n tail, custom n_candidates, middle promotion, no-mutation."
+    },
+    {
+      "criterion": "AC-3: generate_contrastive_hypotheses signature match, single LLM call, no evaluator loop",
+      "result": "PASS",
+      "evidence": "inspect.signature equality confirmed. Body returns complete_with_parse_retry only (line 467). TestGenerateContrastiveHypotheses 3/3 pass; _SingleCallLLM.calls==1 on grounded and ungrounded payloads."
+    },
+    {
+      "criterion": "AC-4: enable_contrastive orchestrator wiring, patch tests ≥3, dual-flag precedence",
+      "result": "PASS",
+      "evidence": "orchestrator.py:205-207 select_primary before tag_hypotheses; _select_system_prompt/_select_hypothesis_fn contrastive-first. TestOrchestratorContrastiveFlag 5/5 pass: false never-call, true calls gen+select, both flags contrastive wins, contrastive prompt used."
+    },
+    {
+      "criterion": "AC-5: --enable-contrastive flag, orchestrator wiring, log line, run-config.json key",
+      "result": "PASS",
+      "evidence": "run_eval.py:261-263 argparse store_true; lines 348-368 enable_contrastive→orchestrator+log '[experiment] Contrastive hypothesis ENABLED'. TestSaveRunConfigContrastive: enable_contrastive true in config+args. Dual-flag precedence via TestOrchestratorContrastiveFlag.test_both_flags_contrastive_precedence_over_mechanism_evaluator."
+    },
+    {
+      "criterion": "AC-6: pytest exit 0, ≥14 new tests with breakdown, full regression",
+      "result": "PASS",
+      "evidence": "373 total pass (+27 vs 346 h1h4t3 baseline). Breakdown: 9 prompt + 9 select_primary + 3 generate + 5 orchestrator + 1 run_config = 27 ≥14."
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "EC-1: All candidates ungrounded — original order preserved",
+      "result": "PASS",
+      "evidence": "test_all_ungrounded_preserves_original_order: ['m1','m2','m3'] unchanged."
+    },
+    {
+      "case": "EC-2: Single grounded among 3 — promoted to index 0 from any position",
+      "result": "PASS",
+      "evidence": "test_third_grounded_candidate_promoted_to_first: m3 at index 0. test_grounded_promoted_over_ungrounded: m2 first when second."
+    },
+    {
+      "case": "EC-3: enable_contrastive=False — contrastive fns never called",
+      "result": "PASS",
+      "evidence": "test_flag_false_never_calls_contrastive_functions: mock_gen.assert_not_called(), mock_select.assert_not_called(). H1H4T3-only path covered by existing TestOrchestratorMechanismEvaluatorFlag."
+    },
+    {
+      "case": "EC-4: len(hypotheses) < n_candidates — no IndexError",
+      "result": "PASS",
+      "evidence": "test_single_hypothesis_unchanged: 1 element returned unchanged with n_candidates=3 default."
+    },
+    {
+      "case": "EC-5: both flags True — contrastive wins, mechanism_evaluator_loop not called",
+      "result": "PASS",
+      "evidence": "test_both_flags_contrastive_precedence_over_mechanism_evaluator: mock_gen called once, mock_loop.assert_not_called()."
+    },
+    {
+      "case": "EC-6: all-ungrounded hypotheses — exactly 1 LLM call",
+      "result": "PASS",
+      "evidence": "test_ungrounded_hypotheses_still_single_call: calls==1, 2 hypotheses returned."
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "AC-5 log line verified structurally in run_eval.py contrastive branch; no caplog integration test. Code-quality rubric warn mode: not run (non-blocking). Next: hard panel n=11 live eval with --enable-contrastive vs D3=0.091 baseline."
+}

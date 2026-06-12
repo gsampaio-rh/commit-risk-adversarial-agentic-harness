@@ -1,38 +1,27 @@
 {
-  "task_id": "v2-d3-h1h4-t3",
-  "feature": "D3 Layer 1 experiment — symptom-first prompt (H1) + changed-line evidence forcing (H4) + mechanism evaluator loop (T3)",
-  "problem": "D3=0.230 at V1 n=50. 91% of D3=0 failures are wrong-mechanism: agent cites correct files but wrong causal chain. Root cause: abstraction bias (LLM applies familiar code pattern template instead of reasoning from changed lines). The fix: (1) restructure prompt to reason from observable symptom first; (2) require +/- changed line citation in evidence; (3) loop to challenge context-only citations.",
-  "proposed_solution": "Add HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 to hypothesis_engine.py: (H1) mechanism field starts from user-observable failure before code structure; (H4) evidence_quote must cite at least one +/- prefixed changed line for primary mechanism. Add mechanism_evaluator_loop() in hypothesis_engine.py: after first LLM call, check if primary hypotheses cite +/- lines; if not, send targeted challenge and re-run (max 1 challenge re-run after initial call, deterministic criterion — no LLM in evaluator). Add enable_mechanism_evaluator: bool flag to AgentOrchestrator. Add experiment script scripts/run_d3_experiment_layer1.py to run hard panel n=18 with baseline vs H1H4T3 variant and report D3 delta.",
+  "task_id": "v2-d2-localization-precision",
+  "feature": "SUPPORTED-only localization with defect-signal file ranking",
+  "problem": "D2=0.201 (target 0.25). report_builder.py emits LocalizationClaim for every hypothesis with a non-empty file, including SPECULATIVE and REFUTED tiers. Speculative files dilute Jaccard precision against the true fix-commit files.",
+  "proposed_solution": "Extract _build_localization(hypotheses, tagged, raw_diff) helper. Filter to tag.tier==SUPPORTED and h.file non-empty. Rank SUPPORTED claims by: (1) defect-signal file match from smart_diff._file_rank==0, (2) production file, (3) longer evidence_quote, (4) original index as stable tie-break. Zero new LLM calls.",
+  "phase": "evaluating",
+  "verified": true,
   "acceptance_criteria": [
-    "AC-1: hypothesis_engine.py exports HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 — a distinct variant (not byte-identical to HYPOTHESIS_SYSTEM_PROMPT) that retains extract_coverage_section(HYPOTHESIS_SYSTEM_PROMPT_H1H4T3) non-empty and includes all of: substring 'Observable:', substring 'Root change:', a '## CHANGED-LINE EVIDENCE' section stating primary mechanism evidence_quote must contain at least one line starting with + or - (actual code change, not context), and mechanism field instruction requiring format 'Observable: [user-visible failure]. Root change: [+/- line]. Mechanism: [causal chain at file:area]'.",
-    "AC-2: hypothesis_engine.py exports _has_changed_line_citation(evidence_quote: str) -> bool that returns True iff evidence_quote contains at least one non-empty line (after strip) whose first non-whitespace character starts a changed-line prefix: line matches ^\\s*[+-] but NOT ^\\s*\\+\\+\\+ and NOT ^\\s*--- (diff file headers). Unit tested with named cases: empty string→False, whitespace-only→False, context-only quote (no +/- prefixed lines)→False, quote containing '+added line'→True, quote containing '-removed line'→True, quote containing only '+++ b/file' and '--- a/file'→False.",
-    "AC-3: hypothesis_engine.py exports mechanism_evaluator_loop() wrapping complete_with_parse_retry: after each LLM response, inspect hypotheses[:3]; if any hypothesis has evidence_quote.strip() non-empty and _has_changed_line_citation(evidence_quote) is False, append a user-role challenge message that names the offending mechanism field text and explicitly requires citing a +/- changed diff line, then re-run (at most 1 challenge re-run after the initial call — 2 LLM invocations total maximum). Return immediately when all inspected hypotheses have empty/whitespace evidence_quote OR all non-empty quotes pass _has_changed_line_citation. Evaluator uses only _has_changed_line_citation — no LLM judge.",
-    "AC-4: AgentOrchestrator.__init__ accepts enable_mechanism_evaluator: bool = False (default preserved). When False: investigate() calls complete_with_parse_retry with build_investigation_messages(context) using default HYPOTHESIS_SYSTEM_PROMPT — identical code path to current. When True: investigate() calls mechanism_evaluator_loop() with build_investigation_messages(context, system_prompt=HYPOTHESIS_SYSTEM_PROMPT_H1H4T3). Unit test with mock LLM: flag=False must never invoke mechanism_evaluator_loop; flag=True must invoke mechanism_evaluator_loop exactly once per investigate() and pass HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 as system prompt.",
-    "AC-5: scripts/run_d3_experiment_layer1.py loads the 18-commit hard panel as sorted union of tier_1_d3_zero + tier_2_d3_partial from .harness/evals/v2-forensics-n50.json hard_commit_panel (authoritative; do not rely on state.json tier2 which may be empty). Runs baseline (enable_mechanism_evaluator=False) and h1h4t3 (True) variants. Outputs stdout table with header row and exactly 18 data rows: commit_prefix | baseline_D3 | h1h4t3_D3 | delta (delta = h1h4t3_D3 - baseline_D3). Prints aggregate line with n_improved (delta>0), n_regressed (delta<0), mean_delta_D3 (mean of deltas). --dry-run: no LLM calls; prints table with all 18 commit prefixes and placeholder or cached D3 scores; exit 0.",
-    "AC-6: pytest tests/ -q exits 0. Minimum 7 new test cases: ≥5 for _has_changed_line_citation covering AC-2 named cases; ≥2 for mechanism_evaluator_loop (immediate return when all quotes empty/grounded; exhausted loop returns after exactly 2 mock LLM calls when mock always returns context-only quotes)."
+    "AC-1: Unit test: when all hypotheses are SPECULATIVE or REFUTED, localization == []",
+    "AC-2: Unit test: with mixed tiers (2 SUPPORTED + 2 SPECULATIVE), localization contains exactly 2 claims from the SUPPORTED hypotheses only",
+    "AC-3: Unit test: when multiple SUPPORTED hypotheses exist, the one whose file matches defect-signal tier (smart_diff._file_rank==0) is ranked first in localization",
+    "AC-4: build_report() integration: localization output never contains a claim from a non-SUPPORTED hypothesis (verified by checking the corresponding tag in the test)",
+    "AC-5: 415+ pytest pass; no existing test regressions"
   ],
   "edge_cases": [
-    "EC-1: All primary hypotheses (hypotheses[:3]) have empty or whitespace-only evidence_quote — evaluator does NOT challenge and returns after the first LLM call. Test must assert mock LLM call count == 1.",
-    "EC-2: Model returns context-only evidence_quote on both attempts — evaluator returns round-2 response without a third LLM call. Test must assert mock LLM call count == 2 exactly.",
-    "EC-3: enable_mechanism_evaluator=False — mechanism_evaluator_loop is never called; HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 is never passed to build_investigation_messages. Existing orchestrator tests pass unchanged; new patch-based test required per AC-4.",
-    "EC-4: Diff header lines ('+++ b/file', '--- a/file', with optional leading whitespace) must NOT count as changed-line citations — _has_changed_line_citation returns False for quotes containing only these lines (covered by AC-2 unit tests)."
+    "EC-1: Zero SUPPORTED hypotheses → localization=[] (not error, not None)",
+    "EC-2: SUPPORTED hypothesis with empty h.file → excluded from localization (same rule as before)",
+    "EC-3: raw_diff is None → skip defect-signal ranking; preserve SUPPORTED hypotheses in original order",
+    "EC-4: Multiple SUPPORTED hypotheses on same file → deduplicate by (file, lines) keeping first after ranking"
   ],
-  "verification_method": "(1) pytest tests/ -q — exit 0, ≥7 new test cases pass per AC-6; (2) python -c \"from commit_investigator.hypothesis_engine import HYPOTHESIS_SYSTEM_PROMPT_H1H4T3, _has_changed_line_citation, mechanism_evaluator_loop, extract_coverage_section; assert extract_coverage_section(HYPOTHESIS_SYSTEM_PROMPT_H1H4T3); assert 'Observable:' in HYPOTHESIS_SYSTEM_PROMPT_H1H4T3; print('imports OK')\"; (3) python -c \"import inspect; from commit_investigator.orchestrator import AgentOrchestrator; p=inspect.signature(AgentOrchestrator.__init__).parameters; assert p['enable_mechanism_evaluator'].default is False; AgentOrchestrator(enable_mechanism_evaluator=True); print('flag OK')\"; (4) python scripts/run_d3_experiment_layer1.py --dry-run — exit 0; stdout contains table header and all 18 commit prefixes from .harness/evals/v2-forensics-n50.json hard_commit_panel union (exactly 18 data rows).",
-  "rubrics": ["code-quality"],
-  "rubric_mode": "warn",
-  "negotiation_rounds": 1,
-  "negotiation_notes": {
-    "AC-1": "STRENGTHENED: require distinct prompt, retained COVERAGE section, explicit substring checks — prevents stub prompt gaming.",
-    "AC-2": "STRENGTHENED: precise diff-header exclusion (+++ / --- with optional whitespace), whitespace-only→False, named test matrix.",
-    "AC-3": "STRENGTHENED: clarified 2 LLM calls max (initial + 1 challenge), challenge message content requirement, hypotheses[:3] scope, strip() for empty detection.",
-    "AC-4": "STRENGTHENED: patch-based regression test — flag=False never calls mechanism_evaluator_loop; flag=True calls it with H1H4T3 prompt.",
-    "AC-5": "STRENGTHENED: hard panel source switched to v2-forensics-n50.json (state.json tier2 empty); require exactly 18 rows; define delta formula.",
-    "AC-6": "STRENGTHENED: raised minimum to 7 tests with explicit breakdown and LLM call-count assertions.",
-    "EC-1": "STRENGTHENED: whitespace-only treated as empty; assert call_count==1.",
-    "EC-2": "STRENGTHENED: assert call_count==2 exactly on exhausted loop.",
-    "EC-3": "STRENGTHENED: requires new patch test, not just 'existing suite passes'.",
-    "EC-4": "ACCEPTED: redundant with AC-2 but kept as explicit edge-case guard."
-  },
-  "phase": "evaluating",
-  "verified": true
+  "verification_method": "pytest tests/test_report_builder.py -v && pytest -q (415+ pass)",
+  "constraints": [
+    "No new LLM calls — pure deterministic post-processing",
+    "Do not modify findings or recommendations — only localization changes",
+    "No re-score script required for contract verification (D2 lift confirmed at mini-n20-gate)"
+  ]
 }

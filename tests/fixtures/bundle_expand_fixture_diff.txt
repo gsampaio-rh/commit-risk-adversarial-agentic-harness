@@ -1,0 +1,23 @@
+diff --git a/src/main/java/org/example/Foo.java b/src/main/java/org/example/Foo.java
+index 1111111..2222222 100644
+--- a/src/main/java/org/example/Foo.java
++++ b/src/main/java/org/example/Foo.java
+@@ -1,5 +1,6 @@
+ package org.example;
+ 
+ class Foo {
++    cacheManager.init();
+     void run() {}
+ }
+
+diff --git a/src/test/java/org/example/FooTest.java b/src/test/java/org/example/FooTest.java
+index 3333333..4444444 100644
+--- a/src/test/java/org/example/FooTest.java
++++ b/src/test/java/org/example/FooTest.java
+@@ -10,6 +10,7 @@ public class FooTest {
+     @Test
+     void testCache() {
+         Foo foo = new Foo();
++        assertNotNull(foo.cacheManager);
+     }
+ }

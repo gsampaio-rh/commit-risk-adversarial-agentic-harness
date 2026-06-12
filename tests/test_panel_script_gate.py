@@ -49,8 +49,8 @@ def _load_panel() -> list[dict[str, Any]]:
 
 def _build_context(d: dict[str, Any]) -> Any:
     """Build InvestigationContext from panel data."""
-    from commit_investigator.context_builder import InvestigationContext
-    from commit_investigator.git_context import GitContextProvider
+    from commit_investigator.context.context_builder import InvestigationContext
+    from commit_investigator.context.git_context import GitContextProvider
 
     commit_id = d["commit_id"]
     project = d.get("project", "camel")
@@ -83,8 +83,8 @@ def _build_context(d: dict[str, Any]) -> Any:
 
 def _compute_metrics(cases: list[dict[str, Any]]) -> dict[str, Any]:
     """Apply evaluate_risk() to all panel cases and compute D1/buggy_recall/D6."""
-    from commit_investigator.report import RiskLevel
-    from commit_investigator.risk_policy import evaluate_risk
+    from commit_investigator.analysis.report import RiskLevel
+    from commit_investigator.analysis.risk_policy import evaluate_risk
 
     buggy_total = sum(1 for c in cases if c["buggy_label"])
     clean_total = sum(1 for c in cases if not c["buggy_label"])
@@ -181,9 +181,9 @@ class TestPanelScriptGate:
         """Verify gate uses only Script evaluate_risk() — no LLM calls made."""
         # This test passes by construction: _compute_metrics() never calls LLM.
         # If evaluate_risk() internally calls LLM, it would raise since no LLM configured.
-        from commit_investigator.risk_policy import evaluate_risk
-        from commit_investigator.report import RiskLevel
-        from commit_investigator.context_builder import InvestigationContext
+        from commit_investigator.analysis.risk_policy import evaluate_risk
+        from commit_investigator.analysis.report import RiskLevel
+        from commit_investigator.context.context_builder import InvestigationContext
 
         ctx = InvestigationContext(
             commit_id="test", project="camel", diff="", message=None,

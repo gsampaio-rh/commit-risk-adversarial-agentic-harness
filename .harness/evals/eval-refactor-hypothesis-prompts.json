@@ -1,0 +1,77 @@
+{
+  "task_id": "refactor-hypothesis-prompts",
+  "timestamp": "2026-06-11T16:39:54Z",
+  "overall": "PASS",
+  "computational_checks": {
+    "lint": "PASS — ruff clean on changed files (builder reported F401 resolved via noqa on re-export import)",
+    "types": "NOT_RUN — no mypy/pyright gate in contract",
+    "tests": "PASS — test_hypothesis_engine.py: 58 collected, 58 passed; test_orchestrator.py + test_mechanism_evaluator_h1h4t3.py: 40 passed; full suite: 395 passed in 10.51s",
+    "build": "PASS — import smoke: hypothesis_engine + hypothesis_prompts load without circular ImportError; extract_coverage_section() default arg resolves"
+  },
+  "criteria": [
+    {
+      "criterion": "AC-1: hypothesis_prompts.py created with exactly these 7 public symbols",
+      "result": "PASS",
+      "evidence": "grep on hypothesis_prompts.py matched all 7: HYPOTHESIS_SYSTEM_PROMPT (L3), COVERAGE_SECTION_HEADER (L48), PRODUCTION_SOURCE_SUFFIXES (L50), is_production_source_file (L53), extract_coverage_section (L68), HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 (L80), HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE (L132). File is 191 lines."
+    },
+    {
+      "criterion": "AC-2: hypothesis_engine.py re-exports all 7 moved names via single import at module top; no duplicate definitions",
+      "result": "PASS",
+      "evidence": "L12-20: single parenthesized 'from commit_investigator.hypothesis_prompts import (...)' immediately after pydantic import. grep for duplicate definitions (HYPOTHESIS_SYSTEM_PROMPT=, def is_production_source_file, etc.) in hypothesis_engine.py: no matches."
+    },
+    {
+      "criterion": "AC-3: hypothesis_engine.py line count ≤ 370 after the split",
+      "result": "PASS",
+      "evidence": "wc -l: hypothesis_engine.py = 368 lines (≤ 370 threshold)."
+    },
+    {
+      "criterion": "AC-4: pytest tests/test_hypothesis_engine.py: exactly 58 tests collected and 58 passed; zero import-line edits",
+      "result": "PASS",
+      "evidence": "pytest --collect-only: '58 tests collected'. pytest -q: '58 passed in 0.09s'. git diff tests/test_hypothesis_engine.py: empty (no import-line changes)."
+    },
+    {
+      "criterion": "AC-5: orchestrator.py imports 3 prompt constants from hypothesis_prompts; other symbols from hypothesis_engine; no other src module imports prompts from hypothesis_engine",
+      "result": "PASS",
+      "evidence": "orchestrator.py L29-33 imports HYPOTHESIS_SYSTEM_PROMPT, HYPOTHESIS_SYSTEM_PROMPT_H1H4T3, HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE from hypothesis_prompts; L20-28 imports HypothesisResponse, build_investigation_messages, etc. from hypothesis_engine. src/ grep: only hypothesis_engine (re-export) and orchestrator reference prompt symbols; no other production module imports prompts from hypothesis_engine."
+    },
+    {
+      "criterion": "AC-6: hypothesis_prompts.py has zero imports from commit_investigator",
+      "result": "PASS",
+      "evidence": "grep 'commit_investigator' hypothesis_prompts.py: no matches (CLEAN). File uses only module-level strings and stdlib-free helpers."
+    },
+    {
+      "criterion": "AC-7: test_orchestrator.py and test_mechanism_evaluator_h1h4t3.py pass with zero import-line changes",
+      "result": "PASS",
+      "evidence": "pytest tests/test_orchestrator.py tests/test_mechanism_evaluator_h1h4t3.py: 40 passed. git diff on both test files: empty."
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "EC-1: Module definition order in hypothesis_prompts.py (7-step order for extract_coverage_section at class-body time)",
+      "result": "PASS",
+      "evidence": "File order verified: (1) HYPOTHESIS_SYSTEM_PROMPT L3, (2) COVERAGE_SECTION_HEADER L48, (3) PRODUCTION_SOURCE_SUFFIXES L50, (4) is_production_source_file L53, (5) extract_coverage_section L68, (6) HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 L80 (calls extract_coverage_section() L112), (7) HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE L132 (calls extract_coverage_section() L176)."
+    },
+    {
+      "case": "EC-2: extract_coverage_section default arg requires HYPOTHESIS_SYSTEM_PROMPT and COVERAGE_SECTION_HEADER defined first",
+      "result": "PASS",
+      "evidence": "extract_coverage_section(prompt: str = HYPOTHESIS_SYSTEM_PROMPT) at L68; both dependencies defined at L3 and L48. Runtime smoke: extract_coverage_section() returns section containing 'COVERAGE REQUIREMENT'."
+    },
+    {
+      "case": "EC-3: hypothesis_engine imports hypothesis_prompts; hypothesis_prompts does not import hypothesis_engine — no circular import",
+      "result": "PASS",
+      "evidence": "hypothesis_prompts.py has no commit_investigator imports. Python smoke: 'from commit_investigator import hypothesis_engine' succeeds; hypothesis_engine.HYPOTHESIS_SYSTEM_PROMPT is identity-equal to hypothesis_prompts.HYPOTHESIS_SYSTEM_PROMPT."
+    },
+    {
+      "case": "EC-4: test_hypothesis_engine.py L14-27 imports from hypothesis_engine resolve without ImportError",
+      "result": "PASS",
+      "evidence": "58/58 tests pass including TestPromptConstraints and TestCoverageRequirement which import HYPOTHESIS_SYSTEM_PROMPT, COVERAGE_SECTION_HEADER, is_production_source_file, extract_coverage_section from hypothesis_engine."
+    },
+    {
+      "case": "EC-5: orchestrator.py INVESTIGATION_SYSTEM_PROMPT = HYPOTHESIS_SYSTEM_PROMPT alias continues to work",
+      "result": "PASS",
+      "evidence": "orchestrator.py L45: INVESTIGATION_SYSTEM_PROMPT = HYPOTHESIS_SYSTEM_PROMPT where HYPOTHESIS_SYSTEM_PROMPT is imported from hypothesis_prompts L30. test_orchestrator.py passes (included in 40-pass run)."
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "User-provided grep 'selected' on collect-only output returns no match (pytest prints '58 tests collected' not 'selected'); count verified via full collect-only output and contract grep -oE pattern equivalent."
+}

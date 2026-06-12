@@ -17,10 +17,10 @@ import pytest
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from commit_investigator.context_builder import AuthorStats, InvestigationContext  # noqa: E402
-from commit_investigator.git_context import FileHistoryEntry  # noqa: E402
-from commit_investigator.hypothesis_engine import build_investigation_messages  # noqa: E402
-from commit_investigator.llm import LLMResponse  # noqa: E402
+from commit_investigator.context.context_builder import AuthorStats, InvestigationContext  # noqa: E402
+from commit_investigator.context.git_context import FileHistoryEntry  # noqa: E402
+from commit_investigator.hypothesis.hypothesis_engine import build_investigation_messages  # noqa: E402
+from commit_investigator.infra.llm import LLMResponse  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -165,11 +165,11 @@ class TestAuthorStatsInjection:
 class TestPerStageMetadata:
     def test_per_stage_in_metadata(self) -> None:
         """AC-3: report.metadata has per_stage list with required fields."""
-        from commit_investigator.hypothesis_engine import HypothesisResponse
-        from commit_investigator.orchestrator import BudgetState
-        from commit_investigator.report_builder import build_report
-        from commit_investigator.risk_policy import PolicyVerdict
-        from commit_investigator.report import RiskLevel
+        from commit_investigator.hypothesis.hypothesis_engine import HypothesisResponse
+        from commit_investigator.pipeline.orchestrator import BudgetState
+        from commit_investigator.pipeline.report_builder import build_report
+        from commit_investigator.analysis.risk_policy import PolicyVerdict
+        from commit_investigator.analysis.report import RiskLevel
 
         mock_response = LLMResponse(
             content='{"summary":"test","hypotheses":[]}',
@@ -199,11 +199,11 @@ class TestPerStageMetadata:
 
     def test_per_stage_fields_when_checkpoint_exists(self) -> None:
         """per_stage entries have required fields when checkpoints are populated."""
-        from commit_investigator.hypothesis_engine import HypothesisResponse
-        from commit_investigator.orchestrator import BudgetState, TurnCheckpoint
-        from commit_investigator.report_builder import build_report
-        from commit_investigator.risk_policy import PolicyVerdict
-        from commit_investigator.report import RiskLevel
+        from commit_investigator.hypothesis.hypothesis_engine import HypothesisResponse
+        from commit_investigator.pipeline.orchestrator import BudgetState, TurnCheckpoint
+        from commit_investigator.pipeline.report_builder import build_report
+        from commit_investigator.analysis.risk_policy import PolicyVerdict
+        from commit_investigator.analysis.report import RiskLevel
 
         mock_response = LLMResponse(
             content='{"summary":"test","hypotheses":[]}',
@@ -255,7 +255,7 @@ class TestD6OnPanelReports:
     def _load_panel_reports(self) -> list[Any]:
         """Load existing panel investigation results as minimal report objects."""
         import json
-        from commit_investigator.report import (
+        from commit_investigator.analysis.report import (
             CommitInvestigationReport, RiskAssessment, RiskLevel,
             EvidenceItem, EvidenceType, LocalizationClaim,
         )
@@ -313,7 +313,7 @@ class TestD6OnPanelReports:
 
     def test_d6_on_panel(self) -> None:
         """D6 >= 0.70 on existing panel — verifies evidence grounding quality."""
-        from commit_investigator.eval_judge import ReasoningJudge
+        from commit_investigator.runners.eval_judge import ReasoningJudge
 
         reports = self._load_panel_reports()
         if not reports:
