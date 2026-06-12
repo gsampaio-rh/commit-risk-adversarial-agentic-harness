@@ -69,7 +69,7 @@ def build_report(
     return CommitInvestigationReport(
         commit_id=context.commit_id,
         project=context.project,
-        risk_assessment=RiskAssessment(level=verdict.risk_level, confidence=0.7),
+        risk_assessment=RiskAssessment(level=verdict.risk_level, confidence=verdict.confidence_score),
         evidence=evidence_items,
         findings=findings,
         localization=_build_localization(hyp_response.hypotheses, tagged, context.raw_diff),

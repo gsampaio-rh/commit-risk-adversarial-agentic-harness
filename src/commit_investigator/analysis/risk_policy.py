@@ -14,9 +14,15 @@ import re
 from dataclasses import dataclass, field
 
 from commit_investigator.analysis.archetype import detect_archetype, has_production_defect_signals
+from commit_investigator.analysis.confidence_model import ConfidenceResult, compute_confidence
+from commit_investigator.analysis.signal_extractor import (
+    ROUTER_HIGH_THRESHOLD,
+    extract_confidence_signals,
+)
 from commit_investigator.context.context_builder import InvestigationContext
 from commit_investigator.analysis.evidence_tagger import TagResult, count_supported_from_reasoning
 from commit_investigator.analysis.report import RiskLevel
+from commit_investigator.hypothesis.hypothesis_engine import HypothesisSpec
 
 # ---------------------------------------------------------------------------
 # Reasoning quality helpers
@@ -59,7 +65,9 @@ class PolicyVerdict:
     """Result of risk policy evaluation.
 
     risk_level and cap_applied are the primary outputs consumed by the
-    orchestrator.     cap_reason and applied_rules are audit fields for transparency/debugging.
+    orchestrator. cap_reason and applied_rules are audit fields for transparency/debugging.
+    confidence_score is the scalar [0,1] from the confidence equation. Defaults
+    to 0.70 (the historical flat prior) when the legacy evaluate_risk() path is used.
     """
 
     risk_level: RiskLevel
@@ -67,6 +75,8 @@ class PolicyVerdict:
     cap_reason: str
     applied_rules: list[str] = field(default_factory=list)
     supported_count: int = 0
+    # 0.70 preserves the legacy flat confidence emitted before the confidence equation.
+    confidence_score: float = 0.70
 
 
 # ---------------------------------------------------------------------------
@@ -149,65 +159,117 @@ def evaluate_risk(
 def evaluate_risk_from_hypotheses(
     tagged: list[TagResult],
     context: InvestigationContext,
+    hypotheses: list[HypothesisSpec] | None = None,
 ) -> PolicyVerdict:
     """Evaluate risk from tagged hypotheses + context signals.
 
-    Derives base risk from script signals:
-    - supported_count >= 1 → HIGH (capped if clean archetype + no defect signals)
-    - production_defect_signals → HIGH (no cap override)
-    - router_prior >= 0.70 → HIGH (subject to cap)
-    - otherwise → MEDIUM
+    Script-layer risk evaluation (no LLM calls):
+    - supported_count >= 1, defect signals, or router_prior >= threshold → HIGH
+    - Otherwise → MEDIUM; subject to archetype cap and LOW-confidence cap.
     """
-    supported_count = sum(1 for t in tagged if t.tier == "SUPPORTED")
+    hypothesis_list = hypotheses or []
+    supported_count = sum(1 for tag in tagged if tag.tier == "SUPPORTED")
+    signals = extract_confidence_signals(context, tagged, hypothesis_list)
+    confidence = compute_confidence(signals)
     defect_signals = has_production_defect_signals(context)
+
+    base_risk = _derive_base_risk(supported_count, defect_signals, context)
+    verdict = _apply_archetype_cap(base_risk, supported_count, defect_signals, context, confidence)
+    return _apply_low_confidence_cap(verdict, confidence, defect_signals)
+
+
+def _derive_base_risk(
+    supported_count: int,
+    defect_signals: bool,
+    context: InvestigationContext,
+) -> RiskLevel:
+    """Determine base risk from script signals before any capping."""
     router_prior = context.router_probability or 0.0
+    if supported_count >= 1 or defect_signals or router_prior >= ROUTER_HIGH_THRESHOLD:
+        return RiskLevel.HIGH
+    return RiskLevel.MEDIUM
 
-    if supported_count >= 1 or defect_signals or router_prior >= 0.70:
-        base_risk = RiskLevel.HIGH
-    else:
-        base_risk = RiskLevel.MEDIUM
 
+def _apply_archetype_cap(
+    base_risk: RiskLevel,
+    supported_count: int,
+    defect_signals: bool,
+    context: InvestigationContext,
+    confidence: ConfidenceResult,
+) -> PolicyVerdict:
+    """Apply clean-archetype and speculative-only caps; return PolicyVerdict."""
     if base_risk not in (RiskLevel.HIGH, RiskLevel.CRITICAL):
-        return PolicyVerdict(
-            risk_level=base_risk,
-            cap_applied=False,
-            cap_reason="",
-            applied_rules=[],
-            supported_count=supported_count,
-        )
+        return _make_verdict(base_risk, supported_count, confidence.score)
 
     if defect_signals:
-        return PolicyVerdict(
-            risk_level=base_risk,
-            cap_applied=False,
-            cap_reason="",
-            applied_rules=[],
-            supported_count=supported_count,
-        )
+        return _make_verdict(base_risk, supported_count, confidence.score)
 
     is_clean_archetype = detect_archetype(context)
     is_speculative_only = supported_count == 0
 
     if not is_clean_archetype and not is_speculative_only:
-        return PolicyVerdict(
-            risk_level=base_risk,
-            cap_applied=False,
-            cap_reason="",
-            applied_rules=[],
-            supported_count=supported_count,
-        )
+        return _make_verdict(base_risk, supported_count, confidence.score)
 
     if is_clean_archetype:
         cap_reason = "clean_archetype_no_production_defect_signals"
-        applied_rules = ["cap_to_MEDIUM:clean_archetype"]
+        rules = ["cap_to_MEDIUM:clean_archetype"]
     else:
         cap_reason = "speculative_or_unverifiable_only"
-        applied_rules = ["cap_to_MEDIUM:speculative_only"]
+        rules = ["cap_to_MEDIUM:speculative_only"]
 
     return PolicyVerdict(
         risk_level=RiskLevel.MEDIUM,
         cap_applied=True,
         cap_reason=cap_reason,
-        applied_rules=applied_rules,
+        applied_rules=rules,
         supported_count=supported_count,
+        confidence_score=confidence.score,
+    )
+
+
+def _make_verdict(
+    risk_level: RiskLevel,
+    supported_count: int,
+    confidence_score: float,
+) -> PolicyVerdict:
+    """Build a no-cap PolicyVerdict with common defaults."""
+    return PolicyVerdict(
+        risk_level=risk_level,
+        cap_applied=False,
+        cap_reason="",
+        applied_rules=[],
+        supported_count=supported_count,
+        confidence_score=confidence_score,
+    )
+
+
+def _apply_low_confidence_cap(
+    verdict: PolicyVerdict,
+    confidence: ConfidenceResult,
+    defect_signals: bool,
+) -> PolicyVerdict:
+    """Cap HIGH/CRITICAL to MEDIUM when confidence tier is LOW.
+
+    Bypass conditions (cap does NOT fire):
+    - Defect signals present — structural defect signals override uncertainty.
+    - supported_count >= 1 — diff-grounded evidence is sufficient proof; confidence
+      tier reflects metadata quality, not evidence absence. Capping SUPPORTED commits
+      would turn true positives into false negatives (the opposite of the cap's goal).
+    - Risk level is not HIGH/CRITICAL — cap only makes sense for high-risk verdicts.
+    """
+    if confidence.tier != "LOW" or defect_signals:
+        return verdict
+    if verdict.supported_count >= 1:
+        return verdict
+    if verdict.risk_level not in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+        return verdict
+    applied_rules = list(verdict.applied_rules)
+    applied_rules.append("cap_to_MEDIUM:low_confidence")
+    return PolicyVerdict(
+        risk_level=RiskLevel.MEDIUM,
+        cap_applied=True,
+        cap_reason="low_confidence_tier",
+        applied_rules=applied_rules,
+        supported_count=verdict.supported_count,
+        confidence_score=confidence.score,
     )

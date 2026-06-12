@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from commit_investigator.analysis.archetype import detect_archetype, has_production_defect_signals
+from commit_investigator.analysis.confidence_model import compute_confidence
+from commit_investigator.analysis.signal_extractor import extract_confidence_signals
 from commit_investigator.context.context_builder import CommitContextBuilder, InvestigationContext
 from commit_investigator.context.git_context import GitContextProvider
 from commit_investigator.hypothesis.hypothesis_engine import (
@@ -163,7 +165,7 @@ class AgentOrchestrator:
             reordered = select_primary_by_evidence(hyp_response.hypotheses)
             hyp_response = HypothesisResponse(summary=hyp_response.summary, hypotheses=reordered)
         tagged = tag_hypotheses(hyp_response.hypotheses, context.diff, context.truncation_metadata)
-        verdict = evaluate_risk_from_hypotheses(tagged, context)
+        verdict = evaluate_risk_from_hypotheses(tagged, context, hyp_response.hypotheses)
         return build_report(
             hyp_response=hyp_response, tagged=tagged, verdict=verdict, context=context,
             last_response=last_response, checkpoints=self._checkpoints, budget=self._budget,
@@ -276,7 +278,11 @@ class AgentOrchestrator:
             findings=findings,
             validation_error=None,
         )
-        return evaluate_gate(artifact).follow_up_needed
+        gate_follow_up = evaluate_gate(artifact).follow_up_needed
+        confidence = compute_confidence(
+            extract_confidence_signals(context, tagged, hyp_response.hypotheses)
+        )
+        return confidence.tier == "MEDIUM" or gate_follow_up
 
     def _save_checkpoint(self, checkpoint: TurnCheckpoint) -> None:
         self._checkpoints.append(checkpoint)

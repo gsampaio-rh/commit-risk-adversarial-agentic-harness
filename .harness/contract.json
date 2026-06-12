@@ -1,27 +1,37 @@
 {
-  "task_id": "repo-cleanup-p20-p26",
-  "feature": "Repo cleanup: experiment ID removal, docs naming, and function-size refactors",
-  "problem": "Pre-experiment audit (audit-repo-cleanup-2026-06-12.json) found 3 high-severity issues: (1) README still carries 'Experiment #19b' experiment ID, (2) run_multiturn_ab.main() at 152 lines — 3x the 50-line max, (3) report_builder.build_report() + orchestrator.investigate() at 87-89 lines each. Additional stale experiment refs in docs/.",
-  "proposed_solution": "4 chores (naming): README, datasets.md, experiment-context.md, script rename. 3 refactors (sizing): split main() into 5 phase functions, extract _build_report_metadata() from build_report(), extract _run_turn_loop() from investigate().",
-  "phase": "evaluating",
-  "verified": true,
+  "task_id": "spike-investigation-confidence-equation",
+  "feature": "Deterministic 7-signal confidence equation replacing heuristic follow_up_needed flag",
+  "problem": "Agent emits conf=0.70 for all commits regardless of evidence quality. On n=50 eval: 8 BUG commits get MEDIUM (D1 miss) because diffs look cosmetic, 6 clean commits get HIGH (FP) because LLM finds plausible risk without signal/noise separation. Both are calibration failures.",
+  "proposed_solution": "Two new modules in src/commit_investigator/analysis/: signal_extractor.py (deterministic InvestigationContext+TagResults→ConfidenceSignals) and confidence_model.py (ConfidenceSignals→scalar+tier). Wire confidence_tier into orchestrator._should_follow_up() (replaces gate heuristic) and risk_policy LOW_CONFIDENCE cap. Add calibrate_confidence.py script. Unit tests cover all signals and the model.",
   "acceptance_criteria": [
-    "AC-1: rg 'Experiment.*#19b' README.md returns zero matches",
-    "AC-2: rg 'feat-[0-9]' docs/datasets.md returns zero matches",
-    "AC-3: rg 'Experiment.*#19b|iter-1' docs/experiment-context.md returns zero matches",
-    "AC-4: scripts/run-smoke-eval.sh exists; scripts/run-iter-1-eval.sh absent",
-    "AC-5: run_multiturn_ab.main() <= 30 lines; no extracted function exceeds 55 lines",
-    "AC-6: report_builder.build_report() <= 45 lines",
-    "AC-7: orchestrator.investigate() <= 40 lines",
-    "AC-8: 392 tests pass — zero regressions"
+    "AC-1: signal_extractor.py exports extract_confidence_signals(context: InvestigationContext, tagged: list[TagResult], hypotheses: list[HypothesisSpec]) -> ConfidenceSignals with all 7 signal fields: supported_count, evidence_density, router_agreement, hypothesis_diversity, diff_signal_ratio, missing_context_flags, commit_message_clarity. router_agreement: 1.0 when router_probability>=0.7 AND base_risk==HIGH, 0.0 when router_probability>=0.7 AND base_risk!=HIGH, 0.5 when router_probability is None or <0.7 (base_risk derived same as evaluate_risk_from_hypotheses: HIGH if supported_count>=1 or defect_signals or router_prior>=0.7).",
+    "AC-2: confidence_model.py exports compute_confidence(signals: ConfidenceSignals) -> ConfidenceResult with fields: score (float 0..1), tier (Literal['HIGH','MEDIUM','LOW']). Score uses fixed weights from state.json candidate_equation: 0.35*supported_score + 0.25*router_agreement + 0.20*evidence_density + 0.10*diversity_score + 0.10*message_clarity - 0.05*missing_context_penalty (each component normalized to [0,1]; missing_context_penalty capped so score stays in [0,1]). Tier thresholds: score>=0.65 → HIGH, 0.40<=score<0.65 → MEDIUM, score<0.40 → LOW.",
+    "AC-3: All 7 signal extractors are purely deterministic — zero LLM calls, no network I/O, no file I/O",
+    "AC-4: orchestrator._should_follow_up() returns True when ConfidenceResult.tier == 'MEDIUM' OR evaluate_gate(artifact).follow_up_needed is True (T1-T4 safety triggers preserved); returns False when turn >= max_turns; FollowUpMode.ALWAYS unchanged. quality_gate.evaluate_gate() remains callable and its 392-test suite behavior unchanged.",
+    "AC-5: evaluate_risk_from_hypotheses() accepts ConfidenceResult (or computes it internally from tagged+context+hypotheses) and applies LOW_CONFIDENCE cap: if tier=='LOW', risk_level capped at MEDIUM regardless of supported_count, unless has_production_defect_signals(context) is True (defect signals bypass cap). PolicyVerdict gains confidence_score: float field populated from ConfidenceResult.score.",
+    "AC-6: calibrate_confidence.py reads existing run output JSONs under --run-dir (investigations/ + evaluations/; no new LLM calls) and prints one line per signal with signal name and Gini coefficient in [0,1] as D1 AUC proxy; stdout must list all 7 signal names with parseable numeric Gini values",
+    "AC-7: Unit tests for signal_extractor.py cover all 7 signals with at least one positive and one negative case each",
+    "AC-8: Unit tests for confidence_model.py cover tier boundaries: inputs yielding score>=0.65 → HIGH, 0.40<=score<0.65 → MEDIUM, score<0.40 → LOW, including exact boundary scores 0.65 and 0.40",
+    "AC-9: tests/test_orchestrator.py (or tests/test_confidence_integration.py) asserts _should_follow_up returns True for MEDIUM tier and preserves T1 gate fire (supported_count==0 + production_defect_signals)",
+    "AC-10: All existing 392 tests continue to pass (no regressions)"
   ],
   "edge_cases": [
-    "EC-1: _run_turn_loop() tool-call branch still continues the loop correctly (no break on tool call)",
-    "EC-2: _investigate_commit() in run_multiturn_ab still resolves full commit ID from CSV prefix",
-    "EC-3: _build_report_metadata() turn2_bundle=None branch skips turn2_injection key (not KeyError)",
-    "EC-4: orchestrator.investigate() with context=None still builds context from git_provider"
+    "EC-1: context.diff is None or empty — diff_signal_ratio returns 0.0, supported_count and evidence_density derived from TagResults only",
+    "EC-2: hypotheses list is empty — evidence_density=0.0, hypothesis_diversity=0, supported_count=0",
+    "EC-3: context.router_probability is None — router_agreement defaults to 0.5 (neutral)",
+    "EC-4: context.message is None or empty — commit_message_clarity returns 0.0",
+    "EC-5: All 7 signals at max/min simultaneously — score clamps to [0.0, 1.0]",
+    "EC-6: missing_context_flags > 3 — penalty is capped so score cannot go below 0.0",
+    "EC-7: score exactly 0.65 → tier HIGH; score exactly 0.40 → tier MEDIUM (inclusive lower bound)",
+    "EC-8: tier==LOW with has_production_defect_signals(context)==True — risk cap skipped, risk_level may remain HIGH"
   ],
-  "verification_method": "rg checks for experiment IDs + pytest tests/ -q (392 pass) + ast function-size check",
+  "verification_method": "Run pytest tests/test_signal_extractor.py tests/test_confidence_model.py tests/test_orchestrator.py -v -k 'confidence or follow_up or gate' (all pass). Run full pytest (392+ tests, zero failures). Grep orchestrator.py: compute_confidence or extract_confidence_signals called inside _should_follow_up; grep confirms evaluate_gate still invoked (OR logic). Grep risk_policy.py for confidence_score and LOW tier cap with defect-signal bypass. Run: python calibrate_confidence.py --run-dir output/runs/2026-06-11_14-34-34_real_n11 — stdout lists all 7 signals with numeric Gini in [0,1], exit 0.",
   "rubrics": ["code-quality"],
-  "rubric_mode": "warn"
+  "rubric_mode": "warn",
+  "negotiation_rounds": 1,
+  "negotiation_notes": "Evaluator round 1: STRENGTHENED AC-2 (fixed weight formula from state.json candidate_equation — was missing, builder could ship arbitrary score). STRENGTHENED AC-4 (OR with T1-T4 quality_gate — original 'replace gate' would drop safety triggers T1 defect/no-supported, T3 validation, T4 masked empty). STRENGTHENED AC-1 (router_agreement formula specified). STRENGTHENED AC-5 (defect-signal bypass for LOW cap). STRENGTHENED AC-6 (all 7 signal names + numeric Gini required, not just 'no crash'). ADDED AC-9 integration test for MEDIUM tier + T1 preservation. ADDED EC-7 tier boundaries, EC-8 defect bypass. RENUMBERED regression AC to AC-10. Deferred state.json A/B n20 eval and early_stop_rule to follow-on task — spike scope is modules + wiring + calibration script only.",
+  "phase": "evaluating",
+  "verified": true,
+  "eval_verdict": "PASS",
+  "eval_report": ".harness/evals/eval-spike-investigation-confidence-equation.json"
 }

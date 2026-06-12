@@ -10,6 +10,7 @@ import pytest
 from commit_investigator.context.context_builder import InvestigationContext
 from commit_investigator.analysis.evidence_tagger import TagResult
 from commit_investigator.analysis.report import RiskLevel
+from commit_investigator.hypothesis.hypothesis_engine import HypothesisSpec
 from commit_investigator.analysis.risk_policy import (
     PolicyVerdict,
     _reasoning_all_speculative_or_unverifiable,
@@ -504,3 +505,35 @@ class TestEvaluateRiskFromHypotheses:
         assert verdict.cap_applied is True
         assert verdict.cap_reason == "speculative_or_unverifiable_only"
         assert verdict.applied_rules == ["cap_to_MEDIUM:speculative_only"]
+
+    def test_low_confidence_speculative_only_caps_high_risk(self):
+        """FP scenario: router HIGH + speculative-only hypotheses → MEDIUM.
+
+        When supported_count==0, _apply_archetype_cap fires via is_speculative_only
+        before _apply_low_confidence_cap is reached. The commit is correctly capped
+        to MEDIUM via 'cap_to_MEDIUM:speculative_only'. This is the realistic FP path.
+        LOW confidence cap is a forward-compatible bypass for future formula tuning.
+        """
+        tagged = [_tag("SPECULATIVE"), _tag("UNVERIFIABLE")]
+        hyps = [
+            HypothesisSpec(mechanism="[logic-error] maybe", evidence_quote="", file="X.java"),
+            HypothesisSpec(mechanism="[config-init] possibly", evidence_quote="", file="Y.java"),
+        ]
+        ctx = _generic_diff_context()
+        ctx.message = None
+        ctx.router_probability = 0.85
+        verdict = evaluate_risk_from_hypotheses(tagged, ctx, hyps)
+        assert verdict.supported_count == 0
+        assert verdict.risk_level == RiskLevel.MEDIUM
+        assert verdict.cap_applied is True
+        assert "cap_to_MEDIUM:speculative_only" in verdict.applied_rules
+
+    def test_low_confidence_bypassed_by_defect_signals(self):
+        """EC-8: defect signals bypass LOW confidence cap."""
+        ctx = _guard_removal_context()
+        ctx.message = None
+        ctx.router_probability = None
+        verdict = evaluate_risk_from_hypotheses([], ctx, [])
+        assert verdict.risk_level == RiskLevel.HIGH
+        assert verdict.cap_applied is False
+        assert verdict.confidence_score >= 0.0

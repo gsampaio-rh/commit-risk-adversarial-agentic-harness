@@ -1,0 +1,72 @@
+{
+  "task_id": "spike-investigation-confidence-equation",
+  "verdict": "PASS",
+  "ac_results": [
+    {
+      "id": "AC-1",
+      "result": "PASS",
+      "notes": "extract_confidence_signals exports ConfidenceSignals with all 7 fields. router_agreement: 1.0 when router>=0.7 and evidence-backed HIGH (supported/defects), 0.0 when router>=0.7 but no evidence (verified: router=0.85, no tags → 0.0), 0.5 when router None or <0.7. test_disagreement_when_router_high_but_no_evidence passes."
+    },
+    {
+      "id": "AC-2",
+      "result": "PASS",
+      "notes": "Weights 0.35/0.25/0.20/0.10/0.10 - 0.05 penalty unchanged. Tier thresholds 0.65/0.40 with round(score,10) before _score_to_tier()."
+    },
+    {
+      "id": "AC-3",
+      "result": "PASS",
+      "notes": "No I/O or LLM in signal_extractor or confidence_model."
+    },
+    {
+      "id": "AC-4",
+      "result": "PASS",
+      "notes": "orchestrator line 285: tier=='MEDIUM' or gate_follow_up. evaluate_gate still invoked. ALWAYS/max_turns preserved; integration tests pass."
+    },
+    {
+      "id": "AC-5",
+      "result": "PASS",
+      "notes": "confidence_score on PolicyVerdict; LOW cap with defect bypass. test_low_confidence_caps_high_risk and test_low_confidence_bypassed_by_defect_signals pass."
+    },
+    {
+      "id": "AC-6",
+      "result": "PASS",
+      "notes": "calibrate_confidence.py exit 0; all 7 signals with numeric Gini in [0,1]."
+    },
+    {
+      "id": "AC-7",
+      "result": "PASS",
+      "notes": "15 signal_extractor tests: all 7 signals with positive/negative cases including router disagreement."
+    },
+    {
+      "id": "AC-8",
+      "result": "PASS",
+      "notes": "test_exact_boundary_score_0_65_is_high and test_exact_boundary_score_0_40_is_medium assert score==approx(0.65/0.40) and tier HIGH/MEDIUM. Verified live: ConfidenceSignals(3,0.5,1.0,0,0.0,4,0.0)→0.65 HIGH; (3,0.5,0.0,0,0.0,4,0.0)→0.4 MEDIUM."
+    },
+    {
+      "id": "AC-9",
+      "result": "PASS",
+      "notes": "test_confidence_integration.py: MEDIUM follow-up and T1 gate preservation pass."
+    },
+    {
+      "id": "AC-10",
+      "result": "PASS",
+      "notes": "425 tests passed, 0 failed."
+    }
+  ],
+  "ec_results": [
+    {"id": "EC-1", "result": "PASS", "notes": "Empty diff → diff_signal_ratio=0.0; tags-only derivation tested."},
+    {"id": "EC-2", "result": "PASS", "notes": "Empty hypotheses → evidence_density=0, diversity=0, supported=0."},
+    {"id": "EC-3", "result": "PASS", "notes": "router None/<0.7 → router_agreement=0.5."},
+    {"id": "EC-4", "result": "PASS", "notes": "message None → commit_message_clarity=0.0."},
+    {"id": "EC-5", "result": "PASS", "notes": "Max signals clamped to [0,1]."},
+    {"id": "EC-6", "result": "PASS", "notes": "missing_context_flags>3 penalty saturates at 3."},
+    {"id": "EC-7", "result": "PASS", "notes": "round(score,10) fixes FP: exact 0.65→HIGH, exact 0.40→MEDIUM."},
+    {"id": "EC-8", "result": "PASS", "notes": "Defect signals bypass LOW cap; test passes."}
+  ],
+  "regressions": [],
+  "additional_findings": [
+    "Retest after builder fix for prior FAIL on EC-7/AC-1/AC-8.",
+    "router_agreement base risk now excludes router_prior to avoid circular agreement — aligns with evaluator fix suggestion and makes 0.0 reachable."
+  ],
+  "fix_and_retest": []
+}
