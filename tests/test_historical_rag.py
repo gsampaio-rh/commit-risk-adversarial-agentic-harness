@@ -14,18 +14,18 @@ from __future__ import annotations
 import csv
 import math
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import pytest
 
 import commit_investigator.hypothesis.historical_rag as _rag
 from commit_investigator.context.context_builder import InvestigationContext
 from commit_investigator.hypothesis.historical_rag import (
-    _MIN_CLASSIFIED_FOR_KNN,
     _TrainingRow,
     _classify_message,
     _extract_metrics,
     get_historical_defect_context,
+    reset_training_cache,
 )
 
 
@@ -64,15 +64,9 @@ def _write_training_csv(path: Path, rows: list[dict]) -> None:
 @pytest.fixture(autouse=True)
 def _reset_caches():
     """Reset all module-level singletons before/after each test."""
-    _rag._TRAINING_CACHE = None
-    _rag._TRAINING_LOAD_ATTEMPTED = False
-    _rag._PROJECT_DIST_CACHE = {}
-    _rag._PROJECT_DIST_ATTEMPTED = set()
+    reset_training_cache()
     yield
-    _rag._TRAINING_CACHE = None
-    _rag._TRAINING_LOAD_ATTEMPTED = False
-    _rag._PROJECT_DIST_CACHE = {}
-    _rag._PROJECT_DIST_ATTEMPTED = set()
+    reset_training_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +304,225 @@ class TestImportWithMissingCsv:
 
     def test_module_importable(self):
         """Smoke test: the module is importable without side effects."""
-        import importlib
         import commit_investigator.hypothesis.historical_rag as m
         assert hasattr(m, "get_historical_defect_context")
-        assert hasattr(m, "_classify_message")
+        assert hasattr(m, "reset_training_cache")
+        assert "reset_training_cache" in m.__all__
+
+
+# ---------------------------------------------------------------------------
+# Cache refactor: reset_training_cache() and load retry (contract AC-1–AC-5)
+# ---------------------------------------------------------------------------
+
+_VALID_BUGGY_ROW = {
+    "commit_id": "abc123",
+    "project": "apache/camel",
+    "la": "10",
+    "ld": "3",
+    "nf": "2",
+    "ent": "0.5",
+    "ns": "1",
+    "buggy": "True",
+}
+
+
+class TestResetTrainingCache:
+    def test_importable(self):
+        from commit_investigator.hypothesis.historical_rag import reset_training_cache as rtc
+        assert callable(rtc)
+
+    def test_resets_globals_and_rereads_csv(self, tmp_path):
+        """AC-1: reset clears all four singletons; next load reads CSV from disk."""
+        first_csv = tmp_path / "first.csv"
+        second_csv = tmp_path / "second.csv"
+        _write_training_csv(first_csv, [_VALID_BUGGY_ROW])
+        _write_training_csv(second_csv, [
+            {**_VALID_BUGGY_ROW, "commit_id": "def456"},
+            {**_VALID_BUGGY_ROW, "commit_id": "ghi789"},
+        ])
+
+        with patch.object(_rag, "_JIT_CSV", first_csv):
+            first_load = _rag._load_training_data()
+        assert len(first_load) == 1
+        assert first_load[0].commit_id == "abc123"
+
+        reset_training_cache()
+        assert _rag._TRAINING_CACHE is None
+        assert _rag._TRAINING_LOAD_ATTEMPTED is False
+        assert _rag._PROJECT_DIST_CACHE == {}
+        assert _rag._PROJECT_DIST_ATTEMPTED == set()
+
+        with patch.object(_rag, "_JIT_CSV", second_csv):
+            second_load = _rag._load_training_data()
+        assert len(second_load) == 2
+        assert {r.commit_id for r in second_load} == {"def456", "ghi789"}
+
+    def test_noop_before_any_load(self):
+        """EC-1: reset before any load is a no-op."""
+        reset_training_cache()
+        assert _rag._TRAINING_CACHE is None
+        assert _rag._TRAINING_LOAD_ATTEMPTED is False
+        assert _rag._PROJECT_DIST_CACHE == {}
+        assert _rag._PROJECT_DIST_ATTEMPTED == set()
+
+    def test_rereads_after_successful_load(self, tmp_path):
+        """EC-2: reset after success forces a fresh CSV read."""
+        csv_v1 = tmp_path / "v1.csv"
+        csv_v2 = tmp_path / "v2.csv"
+        _write_training_csv(csv_v1, [_VALID_BUGGY_ROW])
+        _write_training_csv(csv_v2, [{**_VALID_BUGGY_ROW, "commit_id": "newid"}])
+
+        with patch.object(_rag, "_JIT_CSV", csv_v1):
+            assert len(_rag._load_training_data()) == 1
+
+        reset_training_cache()
+        with patch.object(_rag, "_JIT_CSV", csv_v2):
+            reloaded = _rag._load_training_data()
+        assert len(reloaded) == 1
+        assert reloaded[0].commit_id == "newid"
+
+    def test_double_reset_idempotent(self, tmp_path):
+        """EC-3: two consecutive resets leave the same initial state."""
+        csv_path = tmp_path / "train.csv"
+        _write_training_csv(csv_path, [_VALID_BUGGY_ROW])
+        with patch.object(_rag, "_JIT_CSV", csv_path):
+            _rag._load_training_data()
+        _rag._PROJECT_DIST_CACHE["apache/camel"] = {"null-dereference": 1}
+        _rag._PROJECT_DIST_ATTEMPTED.add("apache/camel")
+
+        reset_training_cache()
+        reset_training_cache()
+        assert _rag._TRAINING_CACHE is None
+        assert _rag._TRAINING_LOAD_ATTEMPTED is False
+        assert _rag._PROJECT_DIST_CACHE == {}
+        assert _rag._PROJECT_DIST_ATTEMPTED == set()
+
+
+class TestLoadRetryWithoutReset:
+    def test_retry_after_transient_failure_no_reset(self, tmp_path):
+        """AC-3: failed load does not permanently disable; retry without reset succeeds."""
+        missing = tmp_path / "missing.csv"
+        valid = tmp_path / "valid.csv"
+        _write_training_csv(valid, [_VALID_BUGGY_ROW])
+
+        with patch.object(_rag, "_JIT_CSV", missing):
+            assert _rag._load_training_data() == []
+        assert _rag._TRAINING_LOAD_ATTEMPTED is False
+
+        with patch.object(_rag, "_JIT_CSV", valid):
+            retry = _rag._load_training_data()
+        assert len(retry) == 1
+        assert retry[0].commit_id == "abc123"
+
+    def test_persistent_failure_then_recovery(self, tmp_path):
+        """EC-6: repeated failures return [] quickly; recovery still works."""
+        import time
+
+        missing = tmp_path / "missing.csv"
+        valid = tmp_path / "valid.csv"
+        _write_training_csv(valid, [_VALID_BUGGY_ROW])
+
+        start = time.monotonic()
+        with patch.object(_rag, "_JIT_CSV", missing):
+            for _ in range(3):
+                assert _rag._load_training_data() == []
+        assert time.monotonic() - start < 1.0
+
+        with patch.object(_rag, "_JIT_CSV", valid):
+            recovered = _rag._load_training_data()
+        assert len(recovered) == 1
+
+
+class TestResetRecoveryPath:
+    def test_reset_after_failure_then_load(self, tmp_path):
+        """AC-4: explicit reset recovers after a failed load."""
+        missing = tmp_path / "missing.csv"
+        valid = tmp_path / "valid.csv"
+        _write_training_csv(valid, [_VALID_BUGGY_ROW])
+
+        with patch.object(_rag, "_JIT_CSV", missing):
+            assert _rag._load_training_data() == []
+
+        reset_training_cache()
+        with patch.object(_rag, "_JIT_CSV", valid):
+            result = _rag._load_training_data()
+        assert len(result) == 1
+
+
+class TestProjectDistCacheReset:
+    def test_project_dist_attempted_cleared_on_reset(self, tmp_path):
+        """EC-4: reset clears _PROJECT_DIST_ATTEMPTED so git lookups retry."""
+        training = [
+            _TrainingRow("c1", "apache/camel", (math.log1p(3), math.log1p(1), math.log1p(1), 0.2, 1.0))
+        ]
+        with patch.object(_rag, "_get_commit_message", return_value=None) as mock_msg:
+            _rag._get_project_distribution("apache/camel", training, tmp_path / "repos")
+            first_count = mock_msg.call_count
+
+            reset_training_cache()
+            _rag._get_project_distribution("apache/camel", training, tmp_path / "repos")
+            second_count = mock_msg.call_count
+
+        assert first_count > 0
+        assert second_count > first_count
+
+    def test_project_dist_cache_cleared_on_reset(self, tmp_path):
+        """EC-5: reset clears cached counts so _get_commit_message runs again."""
+        training = [
+            _TrainingRow("c1", "apache/camel", (math.log1p(3), math.log1p(1), math.log1p(1), 0.2, 1.0))
+        ]
+        with patch.object(_rag, "_get_commit_message", return_value="Fix NullPointerException") as mock_msg:
+            _rag._get_project_distribution("apache/camel", training, tmp_path / "repos")
+            first_count = mock_msg.call_count
+
+            reset_training_cache()
+            _rag._get_project_distribution("apache/camel", training, tmp_path / "repos")
+            second_count = mock_msg.call_count
+
+        assert first_count > 0
+        assert second_count > first_count
+
+    def test_interleaved_state_cleared_atomically(self, tmp_path):
+        """EC-7: reset clears training + project-dist state together."""
+        csv_path = tmp_path / "train.csv"
+        _write_training_csv(csv_path, [_VALID_BUGGY_ROW])
+        training = [
+            _TrainingRow("c1", "apache/camel", (math.log1p(3), math.log1p(1), math.log1p(1), 0.2, 1.0))
+        ]
+
+        with patch.object(_rag, "_JIT_CSV", csv_path):
+            _rag._load_training_data()
+        with patch.object(_rag, "_get_commit_message", return_value="Fix race condition"):
+            _rag._get_project_distribution("apache/camel", training, tmp_path / "repos")
+
+        assert _rag._TRAINING_CACHE is not None
+        assert "apache/camel" in _rag._PROJECT_DIST_CACHE
+
+        reset_training_cache()
+        assert _rag._TRAINING_CACHE is None
+        assert _rag._PROJECT_DIST_CACHE == {}
+        assert _rag._PROJECT_DIST_ATTEMPTED == set()
+
+        csv_path2 = tmp_path / "train2.csv"
+        _write_training_csv(csv_path2, [{**_VALID_BUGGY_ROW, "commit_id": "fresh"}])
+        with patch.object(_rag, "_JIT_CSV", csv_path2):
+            fresh_training = _rag._load_training_data()
+        assert fresh_training[0].commit_id == "fresh"
+
+        with patch.object(_rag, "_get_commit_message", return_value="Fix NullPointerException") as mock_msg:
+            _rag._get_project_distribution("apache/camel", fresh_training, tmp_path / "repos")
+        assert mock_msg.call_count > 0
+
+
+class TestModuleDocstring:
+    def test_docstring_documents_cache_scope(self):
+        """AC-5: module docstring covers what/when/lifetime/reset."""
+        doc = (_rag.__doc__ or "").lower()
+        assert "cache" in doc
+        assert "process" in doc
+        assert "reset" in doc
+        assert "_training_cache" in doc
+        assert "_project_dist_cache" in doc
+        assert "lazy" in doc or "first" in doc
+        assert "lifetime" in doc
+        assert "reset_training_cache" in doc

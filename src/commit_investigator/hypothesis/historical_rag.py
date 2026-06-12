@@ -5,6 +5,17 @@ similarity), fetches their commit messages from local git repos, and derives
 the top defect category labels. These labels are injected into the hypothesis
 prompt to ground the LLM in historically plausible failure modes.
 
+Process-level cache (singleton for the lifetime of the process):
+- What is cached: ``_TRAINING_CACHE`` holds parsed buggy ApacheJIT CSV rows;
+  ``_PROJECT_DIST_CACHE`` holds per-project defect-category counts derived from
+  sampled commit messages.
+- When populated: lazily on the first ``_load_training_data()`` call and on
+  the first ``_get_project_distribution()`` call per project key.
+- Lifetime: in-memory until process exit or an explicit ``reset_training_cache()``
+  call (tests use the autouse fixture to reset between cases).
+- How to reset: call ``reset_training_cache()`` to clear all four module-level
+  singletons and allow CSV/git lookups to run again.
+
 Design constraints:
 - Temporal guard: never injects fix-commit content — only the buggy commit
   commit message is used (not the associated fix diff or message).
@@ -153,6 +164,7 @@ def _load_training_data() -> list[_TrainingRow]:
     except Exception as exc:
         logger.warning("historical defect context: failed to load training data: %s", exc)
         _TRAINING_CACHE = []
+        _TRAINING_LOAD_ATTEMPTED = False
     return _TRAINING_CACHE or []
 
 
@@ -162,6 +174,16 @@ def _load_training_data() -> list[_TrainingRow]:
 
 _PROJECT_DIST_CACHE: dict[str, dict[str, int]] = {}
 _PROJECT_DIST_ATTEMPTED: set[str] = set()
+
+
+def reset_training_cache() -> None:
+    """Clear all process-level caches so CSV and project lookups can run again."""
+    global _TRAINING_CACHE, _TRAINING_LOAD_ATTEMPTED
+    global _PROJECT_DIST_CACHE, _PROJECT_DIST_ATTEMPTED
+    _TRAINING_CACHE = None
+    _TRAINING_LOAD_ATTEMPTED = False
+    _PROJECT_DIST_CACHE = {}
+    _PROJECT_DIST_ATTEMPTED = set()
 
 # Minimum classifiable neighbors before skipping K-nearest and using fallback
 _MIN_CLASSIFIED_FOR_KNN = 3
@@ -340,3 +362,6 @@ def get_historical_defect_context(
         lines.append(f"  - {cat}: {pct}% of historical matches")
 
     return "\n".join(lines)
+
+
+__all__ = ["get_historical_defect_context", "reset_training_cache"]
