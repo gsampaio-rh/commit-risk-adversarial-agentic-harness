@@ -14,11 +14,12 @@ import argparse
 import csv
 import json
 import logging
-import os
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from commit_investigator.context.context_builder import AuthorStatsIndex, CommitContextBuilder
 from commit_investigator.runners.eval_common import _load_dotenv, _git_rev
@@ -49,6 +50,17 @@ DELTA_D3_THRESHOLD = 0.25
 EXP_REPORT_PATH = Path(".harness/evals/exp-multiturn-ab.json")
 
 logger = logging.getLogger("commit_investigator.runners.run_multiturn_ab")
+
+
+@dataclass
+class _RunnerContext:
+    run_dir: Path
+    inv_dir: Path
+    test_csv: Path
+    git_provider: GitContextProvider
+    author_stats: AuthorStatsIndex
+    llm: Any
+    harness: EvalHarness
 
 
 def _build_run_dir(base: Path) -> Path:
@@ -86,8 +98,8 @@ def _save_investigation(
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def main() -> None:
-    _load_dotenv()
+def _parse_args() -> argparse.Namespace:
+    """Parse CLI args and configure logging."""
     parser = argparse.ArgumentParser(description="Multi-turn A/B on D3=0 hard commits")
     parser.add_argument("--mock", action="store_true", help="Use mock LLM (unit smoke only)")
     parser.add_argument("--repos-dir", default="data/repos")
@@ -96,14 +108,16 @@ def main() -> None:
     parser.add_argument("--zip", default="data/apachejit/apachejit_dataset_replication.zip")
     parser.add_argument("--runs-base", default="output/runs")
     args = parser.parse_args()
-
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    return args
 
+
+def _setup_runner(args: argparse.Namespace) -> _RunnerContext:
+    """Build all infrastructure objects for the A/B run."""
     run_dir = _build_run_dir(Path(args.runs_base))
     inv_dir = run_dir / "investigations"
     inv_dir.mkdir(exist_ok=True)
 
-    test_csv = Path(args.test_csv)
     gt = GroundTruthGraph.from_replication_zip(args.zip)
     author_stats = AuthorStatsIndex.from_train_csv(args.train_csv)
 
@@ -114,21 +128,33 @@ def main() -> None:
         sys.exit(1)
 
     if args.mock:
-        llm = MockLLMProvider()
+        llm: Any = MockLLMProvider()
     else:
         llm = get_provider(prefer_real=True)
         if isinstance(llm, MockLLMProvider):
             logger.error("Real LLM required. Set CURSOR_API_KEY or use --mock.")
             sys.exit(1)
 
-    jira = JiraClient()
     harness = EvalHarness(
         ground_truth=gt,
-        jira_client=jira,
+        jira_client=JiraClient(),
         git_providers={"camel": git_provider},
         judge_provider=None if args.mock else llm,
     )
 
+    return _RunnerContext(
+        run_dir=run_dir,
+        inv_dir=inv_dir,
+        test_csv=Path(args.test_csv),
+        git_provider=git_provider,
+        author_stats=author_stats,
+        llm=llm,
+        harness=harness,
+    )
+
+
+def _write_run_config(runner: _RunnerContext, args: argparse.Namespace) -> None:
+    """Persist run configuration for reproducibility."""
     config = {
         "run_type": "multiturn-ab",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -136,74 +162,76 @@ def main() -> None:
         "commits": [c[0] for c in HARD_COMMITS],
         "max_turns": 2,
         "follow_up_mode": FollowUpMode.ALWAYS.value,
-        "judge_model": llm.model_name,
+        "judge_model": runner.llm.model_name,
         "frozen_control_d3": FROZEN_CONTROL_D3,
         "cost_cap_usd": COST_CAP,
         "mock": args.mock,
     }
-    (run_dir / "run-config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+    (runner.run_dir / "run-config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 
-    per_commit: list[dict] = []
-    d3_2turn_scores: list[float] = []
-    d3_1turn_scores: list[float] = []
 
-    for prefix, project in HARD_COMMITS:
-        commit_id = _resolve_commit_id(test_csv, prefix)
-        csv_row = _load_csv_row(test_csv, prefix)
+def _investigate_commit(
+    prefix: str,
+    project: str,
+    runner: _RunnerContext,
+) -> dict:
+    """Run 2-turn investigation on one commit and return per-commit metrics."""
+    commit_id = _resolve_commit_id(runner.test_csv, prefix)
+    csv_row = _load_csv_row(runner.test_csv, prefix)
 
-        builder = CommitContextBuilder(git_provider, author_stats)
-        context = builder.build(commit_id, project, csv_row)
+    context = CommitContextBuilder(runner.git_provider, runner.author_stats).build(
+        commit_id, project, csv_row
+    )
+    orchestrator = AgentOrchestrator(
+        llm_provider=runner.llm,
+        max_turns=2,
+        follow_up_mode=FollowUpMode.ALWAYS,
+        checkpoint_dir=runner.run_dir / "checkpoints" / prefix[:12],
+    )
 
-        orchestrator = AgentOrchestrator(
-            llm_provider=llm,
-            max_turns=2,
-            follow_up_mode=FollowUpMode.ALWAYS,
-            checkpoint_dir=run_dir / "checkpoints" / prefix[:12],
-        )
+    t0 = time.time()
+    report = orchestrator.investigate(
+        commit_id=commit_id,
+        project=project,
+        csv_row=csv_row,
+        git_provider=runner.git_provider,
+        context=context,
+    )
+    elapsed = time.time() - t0
 
-        t0 = time.time()
-        report = orchestrator.investigate(
-            commit_id=commit_id,
-            project=project,
-            csv_row=csv_row,
-            git_provider=git_provider,
-            context=context,
-        )
-        elapsed = time.time() - t0
+    eval_result = runner.harness.evaluate_report(report, buggy_label=True, route=Route.INVESTIGATE)
+    d3_result = eval_result.scores.get("D3")
+    d3_2turn = d3_result.score if d3_result else 0.0
+    d3_1turn = next(
+        (v for k, v in FROZEN_CONTROL_D3.items() if commit_id.startswith(k)), 0.0
+    )
+    cost = report.metadata.get("total_cost_usd", report.metadata.get("total_cost", 0.0))
 
-        eval_result = harness.evaluate_report(report, buggy_label=True, route=Route.INVESTIGATE)
-        d3_2turn = eval_result.scores.get("D3")
-        d3_2turn_val = d3_2turn.score if d3_2turn else 0.0
+    _save_investigation(runner.inv_dir, report, d3_2turn)
+    logger.info(
+        "  %s D3_1turn=%.2f D3_2turn=%.2f cost=$%.4f turns=%d t=%.1fs",
+        commit_id[:12], d3_1turn, d3_2turn, cost, report.turn_count, elapsed,
+    )
 
-        control_prefix = prefix[:12]
-        d3_1turn = next(
-            (v for k, v in FROZEN_CONTROL_D3.items() if commit_id.startswith(k)),
-            0.0,
-        )
-        cost = report.metadata.get("total_cost_usd", report.metadata.get("total_cost", 0.0))
+    return {
+        "commit_id": commit_id,
+        "d3_1turn": d3_1turn,
+        "d3_2turn": round(d3_2turn, 4),
+        "cost_usd": round(float(cost), 6),
+        "turn_count": report.turn_count,
+        "elapsed_s": round(elapsed, 1),
+        "d3_details": d3_result.details if d3_result else "",
+    }
 
-        per_commit.append({
-            "commit_id": commit_id,
-            "d3_1turn": d3_1turn,
-            "d3_2turn": round(d3_2turn_val, 4),
-            "cost_usd": round(float(cost), 6),
-            "turn_count": report.turn_count,
-            "elapsed_s": round(elapsed, 1),
-            "d3_details": d3_2turn.details if d3_2turn else "",
-        })
-        d3_2turn_scores.append(d3_2turn_val)
-        d3_1turn_scores.append(d3_1turn)
 
-        _save_investigation(inv_dir, report, d3_2turn_val)
-        logger.info(
-            "  %s D3_1turn=%.2f D3_2turn=%.2f cost=$%.4f turns=%d t=%.1fs",
-            commit_id[:12], d3_1turn, d3_2turn_val, cost, report.turn_count, elapsed,
-        )
-
+def _write_exp_report(per_commit: list[dict], runner: _RunnerContext) -> None:
+    """Compute activation decision and persist experiment report."""
+    d3_1turn_scores = [r["d3_1turn"] for r in per_commit]
+    d3_2turn_scores = [r["d3_2turn"] for r in per_commit]
     mean_1turn = sum(d3_1turn_scores) / len(d3_1turn_scores)
     mean_2turn = sum(d3_2turn_scores) / len(d3_2turn_scores)
     delta_d3 = mean_2turn - mean_1turn
-    improved = sum(1 for row in per_commit if row["d3_2turn"] > row["d3_1turn"])
+    improved = sum(1 for r in per_commit if r["d3_2turn"] > r["d3_1turn"])
 
     decision = (
         "multi-turn-activated"
@@ -211,11 +239,11 @@ def main() -> None:
         else "single-turn-maintained"
     )
 
-    exp_report = {
+    report = {
         "task_id": "multiturn-ab",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "run_dir": str(run_dir),
-        "judge_model": llm.model_name,
+        "run_dir": str(runner.run_dir),
+        "judge_model": runner.llm.model_name,
         "decision": decision,
         "delta_d3": round(delta_d3, 4),
         "mean_d3_1turn_control": round(mean_1turn, 4),
@@ -234,11 +262,23 @@ def main() -> None:
     }
 
     EXP_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    EXP_REPORT_PATH.write_text(json.dumps(exp_report, indent=2), encoding="utf-8")
-    (run_dir / "exp-report.json").write_text(json.dumps(exp_report, indent=2), encoding="utf-8")
-
+    EXP_REPORT_PATH.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    (runner.run_dir / "exp-report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     logger.info("Decision: %s (ΔD3=%.3f, improved=%d/3)", decision, delta_d3, improved)
     logger.info("Report: %s", EXP_REPORT_PATH)
+
+
+def main() -> None:
+    _load_dotenv()
+    args = _parse_args()
+    runner = _setup_runner(args)
+    _write_run_config(runner, args)
+
+    per_commit = [
+        _investigate_commit(prefix, project, runner)
+        for prefix, project in HARD_COMMITS
+    ]
+    _write_exp_report(per_commit, runner)
 
 
 if __name__ == "__main__":

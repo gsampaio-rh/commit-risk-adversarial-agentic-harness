@@ -148,24 +148,45 @@ class AgentOrchestrator:
 
         if git_provider is None and context is None:
             raise ValueError("Either git_provider or pre-built context required")
-
         if context is None:
-            builder = CommitContextBuilder(git_provider)  # type: ignore[arg-type]
-            context = builder.build(commit_id, project, csv_row)
+            context = CommitContextBuilder(git_provider).build(commit_id, project, csv_row)  # type: ignore[arg-type]
 
         tools = _build_tools(git_provider, context)
-        system_prompt = self._select_system_prompt()
-        messages = build_investigation_messages(context, system_prompt=system_prompt)
-        tools_used: list[str] = []
-        all_tool_calls: list[str] = []
+        messages = build_investigation_messages(context, system_prompt=self._select_system_prompt())
+        hyp_response, last_response, tools_used = self._run_turn_loop(
+            messages, tools, self._select_hypothesis_fn(), git_provider, context
+        )
+
+        if hyp_response is None or last_response is None:
+            raise InvalidInvestigationResponseError("No LLM response received")
+        if self._enable_contrastive:
+            reordered = select_primary_by_evidence(hyp_response.hypotheses)
+            hyp_response = HypothesisResponse(summary=hyp_response.summary, hypotheses=reordered)
+        tagged = tag_hypotheses(hyp_response.hypotheses, context.diff, context.truncation_metadata)
+        verdict = evaluate_risk_from_hypotheses(tagged, context)
+        return build_report(
+            hyp_response=hyp_response, tagged=tagged, verdict=verdict, context=context,
+            last_response=last_response, checkpoints=self._checkpoints, budget=self._budget,
+            tools_used=tools_used, turns=self._budget.turns_used,
+            turn2_bundle=self._last_turn2_bundle,
+        )
+
+    def _run_turn_loop(
+        self,
+        messages: list[LLMMessage],
+        tools: ToolRegistry,
+        hypothesis_fn: Any,
+        git_provider: GitContextProvider | None,
+        context: InvestigationContext,
+    ) -> tuple[HypothesisResponse | None, LLMResponse | None, list[str]]:
+        """Execute the bounded multi-turn loop; return final response and all tool names used."""
         hyp_response: HypothesisResponse | None = None
         last_response: LLMResponse | None = None
-        hypothesis_fn = self._select_hypothesis_fn()
+        all_tool_calls: list[str] = []
 
         for turn in range(1, self._max_turns + 1):
             if self._budget.budget_exceeded:
                 break
-
             turn_start = time.time()
             hyp_response, last_response = hypothesis_fn(
                 self._llm, messages,
@@ -181,7 +202,6 @@ class AgentOrchestrator:
                     all_tool_calls.append(tc["name"])
                     messages.append(LLMMessage(role="assistant", content=f"[Tool call: {tc['name']}]"))
                     messages.append(LLMMessage(role="tool", content=result, name=tc["name"]))
-                tools_used.extend(tc["name"] for tc in last_response.tool_calls)
                 continue
 
             follow_up_needed = self._should_follow_up(hyp_response, context, turn)
@@ -196,31 +216,12 @@ class AgentOrchestrator:
                 turn=turn, timestamp=time.time(), messages_sent=len(messages),
                 tool_calls_made=all_tool_calls.copy(), tokens_used=self._budget.total_tokens,
                 cost=self._budget.total_cost, follow_up_needed=follow_up_needed,
-                latency_ms=turn_latency_ms,
-                turn2_injection=turn2_injection,
+                latency_ms=turn_latency_ms, turn2_injection=turn2_injection,
             ))
             if not follow_up_needed:
                 break
 
-        if hyp_response is None or last_response is None:
-            raise InvalidInvestigationResponseError("No LLM response received")
-        if self._enable_contrastive:
-            reordered = select_primary_by_evidence(hyp_response.hypotheses)
-            hyp_response = HypothesisResponse(summary=hyp_response.summary, hypotheses=reordered)
-        tagged = tag_hypotheses(hyp_response.hypotheses, context.diff, context.truncation_metadata)
-        verdict = evaluate_risk_from_hypotheses(tagged, context)
-        return build_report(
-            hyp_response=hyp_response,
-            tagged=tagged,
-            verdict=verdict,
-            context=context,
-            last_response=last_response,
-            checkpoints=self._checkpoints,
-            budget=self._budget,
-            tools_used=list(set(tools_used + all_tool_calls)),
-            turns=self._budget.turns_used,
-            turn2_bundle=self._last_turn2_bundle,
-        )
+        return hyp_response, last_response, list(set(all_tool_calls))
 
     def _select_system_prompt(self) -> str:
         if self._enable_contrastive:

@@ -52,25 +52,45 @@ def build_report(
     turn2_bundle: Turn2ContextBundle | None = None,
 ) -> CommitInvestigationReport:
     """Assemble a CommitInvestigationReport from hypothesis response + script verdicts."""
-    risk_level = verdict.risk_level
-
     evidence_items = [EvidenceItem(
         type=EvidenceType.DIFF_HUNK if context.diff else EvidenceType.NUMERIC_FEATURE,
         source=context.commit_id,
         content=(context.diff[:500] if context.diff else "Numeric features only"),
         relevance="Primary investigation context",
     )]
-
-    localization = _build_localization(hyp_response.hypotheses, tagged, context.raw_diff)
-
     findings = [
         h.mechanism
         for h, tag in zip(hyp_response.hypotheses, tagged)
         if tag.tier == "SUPPORTED"
     ]
+    metadata = _build_report_metadata(
+        last_response, budget, context, checkpoints, turns, verdict, turn2_bundle
+    )
+    return CommitInvestigationReport(
+        commit_id=context.commit_id,
+        project=context.project,
+        risk_assessment=RiskAssessment(level=verdict.risk_level, confidence=0.7),
+        evidence=evidence_items,
+        findings=findings,
+        localization=_build_localization(hyp_response.hypotheses, tagged, context.raw_diff),
+        reasoning_summary=hyp_response.summary,
+        recommendations=_derive_recommendations(hyp_response.hypotheses, tagged, verdict),
+        tools_used=tools_used,
+        turn_count=turns,
+        metadata=metadata,
+    )
 
-    recommendations = _derive_recommendations(hyp_response.hypotheses, tagged, verdict)
 
+def _build_report_metadata(
+    last_response: LLMResponse,
+    budget: BudgetState,
+    context: InvestigationContext,
+    checkpoints: list[TurnCheckpoint],
+    turns: int,
+    verdict: PolicyVerdict,
+    turn2_bundle: Turn2ContextBundle | None,
+) -> dict[str, Any]:
+    """Assemble the metadata dict for CommitInvestigationReport."""
     per_stage = [
         {
             "stage": cp.turn,
@@ -81,7 +101,6 @@ def build_report(
         }
         for cp in checkpoints
     ]
-
     metadata: dict[str, Any] = {
         "model": last_response.model,
         "total_tokens": budget.total_tokens,
@@ -92,7 +111,6 @@ def build_report(
         "per_stage": per_stage,
         "turn_count": turns,
     }
-
     if turn2_bundle is not None:
         metadata["turn2_injection"] = {
             "truncated_files": turn2_bundle.truncated_files,
@@ -101,7 +119,6 @@ def build_report(
             "has_blame_section": turn2_bundle.has_blame_section,
             "message_preview": turn2_bundle.message[:500],
         }
-
     tm = context.truncation_metadata
     if tm is not None:
         metadata["truncation_metadata"] = {
@@ -109,26 +126,12 @@ def build_report(
             "truncated_files": tm.truncated_files,
             "total_chars": tm.total_chars,
         }
-
     if verdict.cap_applied:
         metadata["clean_commit_risk_cap_applied"] = True
         metadata["cap_applied"] = True
         metadata["cap_reason"] = verdict.cap_reason
         metadata["applied_rules"] = list(verdict.applied_rules)
-
-    return CommitInvestigationReport(
-        commit_id=context.commit_id,
-        project=context.project,
-        risk_assessment=RiskAssessment(level=risk_level, confidence=0.7),
-        evidence=evidence_items,
-        findings=findings,
-        localization=localization,
-        reasoning_summary=hyp_response.summary,
-        recommendations=recommendations,
-        tools_used=tools_used,
-        turn_count=turns,
-        metadata=metadata,
-    )
+    return metadata
 
 
 def _build_localization(

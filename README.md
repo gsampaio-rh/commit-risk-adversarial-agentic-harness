@@ -1,6 +1,6 @@
 # Commit Risk — Adversarial Agentic Harness
 
-> **Experiment #19b** — a long-running investigative agent that examines real code commits and produces structured risk assessments with evidence. Validated against [ApacheJIT](docs/datasets.md) ground truth (~28K buggy commits, 15 Apache projects) through a six-dimension adversarial evaluation framework.
+> A long-running investigative agent that examines real code commits and produces structured risk assessments with evidence. Validated against [ApacheJIT](docs/datasets.md) ground truth (~28K buggy commits, 15 Apache projects) through a six-dimension adversarial evaluation framework.
 
 ## Definitions
 

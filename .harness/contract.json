@@ -1,27 +1,27 @@
 {
-  "task_id": "v2-d2-localization-precision",
-  "feature": "SUPPORTED-only localization with defect-signal file ranking",
-  "problem": "D2=0.201 (target 0.25). report_builder.py emits LocalizationClaim for every hypothesis with a non-empty file, including SPECULATIVE and REFUTED tiers. Speculative files dilute Jaccard precision against the true fix-commit files.",
-  "proposed_solution": "Extract _build_localization(hypotheses, tagged, raw_diff) helper. Filter to tag.tier==SUPPORTED and h.file non-empty. Rank SUPPORTED claims by: (1) defect-signal file match from smart_diff._file_rank==0, (2) production file, (3) longer evidence_quote, (4) original index as stable tie-break. Zero new LLM calls.",
+  "task_id": "repo-cleanup-p20-p26",
+  "feature": "Repo cleanup: experiment ID removal, docs naming, and function-size refactors",
+  "problem": "Pre-experiment audit (audit-repo-cleanup-2026-06-12.json) found 3 high-severity issues: (1) README still carries 'Experiment #19b' experiment ID, (2) run_multiturn_ab.main() at 152 lines — 3x the 50-line max, (3) report_builder.build_report() + orchestrator.investigate() at 87-89 lines each. Additional stale experiment refs in docs/.",
+  "proposed_solution": "4 chores (naming): README, datasets.md, experiment-context.md, script rename. 3 refactors (sizing): split main() into 5 phase functions, extract _build_report_metadata() from build_report(), extract _run_turn_loop() from investigate().",
   "phase": "evaluating",
   "verified": true,
   "acceptance_criteria": [
-    "AC-1: Unit test: when all hypotheses are SPECULATIVE or REFUTED, localization == []",
-    "AC-2: Unit test: with mixed tiers (2 SUPPORTED + 2 SPECULATIVE), localization contains exactly 2 claims from the SUPPORTED hypotheses only",
-    "AC-3: Unit test: when multiple SUPPORTED hypotheses exist, the one whose file matches defect-signal tier (smart_diff._file_rank==0) is ranked first in localization",
-    "AC-4: build_report() integration: localization output never contains a claim from a non-SUPPORTED hypothesis (verified by checking the corresponding tag in the test)",
-    "AC-5: 415+ pytest pass; no existing test regressions"
+    "AC-1: rg 'Experiment.*#19b' README.md returns zero matches",
+    "AC-2: rg 'feat-[0-9]' docs/datasets.md returns zero matches",
+    "AC-3: rg 'Experiment.*#19b|iter-1' docs/experiment-context.md returns zero matches",
+    "AC-4: scripts/run-smoke-eval.sh exists; scripts/run-iter-1-eval.sh absent",
+    "AC-5: run_multiturn_ab.main() <= 30 lines; no extracted function exceeds 55 lines",
+    "AC-6: report_builder.build_report() <= 45 lines",
+    "AC-7: orchestrator.investigate() <= 40 lines",
+    "AC-8: 392 tests pass — zero regressions"
   ],
   "edge_cases": [
-    "EC-1: Zero SUPPORTED hypotheses → localization=[] (not error, not None)",
-    "EC-2: SUPPORTED hypothesis with empty h.file → excluded from localization (same rule as before)",
-    "EC-3: raw_diff is None → skip defect-signal ranking; preserve SUPPORTED hypotheses in original order",
-    "EC-4: Multiple SUPPORTED hypotheses on same file → deduplicate by (file, lines) keeping first after ranking"
+    "EC-1: _run_turn_loop() tool-call branch still continues the loop correctly (no break on tool call)",
+    "EC-2: _investigate_commit() in run_multiturn_ab still resolves full commit ID from CSV prefix",
+    "EC-3: _build_report_metadata() turn2_bundle=None branch skips turn2_injection key (not KeyError)",
+    "EC-4: orchestrator.investigate() with context=None still builds context from git_provider"
   ],
-  "verification_method": "pytest tests/test_report_builder.py -v && pytest -q (415+ pass)",
-  "constraints": [
-    "No new LLM calls — pure deterministic post-processing",
-    "Do not modify findings or recommendations — only localization changes",
-    "No re-score script required for contract verification (D2 lift confirmed at mini-n20-gate)"
-  ]
+  "verification_method": "rg checks for experiment IDs + pytest tests/ -q (392 pass) + ast function-size check",
+  "rubrics": ["code-quality"],
+  "rubric_mode": "warn"
 }

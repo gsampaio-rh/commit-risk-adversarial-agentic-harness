@@ -1,12 +1,12 @@
-# Experiment Context — Commit Risk Investigator
+# Design Context — Commit Risk Investigator
 
-Experiment **#19b** in a long-running agent research program. This document frames the investigative-agent thesis, evaluation dimensions, cost governance, and oracle isolation rules.
+This document frames the investigative-agent thesis, evaluation dimensions, cost governance, and oracle isolation rules.
 
 ## Investigative Agent vs Classifier
 
 **Classifier-only baseline:** train XGBoost on numeric commit features; emit a probability or binary label. Cheap at scale, but output is a score — no evidence, no localization, no actionable reasoning.
 
-**Investigative agent (this experiment):** a bounded multi-turn loop gathers diff, message, file history, and author context; an LLM reasons over assembled evidence; output is a **`CommitInvestigationReport`** with cited evidence, localization claims, and recommendations.
+**Investigative agent:** a bounded multi-turn loop gathers diff, message, file history, and author context; an LLM reasons over assembled evidence; output is a **`CommitInvestigationReport`** with cited evidence, localization claims, and recommendations.
 
 ApacheJIT is the test bed because its replication package provides a **six-dimensional validation chain** (bug-inducing commit → fixing commit → JIRA issue) covering 100% of ~28K positives. That richness supports eval dimensions no classifier output can satisfy.
 

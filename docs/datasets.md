@@ -38,7 +38,7 @@ Example projects: `camel`, `hadoop`, and 13 others. V1 investigation uses **Came
 ### Chain Statistics
 
 - ~28,239 buggy commits across 15 projects
-- Replication package claim: 100% chain coverage for positives — **must be verified** by feat-2 coverage report before eval claims
+- Replication package claim: 100% chain coverage for positives — **must be verified** by chain coverage report before eval claims
 
 ### JIRA Metadata (eval-only)
 
@@ -46,7 +46,7 @@ Public Apache JIRA API provides issue summary, description, priority, components
 
 ## Local Git Repositories
 
-V1 clones (feat-3):
+Local git clones:
 
 | Project | Role |
 |---------|------|
@@ -64,7 +64,7 @@ data/
 │   ├── apachejit_test_large.csv
 │   ├── apachejit_test_small.csv
 │   └── apachejit_dataset_replication.zip
-└── repos/                  # feat-3: local git clones (gitignored)
+└── repos/                  # local git clones (gitignored)
     ├── camel/
     └── hadoop/
 ```
