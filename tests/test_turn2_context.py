@@ -1,4 +1,4 @@
-"""Tests for turn-2 context injection (iter-3f-multiturn-ab)."""
+"""Tests for turn-2 context injection."""
 
 from __future__ import annotations
 

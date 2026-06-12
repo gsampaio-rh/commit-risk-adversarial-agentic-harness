@@ -1,7 +1,6 @@
 """Quality gate: deterministic follow-up evaluation for investigations.
 
-iter-3b: Replaces the iter-3a passthrough stub with 4 canonical deterministic triggers.
-The gate is driven entirely by Script-derived signals from the hypothesis artifact —
+Driven entirely by Script-derived signals from the hypothesis artifact —
 the LLM's follow_up_needed field is DEPRECATED and ignored.
 
 Triggers (OR — any fires follow_up_needed=True):
@@ -11,13 +10,13 @@ Triggers (OR — any fires follow_up_needed=True):
   T4: findings == ['Investigation completed'] (masked empty output)
 
 Note: max_turns=1 is frozen everywhere (state.json). The gate fires correctly
-but follow-up turns will not execute until iter-3f unlocks multi-turn.
+but follow-up turns will not execute until multi-turn A/B activation.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any  # noqa: F401  (LocalizationClaim deferred to iter-3e)
+from typing import Any  # noqa: F401  (LocalizationClaim unused in this module)
 
 
 # ---------------------------------------------------------------------------

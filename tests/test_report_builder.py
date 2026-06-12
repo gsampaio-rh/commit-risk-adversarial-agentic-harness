@@ -1,4 +1,4 @@
-"""Tests for v2-d2-localization-precision: SUPPORTED-only localization with defect-signal ranking."""
+"""Tests for SUPPORTED-only localization with defect-signal file ranking."""
 
 from __future__ import annotations
 

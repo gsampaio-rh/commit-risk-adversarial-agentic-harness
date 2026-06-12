@@ -1,4 +1,4 @@
-"""Panel tests for iter-3d-smart-diff.
+"""Panel tests for smart-diff context assembly.
 
 AC-3: truncation_metadata present on assembled diff / InvestigationContext
 AC-5: Panel regression: smart_diff doesn't break existing D1/recall

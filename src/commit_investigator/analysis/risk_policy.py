@@ -4,10 +4,8 @@ This module is the single source of risk_level truth. No LLM logic here.
 The policy evaluates commit archetype signals and reasoning quality to
 determine whether a HIGH/CRITICAL LLM verdict should be capped to MEDIUM.
 
-iter-3a: bridge signature (llm_risk_level, context, reasoning) — matches the
-current call site in orchestrator._assemble_report(). The full iter-3 target
-signature (archetype, hypotheses: list[TaggedHypothesis], ...) is introduced
-in iter-3b once evidence_tagger ships.
+Bridge signature (llm_risk_level, context, reasoning) — matches the
+current call site in orchestrator._assemble_report().
 """
 
 from __future__ import annotations
@@ -61,9 +59,7 @@ class PolicyVerdict:
     """Result of risk policy evaluation.
 
     risk_level and cap_applied are the primary outputs consumed by the
-    orchestrator. cap_reason and applied_rules are audit fields — populated
-    in iter-3a and used for transparency/debugging; full rule-based population
-    is wired in iter-3b when the evidence_tagger feeds structured hypotheses.
+    orchestrator.     cap_reason and applied_rules are audit fields for transparency/debugging.
     """
 
     risk_level: RiskLevel
@@ -84,9 +80,8 @@ def evaluate_risk(
 ) -> PolicyVerdict:
     """Evaluate and potentially cap the LLM-assigned risk level.
 
-    Behavior-preserving bridge for iter-3a: same logic as the former
-    _apply_clean_commit_risk_cap() in orchestrator, now returning a
-    richer PolicyVerdict instead of a (RiskLevel, bool) tuple.
+    Evaluates and potentially caps the LLM-assigned risk level, returning
+    a richer PolicyVerdict instead of a (RiskLevel, bool) tuple.
 
     Cap rules:
     - Only HIGH and CRITICAL are ever capped (LOW/MEDIUM pass through).
@@ -155,7 +150,7 @@ def evaluate_risk_from_hypotheses(
     tagged: list[TagResult],
     context: InvestigationContext,
 ) -> PolicyVerdict:
-    """Evaluate risk from tagged hypotheses + context signals (iter-3e+ interface).
+    """Evaluate risk from tagged hypotheses + context signals.
 
     Derives base risk from script signals:
     - supported_count >= 1 → HIGH (capped if clean archetype + no defect signals)

@@ -77,7 +77,7 @@ def extract_coverage_section(prompt: str = HYPOTHESIS_SYSTEM_PROMPT) -> str:
     return COVERAGE_SECTION_HEADER + rest[:next_header]
 
 
-HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 = """\
+HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR = """\
 You are a commit risk investigator. Your task: identify specific failure modes
 this commit COULD introduce based on the provided diff and context.
 
@@ -142,7 +142,7 @@ Your first hypothesis (position 0) MUST be the highest-confidence, most direct
 diff evidence mechanism — the failure path most strongly supported by the
 changed lines in the diff.
 
-For your second and third hypotheses (H2+), generate DIFFERENT causal categories:
+For your second and third hypotheses, generate DIFFERENT causal categories:
   null-reference | lifecycle-ordering | concurrency | api-contract |
   input-validation | resource-leak | error-handling | logic-error
 
@@ -150,7 +150,7 @@ Begin each mechanism with its category label in brackets:
   "[null-reference] Observable: <failure>. Root change: <+/- line>. Mechanism: <chain>"
 
 No two of the first 3 hypotheses may share the same category label.
-H2 and beyond require diversity — explore distinct mechanisms beyond the
+Second and third hypotheses require diversity — explore distinct mechanisms beyond the
 most obvious one captured in the first hypothesis.
 
 ## OUTPUT FORMAT

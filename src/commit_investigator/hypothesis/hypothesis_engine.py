@@ -13,17 +13,17 @@ from commit_investigator.hypothesis.hypothesis_prompts import (  # noqa: F401
     COVERAGE_SECTION_HEADER,
     HYPOTHESIS_SYSTEM_PROMPT,
     HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE,
-    HYPOTHESIS_SYSTEM_PROMPT_H1H4T3,
+    HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR,
     PRODUCTION_SOURCE_SUFFIXES,
     extract_coverage_section,
     is_production_source_file,
 )
 
 try:
-    from commit_investigator.hypothesis.historical_rag import get_historical_defect_context as _get_h3a_context
-    _H3A_AVAILABLE = True
+    from commit_investigator.hypothesis.historical_rag import get_historical_defect_context as _get_historical_defect_context
+    _HISTORICAL_DEFECT_CONTEXT_AVAILABLE = True
 except ImportError:
-    _H3A_AVAILABLE = False
+    _HISTORICAL_DEFECT_CONTEXT_AVAILABLE = False
 from commit_investigator.context.context_builder import InvestigationContext
 from commit_investigator.infra.llm import CursorSDKProvider, LLMMessage, LLMProvider, LLMResponse
 from commit_investigator.context.smart_diff import AssembledDiff
@@ -275,7 +275,7 @@ def _select_primary_sort_key(
 def select_primary_by_evidence(
     hypotheses: list[HypothesisSpec],
 ) -> list[HypothesisSpec]:
-    """Reorder hypotheses so the best H4-evidenced candidate appears first.
+    """Reorder hypotheses so the best grounded-evidence candidate appears first.
 
     When no candidate cites a changed line, preserves original order (stable sort).
     When at least one is grounded, uses composite scoring: citation, production
@@ -360,16 +360,16 @@ def build_investigation_messages(
     if context.router_probability is not None:
         context_parts.append(f"## Router Prior\nrouter_probability: {context.router_probability:.3f}\n")
 
-    # H3a: inject historical defect-category priors from nearest-neighbor lookup
-    if _H3A_AVAILABLE:
+    # Inject historical defect-category priors from nearest-neighbor lookup
+    if _HISTORICAL_DEFECT_CONTEXT_AVAILABLE:
         try:
-            hist_ctx = _get_h3a_context(context)
+            hist_ctx = _get_historical_defect_context(context)
             if hist_ctx:
                 context_parts.append(f"## Historical Context\n{hist_ctx}")
             elif context.csv_features:
                 missing_reasons.append("Historical context unavailable (no matching training data)")
         except Exception as exc:
-            logger.warning("H3a historical context failed for %s: %s", context.commit_id, exc, exc_info=True)
+            logger.warning("historical defect context failed for %s: %s", context.commit_id, exc, exc_info=True)
 
     if missing_reasons:
         context_parts.append("## Missing Context\n" + "\n".join(f"- {r}" for r in missing_reasons))

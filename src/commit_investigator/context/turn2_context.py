@@ -1,7 +1,6 @@
 """Turn-2 follow-up context: truncated files and git blame for multi-turn investigation.
 
-Builds structured user messages for turn 2 per iter-3f contract (no generic prompts,
-no oracle leakage).
+Builds structured user messages for turn 2 (no generic prompts, no oracle leakage).
 """
 
 from __future__ import annotations

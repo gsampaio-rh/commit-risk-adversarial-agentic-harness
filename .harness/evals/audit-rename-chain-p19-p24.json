@@ -1,0 +1,124 @@
+{
+  "audit_id": "audit-rename-chain-p19-p24",
+  "audited_at": "2026-06-12T10:19:27Z",
+  "role": "evaluator",
+  "summary": {
+    "critical": 0,
+    "major": 3,
+    "minor": 6,
+    "nitpick": 0,
+    "pass": false
+  },
+  "findings": [
+    {
+      "id": "TD-001",
+      "severity": "major",
+      "rubric": "completeness",
+      "location": "src/: multiple files",
+      "description": "rg '\\biter-3[a-f]\\b' src/ returns 15 matches across 6 files (evidence_tagger.py:3, quality_gate.py:3,14,20, risk_policy.py:7,10,65,66,87,158, report_builder.py:3, turn2_context.py:3, run_multiturn_ab.py:215). Rubric requires zero matches in src/ and tests/. tests/ is clean; src/ is not.",
+      "recommendation": "Replace iter-3* comment/docstring references with capability or phase-neutral wording (e.g. 'pipeline extraction', 'quality gate wiring', 'multi-turn contract') in all six src files."
+    },
+    {
+      "id": "TD-002",
+      "severity": "major",
+      "rubric": "incompleteness",
+      "location": "src/commit_investigator/runners/run_multiturn_ab.py:215",
+      "description": "exp_report task_id is still 'iter-3f-multiturn-ab'. Builder breadcrumb (p22) claims rename to 'multiturn-ab' but code was not updated.",
+      "recommendation": "Change task_id to 'multiturn-ab' (or another capability name) and align any downstream eval fixtures that consume this field."
+    },
+    {
+      "id": "TD-003",
+      "severity": "major",
+      "rubric": "doc-quality",
+      "location": "docs/architecture.md:164-183",
+      "description": "Phase roadmap table mixes capability names (Extended context, Historical defect context) with experiment task IDs (spike-0, iter-1, iter-2a+b, iter-3a–3e, EXP-FORENSICS-TAG, EXP-JUDGE-SWAP, v2-jira-context-injection). Rubric requires no experiment task IDs in the roadmap table.",
+      "recommendation": "Rewrite roadmap rows to use descriptive capability/phase names only; move harness task IDs to a separate harness-only section or .harness/ docs."
+    },
+    {
+      "id": "TD-004",
+      "severity": "minor",
+      "rubric": "incompleteness",
+      "location": "tests/test_mechanism_evaluator_h1h4t3.py:1",
+      "description": "Test module filename still contains experiment code 'h1h4t3'. p21 renamed the constant and imports but not the file.",
+      "recommendation": "Rename to test_mechanism_evaluator_symptom_first.py (or similar capability name) and update imports/references."
+    },
+    {
+      "id": "TD-005",
+      "severity": "minor",
+      "rubric": "incompleteness",
+      "location": "tests/test_mechanism_evaluator_h1h4t3.py:210",
+      "description": "Test method name test_flag_true_uses_h1h4t3_system_prompt retains H1H4T3 experiment code.",
+      "recommendation": "Rename to test_flag_true_uses_symptom_first_with_evaluator_prompt (or equivalent capability name)."
+    },
+    {
+      "id": "TD-006",
+      "severity": "minor",
+      "rubric": "consistency",
+      "location": "src/commit_investigator/hypothesis/hypothesis_prompts.py:153",
+      "description": "Contrastive prompt still says 'H2 and beyond require diversity'. Naming map requires 'second and third hypotheses' without H2 experiment shorthand; '(H2+)' was removed but H2 label remains.",
+      "recommendation": "Replace line 153 with capability wording, e.g. 'Second and third hypotheses require diversity — explore distinct mechanisms beyond the most obvious one captured in the first hypothesis.'"
+    },
+    {
+      "id": "TD-007",
+      "severity": "minor",
+      "rubric": "incompleteness",
+      "location": "src/commit_investigator/runners/run_multiturn_ab.py:133",
+      "description": "run-config.json still uses key 'experiment': 'multiturn-ab'. p22 claimed [experiment] log cleanup; config serialization still uses experiment namespace.",
+      "recommendation": "Rename config key to 'run_type' or 'config_id' with value 'multiturn-ab' for consistency with [config] log prefix."
+    },
+    {
+      "id": "TD-008",
+      "severity": "minor",
+      "rubric": "doc-quality",
+      "location": "docs/agent-loop.md:229",
+      "description": "Config table still references 'iter-3b enforces globally'. p23 scope included agent-loop.md; iter-3* not fully purged outside lines 50-70.",
+      "recommendation": "Replace with capability-neutral rationale (e.g. 'until quality gate enforces globally in eval path')."
+    },
+    {
+      "id": "TD-009",
+      "severity": "minor",
+      "rubric": "doc-quality",
+      "location": "docs/harness.md:257",
+      "description": "Harness doc roadmap row still uses 'iter-3a–3e' experiment phase ID despite p23 doc rename pass.",
+      "recommendation": "Align harness.md roadmap with architecture.md capability naming or isolate harness IDs to a dedicated experiment-tracking section."
+    }
+  ],
+  "rubric_results": {
+    "completeness": "fail",
+    "behavioral": "pass",
+    "consistency": "fail",
+    "incompleteness": "fail",
+    "doc_quality": "fail"
+  },
+  "zero_leak_verification": {
+    "H3a_h3a_H3A_src_tests": { "matches": 0, "status": "pass" },
+    "HYPOTHESIS_SYSTEM_PROMPT_H1H4T3_src_tests": { "matches": 0, "status": "pass" },
+    "[experiment]_src_tests": { "matches": 0, "status": "pass" },
+    "bundle_expand_src_tests": {
+      "matches": 4,
+      "status": "pass",
+      "note": "Legitimate: module import context_builder.py:18, fixture paths in test_context_builder.py"
+    },
+    "iter-3[a-f]_src": { "matches": 15, "status": "fail" },
+    "iter-3[a-f]_tests": { "matches": 0, "status": "pass" },
+    "EXP-BUNDLE-EXPAND_docs": { "matches": 0, "status": "pass" },
+    "v2-d3-h3a-rag_v2-d2-localization_src_tests": { "matches": 0, "status": "pass" },
+    "H1H4T3_H4_compliance_src_tests": { "matches": 0, "status": "pass" },
+    "h1h4t3_case_insensitive_tests": {
+      "matches": 2,
+      "status": "fail",
+      "note": "Filename + test method in test_mechanism_evaluator_h1h4t3.py"
+    }
+  },
+  "naming_map_verification": {
+    "H3a_to_historical_defect_context": "pass",
+    "bundle_expand_to_extended_context": "pass",
+    "HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR": "pass",
+    "H2_plus_removed_from_contrastive_prompt": "partial — H2 shorthand remains at hypothesis_prompts.py:153",
+    "H4_to_grounded_evidence_compliance": "pass",
+    "experiment_to_config_logs": "pass",
+    "p24_test_docstrings": "pass"
+  },
+  "tests_run": "python -m pytest tests/ -x -q",
+  "tests_result": "392 passed in 18.56s"
+}

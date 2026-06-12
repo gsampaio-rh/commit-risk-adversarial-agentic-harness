@@ -1,4 +1,4 @@
-"""Tests for run_multiturn_ab experiment defaults."""
+"""Tests for run_multiturn_ab defaults."""
 
 from __future__ import annotations
 

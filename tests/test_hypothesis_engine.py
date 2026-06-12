@@ -1,4 +1,4 @@
-"""Unit tests for hypothesis_engine.py (iter-3e AC-1, AC-2, AC-3, AC-4, AC-5)."""
+"""Unit tests for hypothesis_engine.py — hypothesis generation, evidence grounding, selection."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from commit_investigator.hypothesis.hypothesis_engine import (  # noqa: E402
     COVERAGE_SECTION_HEADER,
     HYPOTHESIS_SYSTEM_PROMPT,
     HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE,
-    HYPOTHESIS_SYSTEM_PROMPT_H1H4T3,
+    HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR,
     HypothesisResponse,
     HypothesisSpec,
     _format_author_stats,
@@ -91,7 +91,7 @@ class TestPromptConstraints:
 
 
 # ---------------------------------------------------------------------------
-# iter-2d: COVERAGE REQUIREMENT (AC-1, EC-1, EC-2, EC-4)
+# Coverage requirement (AC-1, EC-1, EC-2, EC-4)
 # ---------------------------------------------------------------------------
 
 
@@ -392,9 +392,9 @@ _CONTRASTIVE_CATEGORIES = (
 
 
 class TestContrastivePrompt:
-    def test_prompt_distinct_from_baseline_and_h1h4t3(self):
+    def test_prompt_distinct_from_baseline_and_symptom_first_with_evaluator(self):
         assert HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE != HYPOTHESIS_SYSTEM_PROMPT
-        assert HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE != HYPOTHESIS_SYSTEM_PROMPT_H1H4T3
+        assert HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE != HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR
 
     def test_prompt_contains_diversity_requirement(self):
         assert "CONTRASTIVE" in HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE

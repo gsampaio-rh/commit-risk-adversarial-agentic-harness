@@ -103,9 +103,9 @@ class TestBundleExpandGoldenNoOp:
         return CommitContextBuilder(git)
 
     def test_default_flags_match_golden_snapshot(self) -> None:
-        raw = (FIXTURES / "bundle_expand_fixture_diff.txt").read_text(encoding="utf-8")
+        raw = (FIXTURES / "context_expansion_fixture_diff.txt").read_text(encoding="utf-8")
         golden = json.loads(
-            (FIXTURES / "bundle_expand_golden_no_expand.json").read_text(encoding="utf-8"),
+            (FIXTURES / "context_expansion_golden_no_expand.json").read_text(encoding="utf-8"),
         )
         ctx = self._fixture_builder(raw).build("abc123", "camel")
         assert ctx.diff == golden["diff"]
@@ -117,9 +117,9 @@ class TestBundleExpandGoldenNoOp:
         assert ctx.truncation_metadata.truncated_files == golden["truncation_metadata"]["truncated_files"]
 
 
-class TestBundleExpandAdjacency:
+class TestContextExpansionAdjacency:
     def test_injects_paired_test_hunks_on_identifier_overlap(self) -> None:
-        raw = (FIXTURES / "bundle_expand_fixture_diff.txt").read_text(encoding="utf-8")
+        raw = (FIXTURES / "context_expansion_fixture_diff.txt").read_text(encoding="utf-8")
         git = MagicMock()
         git.get_diff.return_value = raw
         git.get_commit_message.return_value = "fix"

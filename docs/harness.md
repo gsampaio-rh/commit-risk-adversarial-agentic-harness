@@ -105,7 +105,7 @@ The `CommitContextBuilder` assembles a deterministic context bundle with smart p
 
 The `AgentOrchestrator` enforces hard limits:
 
-- **Max turns: 1 (frozen in eval)** — `run_eval.py` hard-codes `max_turns=1`; CLI/orchestrator default remains 3 until iter-3b enforces globally. Multi-turn execution frozen until iter-3f A/B (see [agent-loop.md Multi-Turn Policy](agent-loop.md#multi-turn-policy))
+- **Max turns: 1 (frozen in eval)** — `run_eval.py` hard-codes `max_turns=1`. Multi-turn deferred pending A/B activation (see [agent-loop.md Multi-Turn Policy](agent-loop.md#multi-turn-policy))
 - **50K token budget** per investigation
 - **$0.50 cost cap** per commit
 - **Follow-up triggers are deterministic:** `InvestigationQualityGate` — not LLM self-report
@@ -154,7 +154,7 @@ The investigation method is the five-stage Script/LLM pipeline that replaced the
 | Component | Role | Module | Status |
 |-----------|------|--------|--------|
 | Archetype detection | Clean-commit patterns + defect signals (FP fix included) | `analysis/archetype.py` | **Active** |
-| Hypothesis generation | Mechanism + evidence_quote pairs; composite selector; H3a RAG | `hypothesis/hypothesis_engine.py` | **Active** |
+| Hypothesis generation | Mechanism + evidence_quote pairs; composite selector; historical defect context | `hypothesis/hypothesis_engine.py` | **Active** |
 | Evidence tiering | SUPPORTED/SPECULATIVE/REFUTED/UNVERIFIABLE | `analysis/evidence_tagger.py` | **Active** |
 | Risk policy | Single source of `risk_level` | `analysis/risk_policy.py` | **Active** |
 | Quality gate | Deterministic follow-up signals | `analysis/quality_gate.py` | **Active** |
@@ -163,7 +163,7 @@ Context assembly (Stage 0) and report assembly are harness responsibilities, not
 
 ## Investigation Pipeline (Design Target)
 
-This section describes **how the harness will enforce** the investigation method once iter-3 ships. See [agent-loop.md](agent-loop.md) for the stage diagram and [architecture.md §7](architecture.md#7-implementation-map) for current vs pending modules.
+This section describes **how the harness enforces** the investigation method. See [agent-loop.md](agent-loop.md) for the stage diagram and [architecture.md §7](architecture.md#7-implementation-map) for current vs pending modules.
 
 ### Pipeline stages and enforcement
 
@@ -243,24 +243,24 @@ The improvement cycle is the system's evolution mechanism — disciplined, measu
 - 392+ tests pass after every change
 - D6 ≥ 0.70 — grounding regression = immediate revert
 - Each iteration tracked as a breadcrumb with before/after scores
-- EXP-JUDGE-SWAP decision applied before any n=20 D3/D5 claims
+- Cross-model judge validation applied before any n=20 D3/D5 claims
 
 ### Phase roadmap
 
-| Task | Focus | Status |
-|------|-------|--------|
-| spike-0 | Investigation harness design | **Complete** |
-| iter-1 | A+B hybrid: risk rubric + staged CoT + router probability | **Complete** (D1=0.60, D3=0.20) |
-| EXP-FORENSICS-TAG | Classify D3 failure modes from iter-1 | **Complete** |
-| iter-2a+b | 16K diff + dual-path clean-commit rubric | **Complete** (D1=0.75, panel n=12) |
-| iter-2-n20 + FIX-JUDGE-INFRA + EXP-JUDGE-SWAP | Iteration gate + judge infra | **Complete** |
-| iter-3a–3e | Full Script pipeline + HypothesisEngine + smart-diff + bundle-inject | **Complete** |
+| Capability | Focus | Status |
+|------------|-------|--------|
+| Harness design | Investigation harness architecture + oracle isolation | **Complete** |
+| Hybrid prompt | A+B staged CoT + router probability | **Complete** (D1=0.60, D3=0.20) |
+| D3 failure taxonomy | Classify root-cause failure modes from eval data | **Complete** |
+| Smart diff + clean-commit | 16K diff + dual-path clean-commit rubric | **Complete** (D1=0.75, panel n=12) |
+| n=20 delivery gate + judge infrastructure | Iteration gate + JIRA fallback + cross-model judge validation | **Complete** |
+| Five-stage Script/LLM pipeline | HypothesisEngine + evidence_tagger + risk_policy + quality_gate + smart-diff | **Complete** |
 | V1 n=50 delivery | All six GATE thresholds | **Complete** (D1=0.70, D3=0.23) |
-| v2-selector-fix | Composite selector scoring | **Complete** |
-| v2-d2-localization-precision | SUPPORTED-only localization | **Complete** (D2_fix=0.384) |
-| EXP-BUNDLE-EXPAND | Test-adjacency + blame injection | **Complete** |
+| Composite selector | Grounded evidence scoring + production-file rank | **Complete** |
+| SUPPORTED-only localization | SUPPORTED-only filter in report_builder | **Complete** (D2_fix=0.384) |
+| Extended context | Test-adjacency + blame injection | **Complete** |
 | FP-fix-archetype | Test/examples-only commit FP fix | **Complete** (FP 32%→24%) |
-| v2-d3-h3a-rag | Historical RAG fallback | **Complete** (net +0.01, ceiling confirmed) |
+| Historical defect context | ApacheJIT KNN defect-category priors; project fallback | **Complete** (net +0.01, ceiling confirmed) |
 | V2 n=50 delivery | D1≥0.80, D3≥0.35 | **In progress** — D1=0.72, D3=0.31 |
 
 ---

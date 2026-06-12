@@ -51,8 +51,9 @@ Commit enters INVESTIGATE zone (0.3 ≤ P ≤ 0.7)
 │  HypothesisEngine receives:                             │
 │    • Context bundle (diff, message, histories, stats)   │
 │    • archetype_label + defect_signals from Stage 0b     │
-│    • H3a RAG context (historical defect distribution    │
-│      from ApacheJIT KNN — when --enable-h3a-rag)        │
+│    • Historical defect context (ApacheJIT KNN defect-   │
+│      category priors — when --enable-historical-defect- │
+│      context)                                           │
 │                                                         │
 │  LLM produces: HypothesisArtifact (Pydantic-validated)  │
 │    • summary — user-visible symptom + primary fix-file  │
@@ -61,7 +62,8 @@ Commit enters INVESTIGATE zone (0.3 ≤ P ≤ 0.7)
 │        evidence_quote: substring of diff (required)     │
 │                                                         │
 │  Composite selector (select_primary_by_evidence):       │
-│    H1 anchor + citation score + production-file rank    │
+│    primary hypothesis anchor + citation score +          │
+│    production-file rank                                 │
 │    → promotes best-grounded hypothesis to primary       │
 │                                                         │
 │  Schema failure → retry with error feedback (max 2)     │
@@ -132,13 +134,13 @@ Commit enters INVESTIGATE zone (0.3 ≤ P ≤ 0.7)
                │ PASS                     │ FAIL + turn ≤ max_turns
                ▼                          ▼
 ┌──────────────────────┐  ┌───────────────────────────────────────┐
-│ ASSEMBLY (Script)    │  │ FOLLOW-UP TURN (FROZEN until iter-3f) │
+│ ASSEMBLY (Script)    │  │ FOLLOW-UP TURN (deferred)             │
 │                      │  │                                       │
-│  Merge into          │  │  max_turns=1 everywhere until A/B     │
-│  CommitInvestigation │  │  evidence proves ΔD3 ≥ 0.25 on hard  │
+│  Merge into          │  │  max_turns=1. Multi-turn deferred     │
+│  CommitInvestigation │  │  until A/B proves ΔD3 ≥ 0.25 on hard │
 │  Report:             │  │  subset. See Multi-Turn Policy below. │
 │  • PolicyVerdict     │  │                                       │
-│  • HypothesisArtifact│  │  When active (future iter-3f):        │
+│  • HypothesisArtifact│  │  When active:                         │
 │  • cap_reason (if    │  │  • smart-diff of truncated files      │
 │     cap_applied)     │  │  • file_history blame snippets        │
 │  • applied_rules[]   │  │  • targeted question per gate signal  │
@@ -152,7 +154,7 @@ Commit enters INVESTIGATE zone (0.3 ≤ P ≤ 0.7)
 |-------|------|----------------|------|
 | Stage | Tier | Responsibility | LLM? |
 |-------|------|----------------|------|
-| 0 — Context Assembly | Script | Build diff bundle; inject file_histories + author_stats + bundle_expand | No |
+| 0 — Context Assembly | Script | Build diff bundle; inject file_histories + author_stats + extended context | No |
 | 0b — Archetype | Script | Detect clean-commit patterns, production defect signals | No |
 | 1 — Hypothesis Generation | **LLM** | Produce mechanism + evidence_quote pairs; composite selector | **Yes (Call 1)** |
 | 2 — Evidence Tiering | Script-first | Tag each hypothesis SUPPORTED/SPECULATIVE/REFUTED/UNVERIFIABLE | No (LLM escalation for ambiguous) |
@@ -160,7 +162,7 @@ Commit enters INVESTIGATE zone (0.3 ≤ P ≤ 0.7)
 | Gate | Script | Deterministic follow-up trigger | No |
 | Assembly | Script | Merge artifacts → CommitInvestigationReport; SUPPORTED-only localization | No |
 
-**Default path: 1 LLM call.** Multi-turn deferred — iter-3f A/B showed ΔD3 < threshold.
+**Default path: 1 LLM call.** Multi-turn deferred — A/B showed ΔD3 < threshold.
 
 ## Quality Gate — Trigger Conditions
 
@@ -214,17 +216,17 @@ In a standard agent loop (LangGraph, Claude Code, Codex), the **LLM decides what
 |-------|-------|-----|-------------|
 | Stage 1 — Hypothesis Generation | `claude-sonnet-4-6` via Cursor SDK | Best mechanism extraction; single focused task | ~$0.004 |
 | Stage 2 — Evidence Tiering LLM escalation | Same model (blind rubric) | Ambiguous cases only; rubric stripped so context-blind | ~$0.001 (rare) |
-| D3/D5 judging (eval) | **Different model** (EXP-JUDGE-SWAP decision) | Same model judging own output = self-evaluation anti-pattern | ~$0.001/judgment |
+| D3/D5 judging (eval) | **Different model** (cross-model judge validation) | Same model judging own output = self-evaluation anti-pattern | ~$0.001/judgment |
 | Routing | XGBoost (no LLM) | Zero cost, handles ~60% of commits | $0 |
 
 ## Multi-Turn Policy
 
-**Status: DEFERRED.** Multi-turn A/B (iter-3f) ran and showed ΔD3 < threshold — single-turn maintained. `TurnCheckpoint` infrastructure preserved for future re-evaluation.
+**Status: DEFERRED.** Multi-turn A/B ran and showed ΔD3 < threshold — single-turn maintained. `TurnCheckpoint` infrastructure preserved for future re-evaluation.
 
 | Config | Value | Rationale |
 |--------|-------|-----------|
 | `max_turns` (eval path) | **1** | `run_eval.py` hard-codes 1. Primary iteration gate. |
-| `max_turns` (CLI default) | 3 | `investigate.py` / orchestrator constructor default — frozen at 1 in eval only until iter-3b enforces globally. |
+| `max_turns` (CLI default) | 3 | `investigate.py` / orchestrator constructor default — frozen at 1 in eval path; design capacity preserved for future activation. |
 | `max_turns` (design capacity) | 3 | Infrastructure preserved; no-op beyond turn 1 while frozen. |
 | Follow-up trigger | `InvestigationQualityGate` | Deterministic, not LLM self-report |
 | Follow-up content (when active) | smart-diff of hidden files + file_history blame + targeted question per gate signal | Not generic "continue investigating" |

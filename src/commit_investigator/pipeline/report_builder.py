@@ -1,7 +1,4 @@
-"""Report builder: assembles CommitInvestigationReport from HypothesisResponse + Script verdicts.
-
-Extracted from orchestrator._assemble_report() in iter-3e to keep orchestrator ≤250 lines.
-"""
+"""Report builder: assembles CommitInvestigationReport from HypothesisResponse + Script verdicts."""
 
 from __future__ import annotations
 

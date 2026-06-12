@@ -127,7 +127,7 @@ All six GATE thresholds must pass on a stratified eval (n >= 50, 50/50 buggy/cle
 
 ## Status
 
-**Phase:** V2 experiment in progress. All iter-3 pipeline stages implemented and verified.
+**Phase:** V2 pipeline active. All pipeline stages implemented and verified.
 
 **Latest n=50 (V2, run 2 — `output/runs/2026-06-12_03-55-28_real_n50`):**
 

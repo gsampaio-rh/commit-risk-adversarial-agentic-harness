@@ -29,7 +29,7 @@ from commit_investigator.hypothesis.hypothesis_engine import (
 from commit_investigator.hypothesis.hypothesis_prompts import (
     HYPOTHESIS_SYSTEM_PROMPT,
     HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE,
-    HYPOTHESIS_SYSTEM_PROMPT_H1H4T3,
+    HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR,
 )
 from commit_investigator.infra.llm import LLMMessage, LLMProvider, LLMResponse, get_provider
 from commit_investigator.analysis.quality_gate import HypothesisArtifact, evaluate_gate
@@ -226,7 +226,7 @@ class AgentOrchestrator:
         if self._enable_contrastive:
             return HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE
         if self._enable_mechanism_evaluator:
-            return HYPOTHESIS_SYSTEM_PROMPT_H1H4T3
+            return HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR
         return HYPOTHESIS_SYSTEM_PROMPT
 
     def _select_hypothesis_fn(self):

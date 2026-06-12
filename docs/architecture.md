@@ -8,7 +8,7 @@ This is a **verifiable commit investigation system** — not an LLM wrapper, not
 
 The thesis: harness engineering (routing, context assembly, Schema enforcement, cost governance) and a separate evaluation framework (six-dimension adversarial scoring against ground truth) together produce better investigations than raw model quality alone. ApacheJIT's ground truth chain — buggy commits linked to fixing commits linked to JIRA issues — enables evaluation dimensions that no score-only model can satisfy. A model can predict "buggy" but cannot prove it investigated the *mechanism*. This system can.
 
-**Current phase:** V2 experiment in progress. All iter-3 pipeline stages are implemented. V1 delivery gate passed (n=50, all six GATE thresholds). V2 targets D1≥0.80 and D3≥0.35 — both currently below target (D1=0.72, D3=0.31 on latest n=50).
+**Current phase:** V2 pipeline active. All pipeline stages are implemented. V1 delivery gate passed (n=50, all six GATE thresholds). V2 targets D1≥0.80 and D3≥0.35 — both currently below target (D1=0.72, D3=0.31 on latest n=50).
 
 **Current results (V2, n=50 run 2 — 2026-06-12):** D1=0.72, D2_fix_chain=0.384, D3=0.31, D4=0.881, D5=0.387, D6=0.78, FP=24%. Root causes: D1 gap = hidden-fix-in-CS commits; D3 gap = prompt-engineering ceiling, JIRA context not injected.
 
@@ -61,7 +61,7 @@ Investigation means: classify risk *and* articulate *what could break*, with dif
 
 ### 3.2 Five-stage pipeline model
 
-The investigation pipeline follows **five conceptual stages** (archetype → quality gate). Operational docs also use **Stage 0** (context assembly, harness) and **Assembly** (report merge) — seven nodes total in [agent-loop.md](agent-loop.md). The five stages below are the investigation *method* components iter-3 implements:
+The investigation pipeline follows **five conceptual stages** (archetype → quality gate). Operational docs also use **Stage 0** (context assembly, harness) and **Assembly** (report merge) — seven nodes total in [agent-loop.md](agent-loop.md). The five stages below are the investigation *method* components:
 
 1. **Archetype detection** — Script identifies if the commit's PRIMARY change is a known clean-commit pattern (version bump, label rename, type migration, comment-only, pure refactor), returns `"AMBIGUOUS"` when no clean pattern matches and `has_production_defect_signals()` is false, or has production defect signals (guard removal, lifecycle change, inverted condition).
 
@@ -116,7 +116,7 @@ Evaluation is not a report card — it's the mechanism by which the system learn
 | D5 | Are recommendations aligned with the actual fix? | LLM-as-judge rubric 0–3 (adversarial judge) | LLM |
 | D6 | Does the agent cite real artifacts? | Claims vs actual diff/files | None |
 
-**Judge model constraint:** D3/D5 must use a model different from the investigator (or a blind judge with rubric stripped). Same-model judging is the self-evaluation anti-pattern. See EXP-JUDGE-SWAP.
+**Judge model constraint:** D3/D5 must use a model different from the investigator (or a blind judge with rubric stripped). Same-model judging is the self-evaluation anti-pattern.
 
 ### 4.2 Dimension coupling
 
@@ -136,7 +136,7 @@ These couplings define what the improvement cycle targets: a change that lifts D
 - **GATE:** All six must pass simultaneously on n≥50 stratified (50/50 buggy/clean). Any single failure blocks delivery.
 - **Soft baseline rule:** Agent D1 must beat always-predict-clean and router-only.
 - **Regression guard:** D6 ≥ 0.70 is a hard constraint in every eval run.
-- **Judge independence:** EXP-JUDGE-SWAP decision must be applied before any n=20 D3/D5 delivery claims.
+- **Judge independence:** Cross-model judge validation must be applied before any n=20 D3/D5 delivery claims.
 
 ## 5. Improvement Cycle
 
@@ -157,30 +157,29 @@ These couplings define what the improvement cycle targets: a change that lifts D
 - 392+ tests pass after every change
 - D6 ≥ 0.70 (grounding regression = immediate revert)
 - Each iteration tracked as a breadcrumb with before/after scores
-- EXP-JUDGE-SWAP decision applied before n=20/n=50 D3/D5 claims
+- Cross-model judge validation decision applied before n=20/n=50 D3/D5 claims
 
 ### 5.3 Phase roadmap
 
-| Phase | Focus | Status |
-|-------|-------|--------|
-| spike-0 | Define investigation harness design | **Complete** |
-| iter-1 | A+B hybrid prompt (rubric + staged CoT + router probability) | **Complete** (D1=0.60, D3=0.20) |
-| EXP-FORENSICS-TAG | Classify D3 failure modes from iter-1 data | **Complete** |
-| iter-2a+b | 16K diff + dual-path clean-commit rubric | **Complete** (D1=0.75, panel n=12) |
-| iter-2-n20 | n=20 gate on iter-2 codebase | **Complete** |
-| FIX-JUDGE-INFRA | D3 JIRA fallback for empty descriptions | **Complete** |
-| EXP-JUDGE-SWAP | Cross-model judge validation | **Complete** |
-| iter-3a–3e | Full Script pipeline + HypothesisEngine + smart-diff + bundle-inject | **Complete** (V1 n=50 delivery all gates pass) |
-| iter-3f-multiturn-ab | Multi-turn A/B on hard subset | **Deferred** — ΔD3 < threshold in A/B |
-| V1 n=50 delivery | All six GATE thresholds on n=50 stratified | **Complete** (D1=0.70, D3=0.23, all gates pass) |
-| v2-d3-selector-fix | Composite selector scoring — H1 anchor, tie-breakers | **Complete** |
-| v2-d2-localization-precision | SUPPORTED-only filter in report_builder | **Complete** (D2_fix_chain=0.384) |
-| EXP-BUNDLE-EXPAND | Test-adjacency + blame context injection | **Complete** |
-| v2-d3-h3a-rag | Historical RAG fallback — project distribution | **Complete** (net lift +0.01±0.03, ceiling confirmed) |
-| FP-fix-archetype | Test-only/examples-only commit archetype fix | **Complete** (FP 32%→24%) |
+| Capability | Focus | Status |
+|------------|-------|--------|
+| Harness design | Investigation harness architecture + oracle isolation | **Complete** |
+| Hybrid prompt | A+B staged CoT + router probability | **Complete** (D1=0.60, D3=0.20) |
+| D3 failure taxonomy | Classify root-cause failure modes from eval data | **Complete** |
+| Smart diff + clean-commit | 16K diff + dual-path clean-commit rubric | **Complete** (D1=0.75, panel n=12) |
+| n=20 delivery gate | Stratified n=20 evaluation gate | **Complete** |
+| Judge infrastructure | D3 JIRA fallback + cross-model judge validation | **Complete** |
+| Five-stage Script/LLM pipeline | HypothesisEngine + evidence_tagger + risk_policy + quality_gate + smart-diff | **Complete** (V1 n=50 all gates pass) |
+| Multi-turn A/B | 2-turn investigation on hard subset | **Deferred** — ΔD3 < threshold |
+| V1 n=50 delivery | All six GATE thresholds on n=50 stratified | **Complete** (D1=0.70, D3=0.23) |
+| Composite selector | Grounded evidence scoring + production-file rank tie-breakers | **Complete** |
+| SUPPORTED-only localization | SUPPORTED-only filter in report_builder | **Complete** (D2_fix_chain=0.384) |
+| Extended context | Test-adjacency + blame context injection | **Complete** |
+| Historical defect context | ApacheJIT KNN defect-category priors; project-level fallback | **Complete** (net lift +0.01±0.03, ceiling confirmed) |
+| Archetype FP fix | Test-only/examples-only commit archetype detection | **Complete** (FP 32%→24%) |
 | V2 n=50 delivery | D1≥0.80, D3≥0.35 | **In progress** — D1=0.72, D3=0.31 |
-| v2-jira-context-injection | Inject JIRA summary for D3 ceiling | **Planned** |
-| spike-confidence-equation | 7-signal confidence score → adaptive stopping | **Planned** |
+| JIRA context injection | Inject JIRA summary for D3 ceiling | **Planned** |
+| Adaptive confidence | 7-signal confidence score → adaptive stopping | **Planned** |
 
 ## 6. Trust Boundaries and Data Flow
 
@@ -188,7 +187,7 @@ These couplings define what the improvement cycle targets: a change that lifts D
                     ┌─────────────────────────────────────────────────────────┐
                     │               INVESTIGATION (commit-time only)           │
                     │                                                          │
- ApacheJIT CSVs ───┤──► CommitContextBuilder (16K diff today; smart-diff iter-3d) │
+ ApacheJIT CSVs ───┤──► CommitContextBuilder (16K diff; smart-diff with per-file priority) │
  Local git clones ─┤       (allowlist: numeric features only)                 │
  XGBoostRouter ────┤──► router_probability (ML prior, not risk verdict)       │
                     │         │                                                │
@@ -247,13 +246,13 @@ These couplings define what the improvement cycle targets: a change that lifts D
 | `evidence_tagger.py` | `analysis/evidence_tagger.py` | tag_hypothesis() Script-first tiering (SUPPORTED/SPECULATIVE/REFUTED/UNVERIFIABLE) | Active |
 | `risk_policy.py` | `analysis/risk_policy.py` | evaluate_risk() — single source of risk_level | Active |
 | `quality_gate.py` | `analysis/quality_gate.py` | InvestigationQualityGate — deterministic follow-up trigger | Active |
-| `HypothesisEngine` | `hypothesis/hypothesis_engine.py` | LLM Stage 1 — mechanism + evidence_quote; contrastive selector; H3a RAG injection | Active |
+| `HypothesisEngine` | `hypothesis/hypothesis_engine.py` | LLM Stage 1 — mechanism + evidence_quote; contrastive selector; historical defect context injection | Active |
 | `HypothesisPrompts` | `hypothesis/hypothesis_prompts.py` | Focused prompt templates (~40 lines, hypothesis + evidence_quote only) | Active |
-| `HistoricalRAG` | `hypothesis/historical_rag.py` | H3a — ApacheJIT KNN defect context; project-level fallback distribution | Active |
+| `HistoricalRAG` | `hypothesis/historical_rag.py` | ApacheJIT KNN defect-category priors; project-level fallback distribution | Active |
 | `ReportBuilder` | `pipeline/report_builder.py` | SUPPORTED-only localization + defect-signal file ranking (D2 precision) | Active |
 | `GroundTruthGraph` | `infra/ground_truth.py` | Bug→fix→issue index from replication package | Active |
 | `EvalHarness` | `runners/eval_harness.py` | Six-dimension scoring, stratified sampling, aggregate reports | Active |
-| `AdversarialJudge` | `runners/eval_judge.py` | LLM-as-judge D3/D5; EXP-JUDGE-SWAP: same-model judging acceptable | Active |
+| `AdversarialJudge` | `runners/eval_judge.py` | LLM-as-judge D3/D5; cross-model judge validation (same-model judging acceptable) | Active |
 | `CommitInvestigationReport` | `pipeline/orchestrator.py` | Pydantic schema — PolicyVerdict + per_stage metadata | Active |
 
 ### Components removed

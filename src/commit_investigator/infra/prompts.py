@@ -1,9 +1,6 @@
 """LLM system prompts for the commit investigation pipeline.
 
 Prompts live here to keep orchestrator.py focused on flow control.
-These are the CURRENT iter-2 prompts — iter-3 will decompose the monolith
-prompt into HypothesisEngine-specific instructions once the evidence_tagger
-and risk_policy are fully wired.
 """
 
 INVESTIGATION_SYSTEM_PROMPT = """\

@@ -1,4 +1,4 @@
-"""H3a: Historical bug RAG — defect-category priors from ApacheJIT closed pairs.
+"""Historical defect context — defect-category priors from ApacheJIT closed pairs.
 
 Finds K nearest buggy commits in the ApacheJIT training set (by code-metric
 similarity), fetches their commit messages from local git repos, and derives
@@ -149,9 +149,9 @@ def _load_training_data() -> list[_TrainingRow]:
                     metrics=metrics,
                 ))
         _TRAINING_CACHE = rows
-        logger.info("H3a: loaded %d buggy training rows from ApacheJIT", len(rows))
+        logger.info("historical defect context: loaded %d buggy training rows from ApacheJIT", len(rows))
     except Exception as exc:
-        logger.warning("H3a: failed to load training data: %s", exc)
+        logger.warning("historical defect context: failed to load training data: %s", exc)
         _TRAINING_CACHE = []
     return _TRAINING_CACHE or []
 
@@ -199,7 +199,7 @@ def _get_project_distribution(
 
     if counts:
         logger.info(
-            "H3a: project-level distribution for %s: %d classified from %d fetched",
+            "historical defect context: project-level distribution for %s: %d classified from %d fetched",
             project_key, sum(counts.values()), fetched,
         )
     _PROJECT_DIST_CACHE[project_key] = counts

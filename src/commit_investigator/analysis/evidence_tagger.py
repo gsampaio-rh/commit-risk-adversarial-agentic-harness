@@ -1,6 +1,6 @@
 """Evidence tier tagger: hybrid script-based hypothesis verification.
 
-Architecture decision (iter-3a-spike): HYBRID — LLM tier is primary label;
+Architecture decision: HYBRID — LLM tier is primary label;
 script verifies SUPPORTED claims by checking evidence_quote presence in diff.
 Hallucinated SUPPORTED (quote absent or not in diff) is downgraded to SPECULATIVE.
 

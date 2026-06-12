@@ -1,7 +1,7 @@
-"""Multi-turn A/B experiment on D3=0 hard commits (iter-3f-multiturn-ab).
+"""Multi-turn A/B runner for D3=0 hard commits.
 
-Runs 2-turn investigation with targeted turn-2 context injection on the 3 hard
-commits identified in iter-3-n20-v2, scores D3, and records activation decision.
+Runs 2-turn investigation with targeted turn-2 context injection on hard
+commits, scores D3, and records activation decision.
 
 Usage:
   python -m commit_investigator.runners.run_multiturn_ab
@@ -130,7 +130,7 @@ def main() -> None:
     )
 
     config = {
-        "experiment": "iter-3f-multiturn-ab",
+        "run_type": "multiturn-ab",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "git_rev": _git_rev(),
         "commits": [c[0] for c in HARD_COMMITS],
@@ -212,7 +212,7 @@ def main() -> None:
     )
 
     exp_report = {
-        "task_id": "iter-3f-multiturn-ab",
+        "task_id": "multiturn-ab",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "run_dir": str(run_dir),
         "judge_model": llm.model_name,

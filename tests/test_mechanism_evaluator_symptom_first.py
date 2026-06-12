@@ -1,4 +1,4 @@
-"""Tests for H1H4T3 prompt, changed-line citation, and mechanism evaluator loop."""
+"""Tests for symptom-first evaluator prompt, changed-line citation, and mechanism evaluator loop."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from commit_investigator.context.context_builder import InvestigationContext
 from commit_investigator.hypothesis.hypothesis_engine import (
     HYPOTHESIS_SYSTEM_PROMPT,
     HYPOTHESIS_SYSTEM_PROMPT_CONTRASTIVE,
-    HYPOTHESIS_SYSTEM_PROMPT_H1H4T3,
+    HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR,
     HypothesisResponse,
     has_changed_line_citation,
     build_investigation_messages,
@@ -94,16 +94,16 @@ def _empty_quote_payload() -> str:
     })
 
 
-class TestH1H4T3Prompt:
+class TestSymptomFirstWithEvaluatorPrompt:
     def test_prompt_distinct_from_baseline(self):
-        assert HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 != HYPOTHESIS_SYSTEM_PROMPT
+        assert HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR != HYPOTHESIS_SYSTEM_PROMPT
 
     def test_prompt_has_required_sections(self):
-        prompt = HYPOTHESIS_SYSTEM_PROMPT_H1H4T3
+        prompt = HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR
         assert "Observable:" in prompt
         assert "Root change:" in prompt
         assert "## CHANGED-LINE EVIDENCE" in prompt
-        assert extract_coverage_section(HYPOTHESIS_SYSTEM_PROMPT_H1H4T3)
+        assert extract_coverage_section(HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR)
 
 
 class TestHasChangedLineCitation:
@@ -207,10 +207,10 @@ class TestOrchestratorMechanismEvaluatorFlag:
             )
             mock_loop.assert_called_once()
 
-    def test_flag_true_uses_h1h4t3_system_prompt(self):
+    def test_flag_true_uses_symptom_first_with_evaluator_prompt(self):
         ctx = self._mock_context()
-        msgs = build_investigation_messages(ctx, system_prompt=HYPOTHESIS_SYSTEM_PROMPT_H1H4T3)
-        assert msgs[0].content == HYPOTHESIS_SYSTEM_PROMPT_H1H4T3
+        msgs = build_investigation_messages(ctx, system_prompt=HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR)
+        assert msgs[0].content == HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR
         assert "Observable:" in msgs[0].content
 
 

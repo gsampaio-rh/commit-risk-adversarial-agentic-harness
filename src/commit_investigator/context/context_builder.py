@@ -15,7 +15,7 @@ from commit_investigator.context.git_context import (
     GitContextProvider,
 )
 from commit_investigator.context.smart_diff import AssembledDiff, assemble_diff
-from commit_investigator.context.bundle_expand import (
+from commit_investigator.context.context_expansion import (
     EXPANSION_RESERVED_CHARS,
     append_context_expansion,
 )

@@ -315,7 +315,7 @@ def _init_git_providers(repos_dir: Path) -> dict[str, GitContextProvider]:
     return providers
 
 
-def _compute_h4_compliance(report: CommitInvestigationReport) -> float:
+def _compute_grounded_evidence_compliance(report: CommitInvestigationReport) -> float:
     """Fraction of diff_hunk evidence items that cite at least one +/- changed diff line."""
     from commit_investigator.hypothesis.hypothesis_engine import has_changed_line_citation
     from commit_investigator.analysis.report import EvidenceType
@@ -338,7 +338,7 @@ def _print_progress(
     baseline_scores: dict[str, float] | None = None,
     mechanism_evaluator: bool = False,
 ) -> None:
-    """Print rich per-commit progress with mechanism snippets and H4 compliance."""
+    """Print rich per-commit progress with mechanism snippets and grounded evidence compliance."""
     risk = report.risk_assessment.level.value
     conf = report.risk_assessment.confidence
     label = "BUG" if buggy else "clean"
@@ -351,10 +351,10 @@ def _print_progress(
     )
 
     if mechanism_evaluator:
-        h4 = _compute_h4_compliance(report)
+        grounded = _compute_grounded_evidence_compliance(report)
         baseline = (baseline_scores or {}).get(cid, None)
-        delta_str = f" Δbaseline={h4 - baseline:+.2f}" if baseline is not None else ""
-        line += f" | H4={h4:.2f}{delta_str}"
+        delta_str = f" Δbaseline={grounded - baseline:+.2f}" if baseline is not None else ""
+        line += f" | grounded={grounded:.2f}{delta_str}"
 
     print(line, file=sys.stderr)
 
@@ -427,7 +427,7 @@ class EvalRunner:
 
         self.mechanism_evaluator = getattr(self.args, "enable_mechanism_evaluator", False)
         self.contrastive = getattr(self.args, "enable_contrastive", False)
-        self.bundle_expand = getattr(self.args, "bundle_expand", False)
+        self.extended_context = getattr(self.args, "enable_extended_context", False)
         self.baseline_scores: dict[str, float] = {}
         forensics_path = getattr(self.args, "forensics_json", None)
         if forensics_path:
@@ -452,11 +452,11 @@ class EvalRunner:
             enable_contrastive=self.contrastive,
         )
         if self.mechanism_evaluator:
-            _log("  [experiment] T3 mechanism evaluator loop ENABLED (H1+H4+T3 variant)")
+            _log("  [config] Mechanism evaluator loop ENABLED (symptom-first + changed-line evidence)")
         if self.contrastive:
-            _log("  [experiment] Contrastive hypothesis ENABLED (D3 Layer 2 — diversity + H4 selection)")
-        if self.bundle_expand:
-            _log("  [experiment] Bundle expand ENABLED (test-adjacency + blame snippets)")
+            _log("  [config] Contrastive hypothesis ENABLED (diversity + grounded evidence selection)")
+        if self.extended_context:
+            _log("  [config] Extended context ENABLED (test-adjacency + blame snippets)")
 
     def select_commits(self) -> None:
         """Select target commits via explicit IDs or stratified sampling."""
@@ -488,7 +488,7 @@ class EvalRunner:
             "stratification": self.strat_stats,
             "enable_mechanism_evaluator": self.mechanism_evaluator,
             "enable_contrastive": self.contrastive,
-            "bundle_expand": self.bundle_expand,
+            "extended_context": self.extended_context,
         })
 
     def run_investigations(self) -> None:
@@ -513,8 +513,8 @@ class EvalRunner:
                 decision.commit_id,
                 project_lower,
                 csv_row,
-                include_test_adjacency=self.bundle_expand,
-                include_blame_snippets=self.bundle_expand,
+                include_test_adjacency=self.extended_context,
+                include_blame_snippets=self.extended_context,
             )
             context.router_probability = decision.probability
             context.router_route = decision.route.value
@@ -620,21 +620,21 @@ def main() -> None:
     parser.add_argument(
         "--enable-mechanism-evaluator",
         action="store_true",
-        help="Enable T3 mechanism evaluator loop (H1+H4+T3 experiment variant)",
+        help="Enable mechanism evaluator loop (symptom-first prompt with changed-line evidence grounding)",
     )
     parser.add_argument(
         "--enable-contrastive",
         action="store_true",
-        help="Enable contrastive hypothesis generation (D3 Layer 2 — diversity + H4 selection)",
+        help="Enable contrastive hypothesis generation (diversity constraint + grounded evidence selection)",
     )
     parser.add_argument(
         "--forensics-json",
         default=None,
         metavar="PATH",
-        help="Path to forensics JSON for baseline D3/H4 comparison in progress output",
+        help="Path to forensics JSON for baseline D3 comparison in progress output",
     )
     parser.add_argument(
-        "--bundle-expand",
+        "--enable-extended-context",
         action="store_true",
         help="Enable test-adjacency + blame context expansion for all commits in this run",
     )
