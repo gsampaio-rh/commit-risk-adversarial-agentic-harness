@@ -8,11 +8,9 @@ This is a **verifiable commit investigation system** — not an LLM wrapper, not
 
 The thesis: harness engineering (routing, context assembly, Schema enforcement, cost governance) and a separate evaluation framework (six-dimension adversarial scoring against ground truth) together produce better investigations than raw model quality alone. ApacheJIT's ground truth chain — buggy commits linked to fixing commits linked to JIRA issues — enables evaluation dimensions that no score-only model can satisfy. A model can predict "buggy" but cannot prove it investigated the *mechanism*. This system can.
 
-**Current phase:** Investigation-quality iteration. iter-2 (16K diff + dual-path rubric) verified with Claude Sonnet 4.6. iter-3 redesign (Script pipeline + deterministic gates) is the **design target** documented below — not yet implemented in code.
+**Current phase:** V2 experiment in progress. All iter-3 pipeline stages are implemented. V1 delivery gate passed (n=50, all six GATE thresholds). V2 targets D1≥0.80 and D3≥0.35 — both currently below target (D1=0.72, D3=0.31 on latest n=50).
 
-**Current results (iter-2, n=12 panel):** D1=0.75, D3_buggy=0.292, D6=0.833. Panel 12/12 AC. n=20 validation pending.
-
-**Current code (iter-2):** `orchestrator.py` runs monolithic `INVESTIGATION_SYSTEM_PROMPT`, `_apply_clean_commit_risk_cap()`, and LLM-controlled `follow_up_needed`. Modules `archetype.py`, `evidence_tagger.py`, `risk_policy.py`, `quality_gate.py`, and `HypothesisEngine` do not exist yet.
+**Current results (V2, n=50 run 2 — 2026-06-12):** D1=0.72, D2_fix_chain=0.384, D3=0.31, D4=0.881, D5=0.387, D6=0.78, FP=24%. Root causes: D1 gap = hidden-fix-in-CS commits; D3 gap = prompt-engineering ceiling, JIRA context not injected.
 
 ## 2. Design Philosophy
 
@@ -79,7 +77,7 @@ The investigation pipeline follows **five conceptual stages** (archetype → qua
 
 5. **Quality gate** — `InvestigationQualityGate` checks whether the pipeline output is sufficient. Fires deterministically on structural signals (no SUPPORTED hypothesis despite defect signals, empty localization + truncated diff, schema failure). Not on LLM self-reported confidence.
 
-This pipeline is the *architectural requirement*. Implementation ships in iter-3a–3e.
+This pipeline is fully implemented. All five stages are active in production evals.
 
 ### 3.3 Classification rules (design-level)
 
@@ -156,7 +154,7 @@ These couplings define what the improvement cycle targets: a change that lifts D
 ### 5.2 Hard constraints (every iteration)
 
 - Oracle isolation holds — agent never sees `buggy`, `fix`, `year`, `author_date`, JIRA
-- 89+ tests pass after every change
+- 392+ tests pass after every change
 - D6 ≥ 0.70 (grounding regression = immediate revert)
 - Each iteration tracked as a breadcrumb with before/after scores
 - EXP-JUDGE-SWAP decision applied before n=20/n=50 D3/D5 claims
@@ -166,22 +164,23 @@ These couplings define what the improvement cycle targets: a change that lifts D
 | Phase | Focus | Status |
 |-------|-------|--------|
 | spike-0 | Define investigation harness design | **Complete** |
-| iter-1 | A+B hybrid prompt (rubric + staged CoT + router probability) | **Committed** (D1=0.60, D3=0.20) |
+| iter-1 | A+B hybrid prompt (rubric + staged CoT + router probability) | **Complete** (D1=0.60, D3=0.20) |
 | EXP-FORENSICS-TAG | Classify D3 failure modes from iter-1 data | **Complete** |
-| iter-2a+b | 16K diff + dual-path clean-commit rubric | **Committed** (D1=0.75, panel n=12) |
-| iter-2-n20 | n=20 gate on iter-2 codebase | **Pending** |
-| FIX-JUDGE-INFRA | D3 JIRA fallback for empty descriptions | **Pending (parallel)** |
-| EXP-JUDGE-SWAP | Cross-model judge validation | **Pending (parallel)** |
-| iter-3a-extract | Behavior-preserving extraction: archetype.py, risk_policy.py, quality_gate stub | **Pending** |
-| iter-3a-feasibility-evidence-tagger | Spike: Script evidence tier tagging ≥80% panel agreement | **Pending** |
-| iter-3b-wire-gates | Wire gates + evidence_tagger.py + cap_reason in schema | **Pending** |
-| iter-3c-bundle-inject | file_histories + author_stats injected | **Pending** |
-| iter-3d-smart-diff | Per-file diff prioritization | **Pending** |
-| iter-3e-decompose-prompt | HypothesisEngine stage; remove monolith prompt | **Pending** |
-| iter-3-validate | Regression panel + n=5 smoke post-redesign | **Pending** |
-| iter-3-n20 | n=20 gate on redesigned pipeline | **Pending** |
-| iter-3f-multiturn-ab | Multi-turn A/B on hard subset (conditional) | **Conditional** |
-| iter-n50-delivery | n=50 delivery-confidence gate | **Conditional** |
+| iter-2a+b | 16K diff + dual-path clean-commit rubric | **Complete** (D1=0.75, panel n=12) |
+| iter-2-n20 | n=20 gate on iter-2 codebase | **Complete** |
+| FIX-JUDGE-INFRA | D3 JIRA fallback for empty descriptions | **Complete** |
+| EXP-JUDGE-SWAP | Cross-model judge validation | **Complete** |
+| iter-3a–3e | Full Script pipeline + HypothesisEngine + smart-diff + bundle-inject | **Complete** (V1 n=50 delivery all gates pass) |
+| iter-3f-multiturn-ab | Multi-turn A/B on hard subset | **Deferred** — ΔD3 < threshold in A/B |
+| V1 n=50 delivery | All six GATE thresholds on n=50 stratified | **Complete** (D1=0.70, D3=0.23, all gates pass) |
+| v2-d3-selector-fix | Composite selector scoring — H1 anchor, tie-breakers | **Complete** |
+| v2-d2-localization-precision | SUPPORTED-only filter in report_builder | **Complete** (D2_fix_chain=0.384) |
+| EXP-BUNDLE-EXPAND | Test-adjacency + blame context injection | **Complete** |
+| v2-d3-h3a-rag | Historical RAG fallback — project distribution | **Complete** (net lift +0.01±0.03, ceiling confirmed) |
+| FP-fix-archetype | Test-only/examples-only commit archetype fix | **Complete** (FP 32%→24%) |
+| V2 n=50 delivery | D1≥0.80, D3≥0.35 | **In progress** — D1=0.72, D3=0.31 |
+| v2-jira-context-injection | Inject JIRA summary for D3 ceiling | **Planned** |
+| spike-confidence-equation | 7-signal confidence score → adaptive stopping | **Planned** |
 
 ## 6. Trust Boundaries and Data Flow
 
@@ -234,33 +233,37 @@ These couplings define what the improvement cycle targets: a change that lifts D
 
 ## 7. Implementation Map
 
-### Components (current + target)
+### Components (current)
 
-| Component | Role | Status |
-|-----------|------|--------|
-| `CursorSDKProvider` | LLM calls (Stage 1 + judge). Fallback: OpenAI → Mock | Active |
-| `AgentOrchestrator` | Pipeline coordinator, budget tracking, report assembly | Refactoring (iter-3a → ≤250 lines) |
-| `XGBoostRouter` | Zero-cost routing on numeric features (AUC=0.855) | Active |
-| `CommitContextBuilder` | Deterministic context bundle — linear 16K diff today; smart-diff + bundle injection iter-3c/3d | Active; refactoring (iter-3c + iter-3d) |
-| `GitContextProvider` | Git CLI wrapper (diff, message, files, history) | Active |
-| `archetype.py` | detect_archetype() + has_production_defect_signals() | **Pending (iter-3a-extract)** |
-| `evidence_tagger.py` | tag_hypothesis() Script-first tiering + LLM escalation for ambiguous cases | **Pending (iter-3b-wire-gates)** — after iter-3a-feasibility spike |
-| `risk_policy.py` | evaluate_risk() — single source of risk_level | **Pending (iter-3a-extract)** |
-| `quality_gate.py` | InvestigationQualityGate — deterministic follow-up trigger | **Pending (iter-3a-extract)** |
-| `HypothesisEngine` | LLM Stage 1 prompt (~40 lines, hypothesis + evidence_quote only) | **Pending (iter-3e-decompose-prompt)** |
-| `GroundTruthGraph` | Bug→fix→issue index from replication package | Active |
-| `EvalHarness` | Six-dimension scoring, stratified sampling, aggregate reports | Active |
-| `AdversarialJudge` | LLM-as-judge D3/D5 with model ≠ investigator | **Pending (EXP-JUDGE-SWAP decision)** |
-| `CommitInvestigationReport` | Pydantic schema — includes PolicyVerdict + per_stage metadata | Refactoring (iter-3b) |
+| Component | Module | Role | Status |
+|-----------|--------|------|--------|
+| `CursorSDKProvider` | `infra/llm.py` | LLM calls (Stage 1 + judge). Fallback: OpenAI → Mock | Active |
+| `AgentOrchestrator` | `pipeline/orchestrator.py` | Pipeline coordinator, budget tracking, report assembly | Active |
+| `XGBoostRouter` | `routing/router.py` | Zero-cost routing on numeric features (AUC=0.855) | Active |
+| `CommitContextBuilder` | `context/context_builder.py` | Deterministic context bundle — smart-diff + bundle injection + missing_reasons | Active |
+| `BundleExpander` | `context/bundle_expand.py` | Test-adjacency + blame context injection for missing-context commits | Active |
+| `GitContextProvider` | `context/git_context.py` | Git CLI wrapper (diff, message, files, history) | Active |
+| `archetype.py` | `analysis/archetype.py` | detect_archetype() + has_production_defect_signals() — FP fix for test/examples commits | Active |
+| `evidence_tagger.py` | `analysis/evidence_tagger.py` | tag_hypothesis() Script-first tiering (SUPPORTED/SPECULATIVE/REFUTED/UNVERIFIABLE) | Active |
+| `risk_policy.py` | `analysis/risk_policy.py` | evaluate_risk() — single source of risk_level | Active |
+| `quality_gate.py` | `analysis/quality_gate.py` | InvestigationQualityGate — deterministic follow-up trigger | Active |
+| `HypothesisEngine` | `hypothesis/hypothesis_engine.py` | LLM Stage 1 — mechanism + evidence_quote; contrastive selector; H3a RAG injection | Active |
+| `HypothesisPrompts` | `hypothesis/hypothesis_prompts.py` | Focused prompt templates (~40 lines, hypothesis + evidence_quote only) | Active |
+| `HistoricalRAG` | `hypothesis/historical_rag.py` | H3a — ApacheJIT KNN defect context; project-level fallback distribution | Active |
+| `ReportBuilder` | `pipeline/report_builder.py` | SUPPORTED-only localization + defect-signal file ranking (D2 precision) | Active |
+| `GroundTruthGraph` | `infra/ground_truth.py` | Bug→fix→issue index from replication package | Active |
+| `EvalHarness` | `runners/eval_harness.py` | Six-dimension scoring, stratified sampling, aggregate reports | Active |
+| `AdversarialJudge` | `runners/eval_judge.py` | LLM-as-judge D3/D5; EXP-JUDGE-SWAP: same-model judging acceptable | Active |
+| `CommitInvestigationReport` | `pipeline/orchestrator.py` | Pydantic schema — PolicyVerdict + per_stage metadata | Active |
 
-### Components removed or deprecated
+### Components removed
 
 | Component | Reason | Replacement |
 |-----------|--------|-------------|
-| `INVESTIGATION_SYSTEM_PROMPT` monolith (~135 lines) | Monolithic prompts anti-pattern; caused iter-2b round-1 catastrophic fail | `HypothesisEngine` focused prompt (~40 lines) |
-| `_apply_clean_commit_risk_cap()` post-hoc regex | Duplicate risk policy; no audit trail; contradicts prompt without updating reasoning | `risk_policy.py evaluate_risk()` |
+| `INVESTIGATION_SYSTEM_PROMPT` monolith (~135 lines) | Monolithic prompts anti-pattern; caused iter-2b round-1 catastrophic fail | `HypothesisEngine` + `HypothesisPrompts` |
+| `_apply_clean_commit_risk_cap()` post-hoc regex | Duplicate risk policy; no audit trail | `risk_policy.py evaluate_risk()` |
 | `_should_follow_up()` LLM self-report | Self-evaluation anti-pattern | `quality_gate.py InvestigationQualityGate` |
-| `follow_up_needed` field in LLM output | LLM controlling its own follow-up = unreliable | Deprecated per iter-3b; still read by iter-2 orchestrator until quality_gate ships |
+| `follow_up_needed` field in LLM output | LLM controlling its own follow-up | Removed — quality gate is deterministic |
 
 ### V1 scope
 
@@ -271,12 +274,12 @@ These couplings define what the improvement cycle targets: a change that lifts D
 
 ### Deferred
 
-- All 15 project clones
+- All 15 project clones (V1 scope: Camel + Hadoop)
 - Line-level localization (GumTree mappings)
-- Live JIRA during investigation
+- Live JIRA during investigation (JIRA summary injection is V2 planned; live API is post-V2)
 - Agent framework selection (LangGraph, CrewAI)
 - Production deployment
-- Multi-turn investigation (frozen — iter-3f conditional)
+- Multi-turn investigation (A/B showed ΔD3 < threshold — deferred)
 
 ## Related
 

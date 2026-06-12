@@ -109,19 +109,36 @@ All six GATE thresholds must pass on a stratified eval (n >= 50, 50/50 buggy/cle
 ## Package Layout
 
 ```
-├── src/commit_investigator/   # Orchestrator (harness), agent, evaluation framework, router
-├── data/apachejit/            # Train/test CSVs + replication zip (gitignored)
-├── data/repos/                # Local git clones of Camel + Hadoop (gitignored)
-├── scripts/                   # Data download and repo clone scripts
-├── docs/                      # Architecture, harness, agent loop, evaluation, datasets
-├── output/runs/               # Timestamped eval run artifacts (gitignored)
-└── .harness/                  # Adversarial verification harness state
+├── src/commit_investigator/
+│   ├── analysis/          # archetype.py, evidence_tagger.py, risk_policy.py, quality_gate.py
+│   ├── context/           # context_builder.py, bundle_expand.py, smart_diff.py, git_context.py
+│   ├── hypothesis/        # hypothesis_engine.py, hypothesis_prompts.py, historical_rag.py, response_parser.py
+│   ├── infra/             # llm.py, ground_truth.py, jira_client.py, coverage.py
+│   ├── pipeline/          # orchestrator.py, report_builder.py, tools.py
+│   ├── routing/           # router.py, route_cli.py
+│   └── runners/           # run_eval.py, run_multiturn_ab.py, eval_harness.py, eval_judge.py, eval_common.py
+├── data/apachejit/        # Train/test CSVs + replication zip (gitignored)
+├── data/repos/            # Local git clones of Camel + Hadoop (gitignored)
+├── scripts/               # Data download and repo clone scripts
+├── docs/                  # Architecture, harness, agent loop, evaluation, datasets
+├── output/runs/           # Timestamped eval run artifacts (gitignored)
+└── .harness/              # Adversarial verification harness state
 ```
 
 ## Status
 
-**Phase:** investigation-quality. iter-1 verified with Claude Sonnet 4.6 production data.
+**Phase:** V2 experiment in progress. All iter-3 pipeline stages implemented and verified.
 
-**iter-1 results (Claude n=20):** D1=0.60 (+0.20 from baseline), D3=0.20 (+0.07), D6=0.85 (stable). 5/6 gates pass at n=20. D1 at 0.60 vs 0.70 full gate — needs iter-2 validation at n=50.
+**Latest n=50 (V2, run 2 — `output/runs/2026-06-12_03-55-28_real_n50`):**
 
-**Next:** EXP-FORENSICS-TAG (classify D3 failure modes), then iter-2. 86 tests passing.
+| Dimension | Score | Target | Status |
+|-----------|-------|--------|--------|
+| D1 Prediction | 0.72 | ≥ 0.80 | below target |
+| D2 Localization (fix-chain) | 0.384 | ≥ 0.25 | **PASS** |
+| D3 Diagnosis | 0.31 | ≥ 0.35 | below target |
+| D4 Severity | 0.881 | ≥ 0.75 | **PASS** |
+| D5 Recommendations | 0.387 | ≥ 0.40 | marginal |
+| D6 Evidence grounding | 0.78 | ≥ 0.70 | **PASS** |
+| FP rate | 24% | ≤ 25% | **PASS** |
+
+**Open gaps:** D1 (hidden-fix-in-CS commits), D3 (prompt-engineering ceiling at 0.31 — JIRA context injection needed). 392 tests passing.

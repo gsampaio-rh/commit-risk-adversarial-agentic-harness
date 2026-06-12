@@ -2,19 +2,9 @@
 
 The agent loop is the investigation process running inside the [harness](harness.md). Industry-standard term: Perceive → Reason → Act → Observe. The harness controls infrastructure; the agent loop produces the investigation.
 
-## Specification vs implementation
+## Implementation status
 
-**This document describes the iter-3 design target** — the pipeline that iter-3a–3e will implement. See [architecture.md §7](architecture.md#7-implementation-map) for module status.
-
-**Current code (iter-2, commit ed5bfe6)** still runs:
-
-- Monolithic `INVESTIGATION_SYSTEM_PROMPT` (4 in-prompt stages + risk rubric) — not `HypothesisEngine`
-- `_apply_clean_commit_risk_cap()` post-hoc regex — not `risk_policy.py`
-- `_should_follow_up()` reading LLM `follow_up_needed` — not `InvestigationQualityGate`
-- Linear 16K diff truncation — not smart per-file prioritization (iter-3d)
-- `file_histories` / `author_stats` collected in `InvestigationContext` but **not injected** into the LLM message (iter-3c)
-
-Stages marked `(iter-3c/3d pending)` in the diagram below are specification only until those tasks ship.
+All pipeline stages described in this document are **fully implemented** as of V1 delivery (2026-06-11). The five-stage Script/LLM pipeline replaced the iter-2 monolithic prompt. See [architecture.md §7](architecture.md#7-implementation-map) for the component map.
 
 ## How a Commit Gets Investigated
 
@@ -26,16 +16,16 @@ Commit enters INVESTIGATE zone (0.3 ≤ P ≤ 0.7)
 │ STAGE 0 — CONTEXT ASSEMBLY (Script)                     │
 │                                                         │
 │  CommitContextBuilder assembles:                        │
-│  • Unified diff — 16K char cap today; smart per-file    │
-│    priority budget (iter-3d pending): defect-signal     │
-│    files first; ≥1 hunk/file before global cap          │
+│  • Unified diff — smart per-file priority budget:       │
+│    defect-signal files first; ≥1 hunk/file before cap  │
 │  • Commit message + touched files                       │
 │  • Numeric features (allowlist: LA, LD, NF, ND, etc.)  │
-│  • File history (iter-3c pending — collected, not yet   │
-│    injected into LLM message)                           │
-│  • Author stats (iter-3c pending — same)                │
+│  • File history (last 3 commits, injected)              │
+│  • Author stats (injected or gap logged)                │
+│  • Bundle expansion (test-adjacency + blame snippets    │
+│    for allowlisted missing-context commits)             │
 │  • Router probability (ML prior)                        │
-│  • truncation_metadata (iter-3d pending)                │
+│  • truncation_metadata + missing_reasons[]              │
 └────────────────────────────┬────────────────────────────┘
                              │
                              ▼
@@ -61,12 +51,18 @@ Commit enters INVESTIGATE zone (0.3 ≤ P ≤ 0.7)
 │  HypothesisEngine receives:                             │
 │    • Context bundle (diff, message, histories, stats)   │
 │    • archetype_label + defect_signals from Stage 0b     │
+│    • H3a RAG context (historical defect distribution    │
+│      from ApacheJIT KNN — when --enable-h3a-rag)        │
 │                                                         │
 │  LLM produces: HypothesisArtifact (Pydantic-validated)  │
-│    • summary — what changed, stated intent              │
+│    • summary — user-visible symptom + primary fix-file  │
 │    • hypotheses[] — each with:                          │
 │        mechanism: "If <X> then <Y> in <Z>"              │
 │        evidence_quote: substring of diff (required)     │
+│                                                         │
+│  Composite selector (select_primary_by_evidence):       │
+│    H1 anchor + citation score + production-file rank    │
+│    → promotes best-grounded hypothesis to primary       │
 │                                                         │
 │  Schema failure → retry with error feedback (max 2)     │
 └────────────────────────────┬────────────────────────────┘
@@ -127,9 +123,8 @@ Commit enters INVESTIGATE zone (0.3 ≤ P ≤ 0.7)
 │    • findings == ["Investigation completed"]            │
 │      (masked empty output)                              │
 │                                                         │
-│  LLM output field follow_up_needed: DEPRECATED (iter-3b).│
-│  Still read by iter-2 orchestrator until iter-3b ships. │
-│  Confidence-based trigger deferred to post-iter-3e.     │
+│  LLM output field follow_up_needed: REMOVED.            │
+│  Confidence-based trigger deferred (post-V2 spike).     │
 │                                                         │
 │  Gate PASS → assemble report                            │
 │  Gate FAIL + turns remaining → inject follow-up context │
@@ -155,15 +150,17 @@ Commit enters INVESTIGATE zone (0.3 ≤ P ≤ 0.7)
 
 | Stage | Tier | Responsibility | LLM? |
 |-------|------|----------------|------|
-| 0 — Context Assembly | Script | Build diff bundle; inject file_histories + author_stats (iter-3c) | No |
+| Stage | Tier | Responsibility | LLM? |
+|-------|------|----------------|------|
+| 0 — Context Assembly | Script | Build diff bundle; inject file_histories + author_stats + bundle_expand | No |
 | 0b — Archetype | Script | Detect clean-commit patterns, production defect signals | No |
-| 1 — Hypothesis Generation | **LLM** | Produce mechanism + evidence_quote pairs | **Yes (Call 1)** |
+| 1 — Hypothesis Generation | **LLM** | Produce mechanism + evidence_quote pairs; composite selector | **Yes (Call 1)** |
 | 2 — Evidence Tiering | Script-first | Tag each hypothesis SUPPORTED/SPECULATIVE/REFUTED/UNVERIFIABLE | No (LLM escalation for ambiguous) |
 | 3 — Risk Policy | Script | Compute risk_level with single source of truth | No |
 | Gate | Script | Deterministic follow-up trigger | No |
-| Assembly | Script | Merge artifacts → CommitInvestigationReport | No |
+| Assembly | Script | Merge artifacts → CommitInvestigationReport; SUPPORTED-only localization | No |
 
-**Default path: 1 LLM call.** Follow-up turn adds at most 1 more call (frozen until iter-3f A/B).
+**Default path: 1 LLM call.** Multi-turn deferred — iter-3f A/B showed ΔD3 < threshold.
 
 ## Quality Gate — Trigger Conditions
 
@@ -176,7 +173,7 @@ The `InvestigationQualityGate` fires deterministically based on `HypothesisArtif
 | `schema_failure` | `HypothesisArtifact` Pydantic validation failed | Output unusable |
 | `empty_findings_masked` | `findings == ["Investigation completed"]` | Default placeholder — investigation didn't run |
 
-**Deferred:** confidence-based trigger (`confidence < 0.6`) requires confidence field in structured `HypothesisArtifact`, not LLM self-report. Activated post-iter-3e.
+**Planned (V2):** confidence-based trigger using 7-signal confidence equation (`spike-investigation-confidence-equation`). Not yet implemented.
 
 **Error paths:** LLM API timeout, schema retry exhaustion, and budget exceeded are handled by the harness — see [harness.md Error resilience](harness.md#5-error-resilience--what-happens-when-things-break). The pipeline diagram above shows the happy path only.
 
@@ -199,14 +196,15 @@ In a standard agent loop (LangGraph, Claude Code, Codex), the **LLM decides what
 
 | Agent receives (investigation) | Agent never sees (eval-only) |
 |-------------------------------|------------------------------|
-| Unified diff (16K today; smart-prioritized iter-3d) | `buggy` label |
+| Unified diff (smart per-file prioritized) | `buggy` label |
 | Commit message | Fix commit / fix diff |
 | Numeric features (allowlist) | JIRA issue details |
-| File history (iter-3c — injected into LLM message) | `fix`, `year`, `author_date` |
-| Author stats (iter-3c — injected or gap logged) | Ground truth linkage |
-| Router probability (ML prior) | Other commits' results |
-| archetype_label (from Stage 0b) | Risk rubric HIGH/MEDIUM/LOW |
-| truncation_metadata | PolicyVerdict rationale |
+| File history (last 3 commits, injected) | `fix`, `year`, `author_date` |
+| Author stats (injected or gap logged) | Ground truth linkage |
+| Bundle expansion (test-adjacency + blame) | Other commits' results |
+| Router probability (ML prior) | Risk rubric HIGH/MEDIUM/LOW |
+| archetype_label (from Stage 0b) | PolicyVerdict rationale |
+| truncation_metadata + missing_reasons[] | — |
 
 *Note: archetype_label from Stage 0b is injected as context fact ("PRIMARY change: version_bump"), not as a risk verdict.*
 
@@ -221,7 +219,7 @@ In a standard agent loop (LangGraph, Claude Code, Codex), the **LLM decides what
 
 ## Multi-Turn Policy
 
-**Status: FROZEN.** Multi-turn is disabled until iter-3f A/B provides evidence. **Frozen operationally** means: even if `InvestigationQualityGate` signals follow-up (post-iter-3b), the orchestrator will not execute turn 2 until iter-3f reactivation. `TurnCheckpoint` infrastructure is preserved for the A/B.
+**Status: DEFERRED.** Multi-turn A/B (iter-3f) ran and showed ΔD3 < threshold — single-turn maintained. `TurnCheckpoint` infrastructure preserved for future re-evaluation.
 
 | Config | Value | Rationale |
 |--------|-------|-----------|
@@ -231,8 +229,8 @@ In a standard agent loop (LangGraph, Claude Code, Codex), the **LLM decides what
 | Follow-up trigger | `InvestigationQualityGate` | Deterministic, not LLM self-report |
 | Follow-up content (when active) | smart-diff of hidden files + file_history blame + targeted question per gate signal | Not generic "continue investigating" |
 
-**Reactivation threshold (iter-3f-multiturn-ab):** ALL THREE conditions must hold:
-1. `InvestigationQualityGate` is implemented and tested (iter-3b complete)
+**Re-activation threshold (future):** ALL THREE conditions must hold:
+1. `InvestigationQualityGate` in place (done)
 2. A/B on ≥3 hard commits shows ΔD3 ≥ 0.25 OR gate confirms `missing_context` in ≥2 commits
 3. Cost/commit documented ≤ 2× single-turn baseline
 

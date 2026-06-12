@@ -151,7 +151,7 @@ output/runs/YYYY-MM-DD_HH-MM-SS_<real|mock>_n<count>/
 | D5 | 0.50 | 0.37 | -0.13 | — | — |
 | D6 | 0.85 | 0.85 | 0.00 | >= 0.70 | PASS |
 
-### Key Findings
+### Key Findings (iter-1)
 
 1. **D1 lift is real** — rubric + staged CoT + router probability moved D1 from 0.40 to 0.60. Buggy recall is 0.80 (8/10 correctly HIGH).
 2. **D3 at boundary** — moved from 0.13 to 0.20. Some commits get precise root cause (b4c933b7 D3=0.75) but others miss entirely (90846b5 D3=0.0).
@@ -159,10 +159,69 @@ output/runs/YYYY-MM-DD_HH-MM-SS_<real|mock>_n<count>/
 4. **D6 stable** — grounding quality unchanged at 0.85. The rubric did not cause guessing.
 5. **D5 regressed** — from 0.50 to 0.37. The more specific reasoning may be producing more specific but wrong recommendations.
 
-### tier_2_pivot Check
+---
 
-- ΔD1 = +0.20 (threshold: < 0.10 to trigger) → **NOT triggered**
-- ΔD3 = +0.07 (threshold: < 0.05 to trigger) → **NOT triggered**
+### V1 Delivery (n=50, all six GATE thresholds)
+
+**Run:** `output/runs/2026-06-11_06-13-50_real_n50/`
+**Commit:** `ce394c4`
+**Sample:** 25 buggy + 25 clean (stratified)
+**Cost:** ~$0.35
+
+| Dimension | Score | GATE | TARGET | Status |
+|-----------|-------|------|--------|--------|
+| D1 Prediction | 0.70 | >= 0.70 | >= 0.80 | GATE PASS / target miss |
+| D2 Localization | 0.19 | >= 0.15 | >= 0.25 | GATE PASS / target miss |
+| D3 Diagnosis | 0.23 | >= 0.20 | >= 0.35 | GATE PASS / target miss |
+| D4 Severity | **0.894** | >= 0.60 | >= 0.75 | PASS |
+| D5 Recommendations | **0.413** | >= 0.25 | >= 0.40 | PASS |
+| D6 Evidence grounding | **0.770** | >= 0.60 | >= 0.70 | PASS |
+
+**Verdict:** V1 delivery confirmed — all 6 GATE thresholds pass. D1/D2/D3 below TARGET tier → V2 experiment activated.
+
+---
+
+### V2 Run 1 — n=50 (selector fix + bundle expand + D2 localization + H3a)
+
+**Run:** `output/runs/2026-06-11_23-57-42_real_n50/`
+**Cost:** $0.395
+**Changes vs V1:** contrastive hypothesis, selector fix, bundle expand, D2 SUPPORTED-only filter
+
+| Dimension | Score | TARGET | Status |
+|-----------|-------|--------|--------|
+| D1 Prediction | 0.70 | >= 0.80 | FAIL |
+| D2 fix_chain_only | 0.334 | >= 0.25 | PASS |
+| D3 Diagnosis | 0.29 | >= 0.35 | FAIL |
+| D4 Severity | 0.894 | >= 0.75 | PASS |
+| D5 Recommendations | 0.427 | >= 0.40 | PASS |
+| D6 Evidence grounding | 0.780 | >= 0.70 | PASS |
+| FP rate | 32% | <= 25% | FAIL |
+
+**Verdict:** FAIL. D1/FP regression — clean FP (32%) caused by test/examples commits. Activated FP-fix-archetype.
+
+---
+
+### V2 Run 2 — n=50 (+ archetype FP fix + H3a RAG)
+
+**Run:** `output/runs/2026-06-12_03-55-28_real_n50/`
+**Cost:** $0.395
+**Changes vs V2 run 1:** archetype FP fix (test-only/examples-only commits), H3a historical RAG
+
+| Dimension | Score | TARGET | Status |
+|-----------|-------|--------|--------|
+| D1 Prediction | 0.72 | >= 0.80 | FAIL (-0.08) |
+| D2 fix_chain_only | **0.384** | >= 0.25 | **PASS** |
+| D3 Diagnosis | 0.31 | >= 0.35 | FAIL (-0.04) |
+| D4 Severity | 0.881 | >= 0.75 | **PASS** |
+| D5 Recommendations | 0.387 | >= 0.40 | marginal |
+| D6 Evidence grounding | **0.780** | >= 0.70 | **PASS** |
+| FP rate | **24%** | <= 25% | **PASS** |
+
+**Verdict:** FAIL on D1 and D3. FP fixed (32%→24%). Root causes:
+- **D1=0.72:** 8 BUG→MEDIUM (hidden-fix-in-CS commits, diff looks cosmetic), 6 clean→HIGH (≥2 SUPPORTED findings, policy cannot distinguish)
+- **D3=0.31:** Prompt-engineering ceiling confirmed at 0.28–0.31. JIRA context not available to agent. See [docs/prompt-engineering-ceiling.md](prompt-engineering-ceiling.md).
+
+**Next:** `v2-jira-context-injection` (D3 ceiling), `spike-confidence-equation` (D1/FP calibration).
 
 ---
 

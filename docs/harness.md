@@ -87,21 +87,19 @@ The router handles ~60% of commits without spending a single token.
 
 ### 2. Context construction — what the agent sees
 
-The `CommitContextBuilder` assembles a deterministic context bundle. **Today (iter-2):** linear diff with 16K char cap; `file_histories` and `author_stats` are collected in `InvestigationContext` but not injected into the LLM message. **Target (iter-3c/3d):** smart per-file diff prioritization + bundle injection or `missing_reasons[]` logging.
+The `CommitContextBuilder` assembles a deterministic context bundle with smart per-file diff prioritization. Defect-signal files appear first; `missing_reasons[]` logs any gaps.
 
 | Context piece | Source | Status |
 |--------------|--------|--------|
-| Unified diff (16K linear cap) | Local git clone | **Active** |
-| Unified diff (smart-prioritized) | Local git clone | **Pending (iter-3d)** |
+| Unified diff (smart per-file prioritized) | Local git clone | **Active** |
 | Commit message | Local git clone | **Active** |
 | Touched files | Local git clone | **Active** |
 | Numeric features (allowlist only) | ApacheJIT CSV | **Active** |
-| File history (last 3 commits) | Local git clone | Collected; **injection pending (iter-3c)** |
-| Author stats | Precomputed from train split | Collected; **injection pending (iter-3c)** |
+| File history (last 3 commits) | Local git clone | **Active** (injected + gap logged) |
+| Author stats | Precomputed from train split | **Active** (injected or gap logged) |
+| Bundle expansion (test-adjacency + blame) | Local git clone | **Active** (allowlisted commits) |
 | Router probability | XGBoost output | **Active** |
-| truncation_metadata | Context builder | **Pending (iter-3d)** |
-
-When iter-3c ships: if file_histories or author_stats are unavailable, `missing_reasons[]` is populated with the gap and its impact. No silent omissions.
+| truncation_metadata + missing_reasons[] | Context builder | **Active** |
 
 ### 3. Turn governance — how much the agent can do
 
@@ -151,15 +149,15 @@ Each pipeline stage has its own Pydantic schema:
 
 ## Investigation Method
 
-The investigation method is the **iter-3 design target**: five Script/LLM pipeline components that replace the iter-2 monolithic prompt. Implementation ships iter-3a–3e; iter-2 code still uses `INVESTIGATION_SYSTEM_PROMPT` with 4 in-prompt stages.
+The investigation method is the five-stage Script/LLM pipeline that replaced the iter-2 monolithic prompt. All components are active.
 
-| Component | Role | Module | Ships in |
-|-----------|------|--------|----------|
-| Archetype detection | Clean-commit patterns + defect signals | `archetype.py` | iter-3a-extract |
-| Hypothesis generation | Mechanism + evidence_quote pairs | `HypothesisEngine` (LLM) | iter-3e-decompose-prompt |
-| Evidence tiering | SUPPORTED/SPECULATIVE/REFUTED/UNVERIFIABLE | `evidence_tagger.py` (Script-first + LLM escalation) | iter-3b-wire-gates (after feasibility spike) |
-| Risk policy | Single source of `risk_level` | `risk_policy.py` | iter-3a-extract (wired iter-3b) |
-| Quality gate | Deterministic follow-up signals | `quality_gate.py` | iter-3a-extract stub → iter-3b wire |
+| Component | Role | Module | Status |
+|-----------|------|--------|--------|
+| Archetype detection | Clean-commit patterns + defect signals (FP fix included) | `analysis/archetype.py` | **Active** |
+| Hypothesis generation | Mechanism + evidence_quote pairs; composite selector; H3a RAG | `hypothesis/hypothesis_engine.py` | **Active** |
+| Evidence tiering | SUPPORTED/SPECULATIVE/REFUTED/UNVERIFIABLE | `analysis/evidence_tagger.py` | **Active** |
+| Risk policy | Single source of `risk_level` | `analysis/risk_policy.py` | **Active** |
+| Quality gate | Deterministic follow-up signals | `analysis/quality_gate.py` | **Active** |
 
 Context assembly (Stage 0) and report assembly are harness responsibilities, not investigation-method components.
 
@@ -215,11 +213,12 @@ All classification rules live exclusively in `risk_policy.py`:
 
 | Failure | D-impact | Root cause | Status |
 |---------|----------|-----------|--------|
-| False positives on clean commits | D1 | Agent generates SUPPORTED hypotheses on speculative impact | Mitigated in iter-2b via prompt rubric + `_apply_clean_commit_risk_cap()`; migrates to `risk_policy.py` in iter-3a/3b. 3 stubborn FPs remain |
-| Truncation hides defect file | D3 | 572f3cee35fe: linear diff hides XmppGroupChatProducer.java | Open — iter-3d smart-diff |
-| Wrong-mechanism diagnosis | D3 | Agent identifies bug A, not bug B (409664582f53) | Open — iter-2d wrong-mechanism prompt |
-| Empty JIRA → D3=0 | D3 | Judge infra, not agent failure (f897d46870ba) | Open — FIX-JUDGE-INFRA |
-| Localization = all touched files | D2 | No distinction between "analyzed" and "defective" | Open — post-iter-3 |
+| False positives: test/examples commits | D1 | Clean commits classified HIGH | **Fixed** — archetype.py FP fix (FP 32%→24%) |
+| False positives: clean commits with supported evidence | D1 | 6 clean commits have ≥2 SUPPORTED findings; policy cannot distinguish | **Open** — spike-confidence-equation planned |
+| D1 miss: hidden-fix-in-CS commits | D1 | 8 BUG→MEDIUM: "Fixed CS" diff looks cosmetic despite hidden bug | **Open** — v2-d1-cs-fix-detector planned |
+| D3 ceiling at 0.28–0.31 | D3 | Agent lacks JIRA context to confirm mechanism | **Open** — v2-jira-context-injection planned |
+| Empty JIRA → D3=0 | D3 | Judge infra, not agent failure (f897d46870ba) | **Mitigated** — fix-diff fallback oracle active |
+| Localization = all touched files | D2 | No distinction between "analyzed" and "defective" | **Mitigated** — SUPPORTED-only filter in report_builder (D2_fix=0.384) |
 
 ---
 
@@ -241,7 +240,7 @@ The improvement cycle is the system's evolution mechanism — disciplined, measu
 ### Hard constraints (every iteration)
 
 - Oracle isolation holds: agent never sees `buggy`, `fix`, `year`, `author_date`, JIRA
-- 89+ tests pass after every change
+- 392+ tests pass after every change
 - D6 ≥ 0.70 — grounding regression = immediate revert
 - Each iteration tracked as a breadcrumb with before/after scores
 - EXP-JUDGE-SWAP decision applied before any n=20 D3/D5 claims
@@ -251,20 +250,18 @@ The improvement cycle is the system's evolution mechanism — disciplined, measu
 | Task | Focus | Status |
 |------|-------|--------|
 | spike-0 | Investigation harness design | **Complete** |
-| iter-1 | A+B hybrid: risk rubric + staged CoT + router probability | **Committed** (D1=0.60, D3=0.20) |
+| iter-1 | A+B hybrid: risk rubric + staged CoT + router probability | **Complete** (D1=0.60, D3=0.20) |
 | EXP-FORENSICS-TAG | Classify D3 failure modes from iter-1 | **Complete** |
-| iter-2a+b | 16K diff + dual-path clean-commit rubric | **Committed** (D1=0.75, panel n=12) |
-| iter-2-n20 | n=20 iteration gate on iter-2 codebase | **Pending** |
-| FIX-JUDGE-INFRA | D3 JIRA fallback for empty descriptions | **Pending (parallel)** |
-| EXP-JUDGE-SWAP | Cross-model judge validation | **Pending (parallel)** |
-| iter-3a-extract | Extract archetype.py + risk_policy.py + quality_gate stub (no evidence_tagger) | **Pending** |
-| iter-3a-feasibility-evidence-tagger | Spike: Script tier tagging ≥80% panel agreement | **Pending** |
-| iter-3b-wire-gates | Wire gates + evidence_tagger.py + cap_reason schema | **Pending** |
-| iter-3c-bundle-inject | File_histories + author_stats injected | **Pending** |
-| iter-3d-smart-diff | Per-file diff prioritization | **Pending** |
-| iter-3e-decompose-prompt | HypothesisEngine stage + remove monolith | **Pending** |
-| iter-3-validate | Regression panel + n=5 smoke after redesign | **Pending** |
-| iter-3-n20 | n=20 gate on redesigned pipeline | **Pending** |
+| iter-2a+b | 16K diff + dual-path clean-commit rubric | **Complete** (D1=0.75, panel n=12) |
+| iter-2-n20 + FIX-JUDGE-INFRA + EXP-JUDGE-SWAP | Iteration gate + judge infra | **Complete** |
+| iter-3a–3e | Full Script pipeline + HypothesisEngine + smart-diff + bundle-inject | **Complete** |
+| V1 n=50 delivery | All six GATE thresholds | **Complete** (D1=0.70, D3=0.23) |
+| v2-selector-fix | Composite selector scoring | **Complete** |
+| v2-d2-localization-precision | SUPPORTED-only localization | **Complete** (D2_fix=0.384) |
+| EXP-BUNDLE-EXPAND | Test-adjacency + blame injection | **Complete** |
+| FP-fix-archetype | Test/examples-only commit FP fix | **Complete** (FP 32%→24%) |
+| v2-d3-h3a-rag | Historical RAG fallback | **Complete** (net +0.01, ceiling confirmed) |
+| V2 n=50 delivery | D1≥0.80, D3≥0.35 | **In progress** — D1=0.72, D3=0.31 |
 
 ---
 
