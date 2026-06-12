@@ -644,8 +644,9 @@
       "id": "v2-fp-risk-tightening",
       "name": "D1: tighten risk_policy for clean-commit false positives",
       "type": "feature",
-      "status": "deferred",
-      "priority": 11,
+      "status": "pending",
+      "priority": 34,
+      "reactivated_reason": "D1=0.72 on n=50 (was 0.90 on n=20 favorable sample). Trigger met: D1 regression confirmed. Run after v2-d1-cs-fix-detector to avoid double-counting policy changes.",
       "depends_on": [
         "v2-forensics-n50",
         "v2-n50-delivery"
@@ -1097,7 +1098,7 @@
       "id": "td-h3a-cache-refactor",
       "name": "TD: historical defect context \u2014 injectable cache and test isolation",
       "type": "fix",
-      "status": "verified",
+      "status": "committed",
       "priority": 29,
       "severity": "major",
       "source": "adversarial-audit-2026-06-12",
@@ -1117,7 +1118,7 @@
       "id": "td-h3a-feature-flag",
       "name": "TD: --enable-historical-defect-context feature flag on run_eval",
       "type": "fix",
-      "status": "pending",
+      "status": "verified",
       "priority": 30,
       "severity": "major",
       "source": "adversarial-audit-2026-06-12",
@@ -1152,6 +1153,63 @@
         "heapq.nsmallest replaces full sort",
         "Wall-clock improvement measured on n=50 run"
       ]
+    },
+    {
+      "id": "v2-jira-context-injection",
+      "name": "D3: inject JIRA ticket summary into hypothesis prompt",
+      "type": "experiment",
+      "status": "pending",
+      "priority": 32,
+      "depends_on": [
+        "td-h3a-feature-flag"
+      ],
+      "source": "v2-n50-failure-analysis",
+      "description": "D3=0.31 ceiling — failure_analysis tags 'JIRA context unavailable' as primary D3 lever. Injecting the JIRA ticket title+type+summary before hypothesis generation should ground the LLM in the correct defect category, directly attacking the 57% wrong-mechanism root cause.",
+      "expected_delta": {
+        "D3": "+0.04 to +0.06 (0.31 → 0.35–0.37, closes target gap)",
+        "D1": "neutral (no risk cap change)"
+      },
+      "failure_mode_targeted": "wrong-mechanism (91% of D3=0 commits); JIRA provides oracle defect type without leaking fix content",
+      "changes": "context/context_builder.py: add optional jira_summary field (title + issue type, no fix description). infra/prompts.py: inject as ## Ticket Context section. orchestrator.py: wire from InvestigationContext.jira_summary when present. runners/run_eval.py: --jira-csv flag pointing to commit→JIRA mapping CSV.",
+      "acceptance_criteria": [
+        "AC-1: When jira_summary is present in InvestigationContext, hypothesis prompt contains ## Ticket Context block with title and issue type",
+        "AC-2: When jira_summary is absent, prompt is identical to today's baseline (no regression)",
+        "AC-3: --jira-csv flag loads commit→JIRA mapping; per-commit jira_status logged in forensics JSON (injected | unavailable)",
+        "AC-4: Unit tests for context injection and absent-jira fallback — 465+ tests pass",
+        "AC-5: Mini n=20 with --jira-csv: D3 ≥ 0.35 AND D1 not regressed below 0.72"
+      ],
+      "edge_cases": [
+        "JIRA key absent in CSV — graceful skip, no error",
+        "JIRA title contains fix-commit language — strip or truncate to title only (no fix diff leakage)"
+      ],
+      "decision_rule": "D3 ≥ 0.35 on n=20 → advance to n=50. D3 < 0.35 → investigate per-commit delta before n=50."
+    },
+    {
+      "id": "v2-d1-cs-fix-detector",
+      "name": "D1: detect hidden-fix-in-CS commits via JIRA key presence",
+      "type": "experiment",
+      "status": "pending",
+      "priority": 33,
+      "depends_on": [
+        "td-h3a-feature-flag"
+      ],
+      "source": "v2-n50-failure-analysis",
+      "description": "D1=0.72 ceiling — failure_analysis tags '8 BUG→MEDIUM (hidden-fix-in-CS commits)' as primary D1 miss. These commits are buggy but their diffs look cosmetic (e.g. test assertion change, CS log line). JIRA key presence in commit message signals these are fix-carrying CS commits that should not be capped to MEDIUM by the clean_archetype policy.",
+      "expected_delta": {
+        "D1": "+0.04 to +0.08 (recover 4–6 of the 8 BUG→MEDIUM misses)",
+        "FP_rate": "watch: if CS detection over-fires on truly clean CS commits, FP rate may rise from 24%"
+      },
+      "failure_mode_targeted": "BUG→MEDIUM: clean_archetype cap fires on CS commits with cosmetic diffs but real defect (JIRA bug type + fix key present in message)",
+      "changes": "analysis/risk_policy.py: add _is_cs_fix_commit(context) predicate — returns True when commit message contains JIRA key (e.g. CAMEL-\\d+) AND context.jira_type == 'Bug'. When True, bypass clean_archetype MEDIUM cap. Requires jira_summary wiring from v2-jira-context-injection (or standalone CSV lookup).",
+      "acceptance_criteria": [
+        "AC-1: _is_cs_fix_commit() returns True for commit messages containing JIRA bug key + jira_type='Bug'; False for enhancement/task or absent key",
+        "AC-2: clean_archetype cap bypassed when _is_cs_fix_commit() True — risk_level may remain HIGH if supported_count ≥ 1",
+        "AC-3: Unit tests: 4 known BUG→MEDIUM commits from n=50 failure panel promote to HIGH when JIRA bug key present",
+        "AC-4: FP guard: 6 known FP clean commits (from fp_commits list) do not promote — JIRA type is not 'Bug' for these",
+        "AC-5: 465+ tests pass; no D1 regression on n=20 clean stratum"
+      ],
+      "depends_on_data": "JIRA commit→type mapping CSV (same as v2-jira-context-injection) — can run in parallel once CSV is built",
+      "decision_rule": "D1 ≥ 0.78 on n=20 buggy stratum AND FP ≤ 30% → advance to n=50. If FP rises above 30%, revert bypass or add second guard."
     }
   ]
 }

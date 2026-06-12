@@ -54,6 +54,8 @@ class InvestigationContext:
     # raw_diff is the untruncated git diff, used for archetype/signal detection.
     # context.diff is the assembled/truncated diff used for LLM injection.
     raw_diff: str | None = None
+    enable_historical_defect_context: bool = False
+    historical_defect_context_status: str | None = None
 
 
 class AuthorStatsIndex:

@@ -23,6 +23,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Allow `python src/commit_investigator/runners/run_eval.py` without PYTHONPATH
+_SRC_ROOT = Path(__file__).resolve().parents[2]
+if str(_SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SRC_ROOT))
+
 from commit_investigator.context.context_builder import AuthorStatsIndex, CommitContextBuilder
 from commit_investigator.runners.eval_common import _load_dotenv, _git_rev, _normalize_project
 from commit_investigator.runners.eval_harness import EvalHarness, save_eval_report
@@ -114,6 +119,8 @@ def _save_investigation(
     buggy_label: bool,
     elapsed: float,
     route: str,
+    *,
+    historical_defect_context_status: str | None = None,
 ) -> None:
     """Persist a single investigation report as JSON."""
     data = {
@@ -121,6 +128,7 @@ def _save_investigation(
         "project": report.project,
         "buggy_label": buggy_label,
         "route": route,
+        "historical_defect_context_status": historical_defect_context_status or "disabled",
         "elapsed_seconds": round(elapsed, 2),
         "risk_level": report.risk_assessment.level.value,
         "confidence": report.risk_assessment.confidence,
@@ -428,6 +436,9 @@ class EvalRunner:
         self.mechanism_evaluator = getattr(self.args, "enable_mechanism_evaluator", False)
         self.contrastive = getattr(self.args, "enable_contrastive", False)
         self.extended_context = getattr(self.args, "enable_extended_context", False)
+        self.enable_historical_defect_context = getattr(
+            self.args, "enable_historical_defect_context", False
+        )
         self.baseline_scores: dict[str, float] = {}
         forensics_path = getattr(self.args, "forensics_json", None)
         if forensics_path:
@@ -457,6 +468,8 @@ class EvalRunner:
             _log("  [config] Contrastive hypothesis ENABLED (diversity + grounded evidence selection)")
         if self.extended_context:
             _log("  [config] Extended context ENABLED (test-adjacency + blame snippets)")
+        if self.enable_historical_defect_context:
+            _log("  [config] Historical defect context ENABLED (ApacheJIT KNN priors)")
 
     def select_commits(self) -> None:
         """Select target commits via explicit IDs or stratified sampling."""
@@ -489,6 +502,7 @@ class EvalRunner:
             "enable_mechanism_evaluator": self.mechanism_evaluator,
             "enable_contrastive": self.contrastive,
             "extended_context": self.extended_context,
+            "enable_historical_defect_context": self.enable_historical_defect_context,
         })
 
     def run_investigations(self) -> None:
@@ -518,6 +532,7 @@ class EvalRunner:
             )
             context.router_probability = decision.probability
             context.router_route = decision.route.value
+            context.enable_historical_defect_context = self.enable_historical_defect_context
 
             t0 = time.time()
             report = _investigate_with_retry(
@@ -534,7 +549,14 @@ class EvalRunner:
             buggy_label = self.buggy_lookup.get(decision.commit_id, False)
             self.eval_tuples.append((report, buggy_label, decision.route))
 
-            _save_investigation(self.inv_dir, report, buggy_label, elapsed, decision.route.value)
+            _save_investigation(
+                self.inv_dir,
+                report,
+                buggy_label,
+                elapsed,
+                decision.route.value,
+                historical_defect_context_status=context.historical_defect_context_status,
+            )
             self.timings.append({
                 "commit_id": decision.commit_id[:12],
                 "project": project_lower,
@@ -600,8 +622,8 @@ class EvalRunner:
         self.file_handler.close()
 
 
-def main() -> None:
-    _load_dotenv()
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Build the run_eval CLI argument parser (testable without running main)."""
     parser = argparse.ArgumentParser(description="Run evaluation on test split")
     parser.add_argument("--train", default="data/apachejit/apachejit_train.csv")
     parser.add_argument("--test", default="data/apachejit/apachejit_test_small.csv")
@@ -638,7 +660,17 @@ def main() -> None:
         action="store_true",
         help="Enable test-adjacency + blame context expansion for all commits in this run",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--enable-historical-defect-context",
+        action="store_true",
+        help="Enable ApacheJIT KNN historical defect-category priors in hypothesis prompt",
+    )
+    return parser
+
+
+def main() -> None:
+    _load_dotenv()
+    args = _build_arg_parser().parse_args()
 
     runner = EvalRunner(args)
     runner.setup()

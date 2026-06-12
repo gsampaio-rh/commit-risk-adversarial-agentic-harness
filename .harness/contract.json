@@ -1,43 +1,29 @@
 {
-  "task_id": "td-h3a-cache-refactor",
-  "feature": "Injectable/resettable cache for historical_rag.py training data",
-  "problem": "_TRAINING_LOAD_ATTEMPTED permanently marks failed loads as empty list — a transient CSV read error disables historical defect context for the entire process lifetime. Module-level singletons also force tests to reach into private globals (_rag._TRAINING_CACHE = None) for reset, creating brittle coupling to implementation internals.",
-  "proposed_solution": "1) Expose reset_training_cache() public function that clears all 4 module-level globals to initial state. 2) Fix permanent-disable: on CSV load exception, set _TRAINING_LOAD_ATTEMPTED = False (not leave True) so a subsequent call without reset can succeed. 3) Update the autouse test fixture to call reset_training_cache() instead of directly assigning private globals. 4) Add process-level cache scope/lifetime documentation to the module docstring.",
+  "task_id": "td-h3a-feature-flag",
+  "feature": "Add --enable-historical-defect-context feature flag to run_eval.py (default off)",
+  "problem": "Historical defect context injection is always active when _HISTORICAL_DEFECT_CONTEXT_AVAILABLE=True and csv_features is populated. The measured D3 lift is +0.01±0.03 — within noise. There is no way to A/B test or disable it without code changes. Per-commit forensics JSON has no record of whether historical context was actually injected, making eval forensics incomplete.",
+  "proposed_solution": "1) Add `enable_historical_defect_context: bool = False` and `historical_defect_context_status: str | None = None` fields to InvestigationContext dataclass (context/context_builder.py). 2) In `build_investigation_messages()` (hypothesis/hypothesis_engine.py), gate the _get_historical_defect_context call on `context.enable_historical_defect_context`; set `context.historical_defect_context_status` to one of: disabled | injected | fallback | unavailable. 3) Add `--enable-historical-defect-context` CLI flag (default False) to run_eval.py; wire to `context.enable_historical_defect_context` before each investigation; include in run_config JSON. 4) Update _save_investigation to write `historical_defect_context_status` as a top-level key in the per-commit investigation JSON.",
   "acceptance_criteria": [
-    "AC-1: reset_training_cache() is a public function in historical_rag.py, importable via `from commit_investigator.hypothesis.historical_rag import reset_training_cache`. Calling it resets all four module-level singletons to initial state: _TRAINING_CACHE=None, _TRAINING_LOAD_ATTEMPTED=False, _PROJECT_DIST_CACHE={}, _PROJECT_DIST_ATTEMPTED=set(). A subsequent _load_training_data() call re-reads from CSV (observable: patch _JIT_CSV to a tmp CSV, call reset, then _load_training_data() returns rows from that file).",
-    "AC-2: The _reset_caches autouse fixture in test_historical_rag.py calls reset_training_cache() in both setup and teardown — zero direct assignments to _rag._TRAINING_CACHE, _rag._TRAINING_LOAD_ATTEMPTED, _rag._PROJECT_DIST_CACHE, or _rag._PROJECT_DIST_ATTEMPTED anywhere inside the fixture function body.",
-    "AC-3 (source bug fix, no reset): After a simulated CSV read failure (patch _JIT_CSV to nonexistent path), call _load_training_data() once (returns []). Without calling reset_training_cache(), patch _JIT_CSV to a valid tmp CSV with ≥1 buggy row and call _load_training_data() again — returns a non-empty list. Proves the permanent-disable bug is fixed in _load_training_data(), not masked by reset.",
-    "AC-4 (reset recovery path): After the same failure sequence as AC-3, call reset_training_cache(), patch _JIT_CSV to valid CSV, call _load_training_data() — returns non-empty list. Covers explicit reset-based recovery for tests and operators.",
-    "AC-5: Module docstring documents process-level cache scope with all four elements: (a) what is cached (_TRAINING_CACHE rows, _PROJECT_DIST_CACHE per-project counts), (b) when populated (lazy on first _load_training_data / _get_project_distribution call), (c) lifetime (process-level singleton until reset or process exit), (d) how to reset (reset_training_cache()).",
-    "AC-6: Full suite regression — all existing tests pass with zero failures (pytest exit code 0; count ≥453)."
+    "AC-1: When `context.enable_historical_defect_context=False` (CLI default), `_get_historical_defect_context` is never called. Unit test mocks `commit_investigator.hypothesis.hypothesis_engine._get_historical_defect_context`, calls `build_investigation_messages()` with `enable_historical_defect_context=False` and populated `csv_features`; asserts `mock.call_count == 0`, user message contains no `## Historical Context` section, and `missing_reasons` does not include any string containing `Historical context`.",
+    "AC-2: Per-commit investigation JSON written to `inv_dir` contains top-level key `historical_defect_context_status` with value exactly one of {injected, fallback, unavailable, disabled}. Unit test exercises `_save_investigation` (or its serialized dict) with `historical_defect_context_status='disabled'` and asserts the key is present at top level with that value.",
+    "AC-3: Default for `--enable-historical-defect-context` is False — `run_eval.py --help` shows the flag, argparse `store_true` default is False when absent, and `run_config.json` written by `_save_run_config` includes `\"enable_historical_defect_context\": false` on a default run.",
+    "AC-4: `rg 'enable-h3a|h3a_status' src/` returns zero matches (no experiment-vocabulary names leak into production code).",
+    "AC-5: When `context.enable_historical_defect_context=True` and mocked `_get_historical_defect_context` returns a non-empty string, `build_investigation_messages()` sets `context.historical_defect_context_status='injected'`, user message contains `## Historical Context`, and mock `call_count == 1`.",
+    "AC-6: `run_eval.py` `run_investigations()` sets `context.enable_historical_defect_context` from the parsed CLI arg before calling the orchestrator (unit test or source inspection: `context.enable_historical_defect_context` mirrors `self.enable_historical_defect_context` / `args.enable_historical_defect_context`).",
+    "AC-7: `pytest` from `.venv` exits 0 with ≥465 passed; `tests/test_hypothesis_engine.py` and `tests/test_historical_rag.py` pass with no regressions."
   ],
   "edge_cases": [
-    "EC-1: reset_training_cache() called before any load — no-op, no exception, globals remain at initial state.",
-    "EC-2: reset_training_cache() called after a successful load — next _load_training_data() re-reads CSV from disk (not stale in-memory list).",
-    "EC-3: Double reset (reset called twice in a row) — idempotent, globals identical to single reset.",
-    "EC-4: _PROJECT_DIST_ATTEMPTED cleared by reset — after _get_project_distribution records a project in _PROJECT_DIST_ATTEMPTED (even when result is {}), reset_training_cache() clears the set so the same project_key triggers _get_commit_message again on next call.",
-    "EC-5: _PROJECT_DIST_CACHE cleared by reset — after a successful _get_project_distribution caches counts for a project, reset_training_cache() clears the dict so a second call re-invokes _get_commit_message (mock call_count increases).",
-    "EC-6: Persistent CSV failure without reset — three consecutive _load_training_data() calls with a permanently missing CSV each return [] without raising, complete in bounded time (<1s total), and a fourth call after patching to a valid CSV still succeeds (proves no infinite-loop hang and recovery remains possible).",
-    "EC-7: Interleaved training load and project distribution — populate _TRAINING_CACHE and _PROJECT_DIST_CACHE/_PROJECT_DIST_ATTEMPTED, then single reset_training_cache() clears all four globals; no partial stale state (training reload and project dist both fresh after reset)."
+    "EC-1: Flag=False and `_HISTORICAL_DEFECT_CONTEXT_AVAILABLE=True` with populated `csv_features` — `historical_defect_context_status='disabled'`, `_get_historical_defect_context` never called, user message has no `## Historical Context` and no historical-context entry in `missing_reasons`.",
+    "EC-2: Flag=True and `_HISTORICAL_DEFECT_CONTEXT_AVAILABLE=False` (import failed) — `historical_defect_context_status='unavailable'`, no exception raised, user message has no `## Historical Context`.",
+    "EC-3: Flag=True and `_get_historical_defect_context` raises an exception — `historical_defect_context_status='unavailable'`, warning logged, investigation continues (no crash, no `## Historical Context`).",
+    "EC-4: Flag=True and `_get_historical_defect_context` returns None despite populated `csv_features` — `historical_defect_context_status='unavailable'`, `missing_reasons` includes a historical-context-unavailable reason, no `## Historical Context` section.",
+    "EC-5: Flag=True and historical defect context uses project-level fallback (KNN classified < `_MIN_CLASSIFIED_FOR_KNN`) — `historical_defect_context_status='fallback'`, user message contains `## Historical Context` with `project-wide` in the injected block."
   ],
-  "verification_method": "pytest tests/test_historical_rag.py -v (all tests pass, including new AC-3/AC-4/EC tests). pytest (full suite, exit 0, ≥453 passed). Python: `from commit_investigator.hypothesis.historical_rag import reset_training_cache` (no ImportError). Fixture isolation: `rg '_rag\\._TRAINING_CACHE|_rag\\._TRAINING_LOAD_ATTEMPTED|_rag\\._PROJECT_DIST' tests/test_historical_rag.py` matches only inside non-fixture test bodies (fixture function `_reset_caches` must have zero matches); line 288-style direct _PROJECT_DIST_CACHE asserts may remain in tests but fixture must use reset_training_cache() only. Docstring: `python -c \"import commit_investigator.hypothesis.historical_rag as m; d=m.__doc__ or ''; assert all(k in d.lower() for k in ['cache','process','reset'])\"` or equivalent test asserting four doc elements.",
+  "verification_method": "Run `pytest` from `.venv` (exit 0, ≥465 passed). Run `rg 'enable-h3a|h3a_status' src/` (zero matches). Run `python src/commit_investigator/runners/run_eval.py --help | grep -F enable-historical-defect-context` to confirm flag exists. Run unit tests covering AC-1/AC-2/AC-5 and edge cases EC-1 through EC-5; assert investigation JSON top-level `historical_defect_context_status` and `run_config.json` key `enable_historical_defect_context: false` on default run.",
   "rubrics": ["code-quality"],
   "rubric_mode": "warn",
   "negotiation_rounds": 1,
-  "evaluator_notes": {
-    "round": 1,
-    "verdict": "strengthened",
-    "changes": [
-      "Split AC-3: added no-reset retry (source bug fix) vs reset path (AC-4); original AC-3 only proved reset works, not that _TRAINING_LOAD_ATTEMPTED=False-on-exception is implemented.",
-      "AC-1: added importability + observable re-read assertion.",
-      "AC-2: scoped private-global ban to fixture body only; aligned verification_method (full tests/ rg was contradicted by test_cache_stores_result_in_module_dict line 288).",
-      "AC-5 (was AC-4): made docstring requirements enumerable (four elements).",
-      "EC-4/EC-5: split _PROJECT_DIST_ATTEMPTED vs _PROJECT_DIST_CACHE retry behavior with observable subprocess mock assertions.",
-      "EC-6: addresses infinite-retry risk — persistent failure must return [] per call without hang, recovery still possible when CSV becomes valid.",
-      "EC-7: strengthens EC-5 interleave case with observable post-reset freshness."
-    ]
-  },
   "phase": "evaluating",
   "verified": true,
-  "eval_verdict": "PASS"
+  "evaluator_notes": "STRENGTHENED (round 1). Fixed wrong function name build_investigation_prompt→build_investigation_messages; fixed proposed_solution dataclass default True→False to match CLI/task intent. AC-1: added missing_reasons regression guard (state.json baseline-equivalence). AC-2: top-level JSON key + exact disabled value, not mere presence. Added AC-5 positive enable path (injected status + prompt section). Added AC-6 run_eval wiring criterion. AC-7: explicit test file regression scope (replaces vague AC-5). Edge cases: EC-4 None-return unavailable path; EC-5 fallback status. Removed manual-only 'inspect sample JSON' as sole forensics check — unit tests required. Status taxonomy unchanged."
 }

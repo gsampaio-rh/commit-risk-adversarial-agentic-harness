@@ -360,17 +360,34 @@ def build_investigation_messages(
     if context.router_probability is not None:
         context_parts.append(f"## Router Prior\nrouter_probability: {context.router_probability:.3f}\n")
 
-    # Inject historical defect-category priors from nearest-neighbor lookup
-    if _HISTORICAL_DEFECT_CONTEXT_AVAILABLE:
+    # Historical defect-category priors (gated by enable flag; status for forensics)
+    if not context.enable_historical_defect_context:
+        context.historical_defect_context_status = "disabled"
+    elif not _HISTORICAL_DEFECT_CONTEXT_AVAILABLE:
+        context.historical_defect_context_status = "unavailable"
+    else:
         try:
             hist_ctx = _get_historical_defect_context(context)
             if hist_ctx:
+                context.historical_defect_context_status = (
+                    "fallback" if "project-wide" in hist_ctx else "injected"
+                )
                 context_parts.append(f"## Historical Context\n{hist_ctx}")
             elif context.csv_features:
+                context.historical_defect_context_status = "unavailable"
                 missing_reasons.append("Historical context unavailable (no matching training data)")
+            else:
+                context.historical_defect_context_status = "unavailable"
         except Exception as exc:
-            logger.warning("historical defect context failed for %s: %s", context.commit_id, exc, exc_info=True)
+            context.historical_defect_context_status = "unavailable"
+            logger.warning(
+                "historical defect context failed for %s: %s",
+                context.commit_id,
+                exc,
+                exc_info=True,
+            )
 
+    context.missing_reasons = missing_reasons
     if missing_reasons:
         context_parts.append("## Missing Context\n" + "\n".join(f"- {r}" for r in missing_reasons))
 

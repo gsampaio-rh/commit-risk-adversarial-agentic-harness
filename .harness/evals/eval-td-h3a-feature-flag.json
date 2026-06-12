@@ -1,0 +1,74 @@
+{
+  "task_id": "td-h3a-feature-flag",
+  "timestamp": "2026-06-12T16:45:00Z",
+  "verdict": "PASS",
+  "criteria_results": [
+    {
+      "id": "AC-1",
+      "result": "PASS",
+      "evidence": "tests/test_historical_defect_context_flag.py::TestHistoricalDefectContextDisabled::test_flag_false_never_calls_rag PASSED: mock_get.call_count==0, no '## Historical Context' in user message, no 'Historical context' in ctx.missing_reasons, status=='disabled'. Source gate at hypothesis_engine.py:364-365 sets disabled without calling _get_historical_defect_context."
+    },
+    {
+      "id": "AC-2",
+      "result": "PASS",
+      "evidence": "tests/test_run_eval.py::TestSaveInvestigationHistoricalDefectStatus::test_disabled_status_written_top_level PASSED: JSON top-level key historical_defect_context_status=='disabled'. _save_investigation (run_eval.py:131) writes key at top level."
+    },
+    {
+      "id": "AC-3",
+      "result": "PASS",
+      "evidence": "CLI: `python src/commit_investigator/runners/run_eval.py --help | grep enable-historical-defect-context` exit 0. run_eval.py:663-666 action='store_true' (no default=True). tests/test_run_eval.py::TestHistoricalDefectContextCli::test_parser_default_enable_historical_defect_context_false PASSED (False on []). TestHistoricalDefectContextRunConfig::test_default_enable_historical_defect_context_false PASSED: run-config.json enable_historical_defect_context==false in config and config['args']."
+    },
+    {
+      "id": "AC-4",
+      "result": "PASS",
+      "evidence": "rg 'enable-h3a|h3a_status' src/ returned zero matches."
+    },
+    {
+      "id": "AC-5",
+      "result": "PASS",
+      "evidence": "tests/test_historical_defect_context_flag.py::TestHistoricalDefectContextEnabled::test_flag_true_injected_status_and_section PASSED: mock_get.call_count==1, ctx.historical_defect_context_status=='injected', '## Historical Context' in user message. Source hypothesis_engine.py:370-375 sets injected when hist_ctx non-empty and no 'project-wide'."
+    },
+    {
+      "id": "AC-6",
+      "result": "PASS",
+      "evidence": "run_eval.py:535 sets context.enable_historical_defect_context = self.enable_historical_defect_context before orchestrator call. tests/test_run_eval.py::TestRunInvestigationsWiresHistoricalDefectFlag::test_context_flag_mirrors_runner_attr PASSED (True when runner attr True). test_setup_attr_from_parser_default PASSED (False from parser default)."
+    },
+    {
+      "id": "AC-7",
+      "result": "PASS",
+      "evidence": ".venv/bin/pytest -q: 481 passed in 12.87s, exit 0 (≥465). Targeted: tests/test_hypothesis_engine.py + tests/test_historical_rag.py + flag tests: 119 passed, exit 0."
+    },
+    {
+      "id": "EC-1",
+      "result": "PASS",
+      "evidence": "test_flag_false_never_calls_rag covers flag=False with populated csv_features: status disabled, mock never called, no Historical Context section, no historical missing_reasons."
+    },
+    {
+      "id": "EC-2",
+      "result": "PASS",
+      "evidence": "test_ec2_import_unavailable PASSED: patch _HISTORICAL_DEFECT_CONTEXT_AVAILABLE=False → status unavailable, no exception, no '## Historical Context'."
+    },
+    {
+      "id": "EC-3",
+      "result": "PASS",
+      "evidence": "test_ec3_exception_logged_unavailable PASSED: mock raises RuntimeError → status unavailable, WARNING logged ('historical defect context failed'), no crash, no '## Historical Context'."
+    },
+    {
+      "id": "EC-4",
+      "result": "PASS",
+      "evidence": "test_ec4_none_return_adds_missing_reason PASSED: mock returns None with populated csv_features → status unavailable, missing_reasons contains 'Historical context', no '## Historical Context'."
+    },
+    {
+      "id": "EC-5",
+      "result": "PASS",
+      "evidence": "test_ec5_fallback_status_via_build_messages PASSED: sparse KNN training CSV → status fallback, user message has '## Historical Context' and 'project-wide'."
+    }
+  ],
+  "rubric_warnings": [
+    "function-size (high): build_investigation_messages() is ~84 lines (hypothesis_engine.py:314-398), exceeds 50-line limit — pre-existing function grew slightly with flag gate block.",
+    "file-size (medium): run_eval.py is 684 lines, exceeds 300-line guideline — pre-existing, not introduced by this task.",
+    "error-handling-explicit (high): hypothesis_engine.py:381 uses broad `except Exception` for historical context failures — intentional graceful degradation per EC-3, but matches rubric flag pattern.",
+    "cyclomatic-complexity (high): build_investigation_messages() has 10+ decision branches across context assembly — borderline complexity in a single function."
+  ],
+  "fix_and_retest": []
+}
