@@ -535,12 +535,21 @@ class EvalRunner:
             context.enable_historical_defect_context = self.enable_historical_defect_context
 
             t0 = time.time()
-            report = _investigate_with_retry(
-                self.orchestrator,
-                commit_id=decision.commit_id,
-                project=project_lower,
-                context=context,
-            )
+            try:
+                report = _investigate_with_retry(
+                    self.orchestrator,
+                    commit_id=decision.commit_id,
+                    project=project_lower,
+                    context=context,
+                )
+            except InvalidInvestigationResponseError as exc:
+                elapsed = time.time() - t0
+                _log(
+                    f"  [{i:3d}/{len(self.target_commits)}] {decision.commit_id[:12]} "
+                    f"SKIPPED (LLM error after retries): {exc}"
+                )
+                self.skipped += 1
+                continue
             elapsed = time.time() - t0
 
             cost = report.metadata.get("total_cost", 0.0)

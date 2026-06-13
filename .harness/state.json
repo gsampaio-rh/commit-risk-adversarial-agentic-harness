@@ -1118,7 +1118,7 @@
       "id": "td-h3a-feature-flag",
       "name": "TD: --enable-historical-defect-context feature flag on run_eval",
       "type": "fix",
-      "status": "verified",
+      "status": "committed",
       "priority": 30,
       "severity": "major",
       "source": "adversarial-audit-2026-06-12",
