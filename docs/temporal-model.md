@@ -102,11 +102,41 @@ Key implications:
 
 This example illustrates why some `buggy=True` commits are structurally hard to detect: the defect they introduce is not visible in their own diff.
 
-## Planned Exception: JIRA Summary Injection
+## JIRA Context Injection — Temporal Rules
 
-Task `v2-jira-context-injection` in `.harness/state.json` proposes injecting the JIRA summary of the **original** ticket (e.g., CAMEL-12978's summary) into investigation context. This would be a controlled relaxation of the oracle boundary — the original JIRA ticket existed before the commit, so it is temporally valid.
+Task `v2-jira-context-injection` injects the JIRA ticket **referenced in the commit message** into investigation context. This ticket existed before the commit was written, so it is temporally valid.
 
-This is **not yet implemented**. Until that task ships, all JIRA metadata remains eval-only.
+### Valid: Commit-message JIRA key (Ticket B)
+
+```
+Ticket B exists → Developer reads B → Commits change referencing B in message
+                                       (this commit may accidentally introduce a new bug)
+```
+
+The JIRA key in the commit message (e.g., `CAMEL-10799`) is the task the developer was working on. Its title and type are commit-time information — the developer had this context when writing the code.
+
+### INVALID: Ground-truth-chain JIRA key (Ticket C)
+
+```
+Bug commit → [months pass] → Bug discovered → Ticket C created → Fix commit references C
+```
+
+Ticket C (e.g., `CAMEL-11953`) describes the bug that the commit **introduced**. It was created AFTER the commit. Injecting it is oracle leakage — equivalent to telling the agent "here's what will break."
+
+### Extraction Method
+
+The correct source for commit-time JIRA keys is **regex extraction from the commit message**:
+
+```python
+import re
+match = re.search(r'([A-Z][A-Z0-9]+-\d+)', commit_message)
+```
+
+Do NOT use `GroundTruthGraph.get_chain()` — that resolves the future fix→issue linkage.
+
+### Violation Record (2026-06-15)
+
+Initial implementation of `scripts/build_jira_csv.py` used `gt.get_chain(bug_commit).issue_keys` which resolves through the fix commit to the future ticket. The n=20 eval (D3=0.375) was invalid — it achieved the lift by injecting oracle information. Corrected to use commit-message extraction.
 
 ## Related
 

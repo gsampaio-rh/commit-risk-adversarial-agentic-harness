@@ -3,7 +3,7 @@
   "feature": "Inject JIRA ticket summary into hypothesis prompt to break D3 wrong-mechanism ceiling",
   "verified": true,
   "verified_at": "2026-06-15T15:34:00Z",
-  "evaluator_verdict": "PASS (AC-1 through AC-4 + edge cases + temporal safety). AC-5 deferred to live eval.",
+  "evaluator_verdict": "PASS (AC-1 through AC-4 + edge cases + temporal safety). AC-5 PASS with corrected commit-time keys (D3=0.35, D1=0.90).",
   "acceptance_criteria": [
     "AC-1: When jira_summary is present in InvestigationContext, hypothesis prompt contains ## Ticket Context block with title and issue type",
     "AC-2: When jira_summary is absent, prompt is identical to today's baseline (no regression)",
