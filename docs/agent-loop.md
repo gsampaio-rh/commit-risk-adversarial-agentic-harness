@@ -1,3 +1,5 @@
+> **DEPRECATED** — This document is superseded by [system-specification.md](system-specification.md) (see "Agent Loop" section). Kept for historical reference only.
+
 # Agent Loop — Bug Attribution
 
 The agent loop is the multi-turn search process that attributes a reported bug to an introducing commit.

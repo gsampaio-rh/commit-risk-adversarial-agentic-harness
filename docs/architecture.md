@@ -1,3 +1,5 @@
+> **DEPRECATED** — This document is superseded by [system-specification.md](system-specification.md). Kept for historical reference only.
+
 # Architecture — Bug Attribution Harness (V3)
 
 A closed-loop bug attribution system: a deterministic harness controls temporal boundaries, tool access, and cost; a multi-turn LLM agent searches git history to rank suspect commits; script stages verify evidence grounding; evaluation scores ranked suspects against oracle `bug_hash`.

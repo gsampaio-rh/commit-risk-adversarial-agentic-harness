@@ -1,3 +1,5 @@
+> **DEPRECATED** — This document is superseded by [system-specification.md](system-specification.md) (see "Temporal Model" section). Kept for historical reference only.
+
 # Temporal Model — Bug Attribution Information Boundary
 
 This document defines the temporal boundary that separates investigation-time context from evaluation-time ground truth.

@@ -1,0 +1,11 @@
+{
+  "include": ["src", "tests", "scripts"],
+  "exclude": [
+    "data",
+    "output",
+    "results",
+    "**/_v2_archive",
+    "**/node_modules",
+    "**/__pycache__"
+  ]
+}

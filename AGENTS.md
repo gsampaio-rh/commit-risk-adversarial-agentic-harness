@@ -5,22 +5,20 @@ This project builds an agentic attribution harness that, given a JIRA bug report
 ## Reading Order
 
 1. **This file** — entry point, key invariants, task policy
-2. [docs/architecture.md](docs/architecture.md) — system design, pipeline stages, trust boundary diagram
-3. [docs/temporal-model.md](docs/temporal-model.md) — what the agent sees vs eval-only oracle (critical)
+2. [docs/system-specification.md](docs/system-specification.md) — pipeline stages, LLM boundary, agent loop, tools, data structures, temporal model
+3. [docs/evaluation-framework.md](docs/evaluation-framework.md) — system-level vs output-quality metrics, D3 rubric, baselines, thresholds
 4. [docs/glossary.md](docs/glossary.md) — all project-specific terms and definitions
-5. [docs/evaluation.md](docs/evaluation.md) — Hit@k, MRR, D3/D6 rubrics, thresholds, scoring methodology
-6. [docs/datasets.md](docs/datasets.md) — ApacheJIT data, ground truth chain, bug→commit mappings
-7. [docs/agent-loop.md](docs/agent-loop.md) — stage-by-stage attribution flow
+5. [docs/datasets.md](docs/datasets.md) — ApacheJIT data, ground truth chain, bug→commit mappings
 
 ## Key Invariants
 
-**Temporal bound enforcement:** The agent may only access repository state up to `COMMIT_B~1` (the parent of the earliest fix commit). The JIRA ticket is input and is temporally valid. No commits at or after the fix window may enter investigation context. Full rules in [docs/temporal-model.md](docs/temporal-model.md).
+**Temporal bound enforcement:** The agent may only access repository state up to `COMMIT_B~1` (the parent of the earliest fix commit). The JIRA ticket is input and is temporally valid. No commits at or after the fix window may enter investigation context. Full rules in [docs/system-specification.md](docs/system-specification.md#temporal-model).
 
 **Oracle isolation:** Ground truth data (buggy commit labels, fix commits, chain linkage, eval-only metadata) must NEVER enter investigation context. The agent sees the JIRA report and commit-time repository information only. Enforced by temporal bounds, context allowlists, and dedicated tests.
 
 **LLM reasons, scripts verify:** The LLM drives multi-turn search, hypothesis formation, and commit selection via tool use. Deterministic scripts verify evidence grounding, score attribution quality, and enforce report schema. Scripts do not own search strategy or final attribution decisions.
 
-**Attribution evaluation:** Hit@k, MRR, attribution quality (D3), evidence grounding (D6), and retrieval recall. Rubrics and gate thresholds in [docs/evaluation.md](docs/evaluation.md).
+**Attribution evaluation:** Hit@k, MRR, attribution quality (D3), evidence grounding (D6), and retrieval recall. Rubrics and gate thresholds in [docs/evaluation-framework.md](docs/evaluation-framework.md).
 
 ## Workflow
 
@@ -59,8 +57,9 @@ ProblemStatement (input) → Attribution Agent (multi-turn, tool-use) → Eviden
 
 | Stage | Module | Owner |
 |-------|--------|-------|
+| Eval setup | `runners/run_eval.py`, `context/problem_extractor.py` | Harness |
 | Commit search & attribution | `pipeline/orchestrator.py` | LLM + tools |
-| Evidence verification | `analysis/evidence_tagger.py` | Script |
-| Report assembly | `analysis/` (report schema) | Script |
+| Evidence scoring | `analysis/evidence_tagger.py` (inside `investigate()`) | Script |
+| Evaluation | `runners/eval_metrics.py` | Oracle |
 
-`ProblemExtractor` (`context/problem_extractor.py`) is eval infrastructure — it builds a `ProblemStatement` from a JIRA ticket to connect the problem description with ground truth. It is not part of the agent's runtime pipeline.
+Full three-stage pipeline specification in [docs/system-specification.md](docs/system-specification.md).

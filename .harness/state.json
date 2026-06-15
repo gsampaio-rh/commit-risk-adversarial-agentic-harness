@@ -2,11 +2,11 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v3-ready-for-eval",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-15T23:00:00Z",
+  "updated": "2026-06-16T02:30:00Z",
   "schema_version": 5,
   "_archive": "V2 state archived to .harness/state-v2-archive.json. V2 final: D1=0.72 D3=0.31 (n=50), JIRA injection brought D3=0.35 on n=20.",
   "vision": "Build a bug attribution agent: given a JIRA bug report (title + description), autonomously search a git repository to identify the commit that introduced the bug. The agent uses git tools (log, blame, diff, show) with temporal bounds, producing a ranked list of suspect commits with evidence-grounded causal explanations. Evaluated via Hit@k, MRR, and attribution quality metrics against ApacheJIT ground truth.",
-  "direction": "V3 implementation complete (all 5 milestones). Next: (1) data infrastructure — clone Apache repos, prepare ApacheJIT zip, warm JIRA cache; (2) first live n=20 run — baselines + agent, establish real numbers; (3) improvement spikes — prompt engineering, early exit, Level 2 ProblemExtractor; (4) eval quality — D3 LLM judge, ground truth noise analysis, n=50 run; (5) hardening — remove V2 stubs, CI pipeline.",
+  "direction": "V3 implementation complete. Data infrastructure ready (10 repos, JIRA cache, 20/20 cases runnable). Architecture + evaluation specs rewritten (system-specification.md, evaluation-framework.md). Next: first-live-eval (P2) — run baselines + agent against real data, establish Hit@5 floor. We have zero real numbers.",
   "invariants": {
     "temporal_bound": "Agent sees repo up to COMMIT_B~1 (parent of earliest fix commit). COMMIT_B diff/content/message are NOT visible. JIRA ticket (title + description) is the input -- temporally valid (created before fix).",
     "llm_reasons_scripts_verify": "LLM owns search strategy, candidate selection, and attribution reasoning. Scripts own evidence grounding (verifying quotes against diffs) and report assembly.",
@@ -53,20 +53,26 @@
     "v3-baselines: Deterministic baselines (git-blame-naive, file-history-recency)",
     "v3-attribution-agent: Multi-phase attribution agent with tool-use",
     "v3-eval: Eval metrics (Hit@k, MRR, D3, D6) + eval runner",
-    "v3-post-processing-a: In-pipeline evidence scoring — attach grounding metadata, no re-rank"
+    "v3-post-processing-a: In-pipeline evidence scoring — attach grounding metadata, no re-rank",
+    "data-infra: 10 Apache repos cloned (7.8GB), JIRA cache warmed (108 entries), 20/20 eval cases runnable",
+    "arch-spec-rewrite: system-specification.md + evaluation-framework.md replacing 4 fragmented docs"
   ],
   "tasks": [
     {
       "id": "data-infra",
       "name": "Data infrastructure: clone Apache repos, prepare ApacheJIT zip, warm JIRA cache",
       "type": "infra",
-      "status": "pending",
+      "status": "verified",
       "priority": 1,
       "subtasks": [
-        "clone-repos: Clone 3-5 Apache project repos (CAMEL, AMQ, HBASE, etc.) to data/repos/",
-        "prepare-zip: Download or verify ApacheJIT replication package at data/apachejit.zip",
-        "warm-jira: Pre-fetch JIRA tickets for n=20 eval cases into data/jira_cache/",
-        "smoke-test-data: Verify GroundTruthGraph loads, repos are accessible, JiraClient returns cached issues"
+        "clone-repos: 10 repos cloned (camel,hadoop,hbase,spark,groovy,ignite,hive,flink,cassandra,activemq) + 3 symlinks (hdfs,mapreduce,amq). 7.8GB total.",
+        "prepare-zip: ApacheJIT replication zip at data/apachejit/apachejit_dataset_replication.zip (83MB). 3 split CSVs extracted.",
+        "warm-jira: 108 JIRA tickets cached in data/jira_cache/. All 20 seed=42 eval cases have cached JIRA with descriptions.",
+        "smoke-test-data: All 4 checks pass — ground truth (58K bugs, 14 projects, 100% coverage), repos, JIRA cache, 20/20 runnable."
+      ],
+      "scripts_added": [
+        "scripts/warm_jira_cache.py",
+        "scripts/smoke_test_data.py"
       ]
     },
     {

@@ -1,3 +1,5 @@
+> **DEPRECATED** — This document is superseded by [evaluation-framework.md](evaluation-framework.md). Kept for historical reference only.
+
 # Evaluation Framework — Bug Attribution
 
 V3 replaces the V2 six-dimension risk panel with retrieval and attribution metrics centered on **Hit@5**.
