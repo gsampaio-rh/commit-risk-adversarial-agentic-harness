@@ -289,6 +289,7 @@ class TestRunInvestigationsWiresHistoricalDefectFlag:
         runner.orchestrator = MagicMock()
         runner.inv_dir = Path("/tmp/inv")
         runner.baseline_scores = {}
+        runner.jira_context_map = {}
 
         runner.run_investigations()
 

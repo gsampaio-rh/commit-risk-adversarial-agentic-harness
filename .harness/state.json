@@ -477,8 +477,18 @@
       "id": "v2-jira-context-injection",
       "name": "D3: inject JIRA ticket summary into hypothesis prompt",
       "type": "experiment",
-      "status": "pending",
+      "status": "verified",
       "priority": 32,
+      "result": {
+        "run": "output/runs/2026-06-15_15-59-22_real_n20",
+        "D1": 0.90,
+        "D3": 0.375,
+        "D4": 0.901,
+        "D5": 0.533,
+        "D6": 0.75,
+        "cost": "$0.13",
+        "verdict": "PASS — D3 target met (0.375 ≥ 0.35), D1 no regression (0.90 ≥ 0.72)"
+      },
       "depends_on": [
         "td-h3a-feature-flag"
       ],

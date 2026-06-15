@@ -56,6 +56,9 @@ class InvestigationContext:
     raw_diff: str | None = None
     enable_historical_defect_context: bool = False
     historical_defect_context_status: str | None = None
+    jira_summary: str | None = None
+    jira_issue_type: str | None = None
+    jira_context_status: str | None = None
 
 
 class AuthorStatsIndex:

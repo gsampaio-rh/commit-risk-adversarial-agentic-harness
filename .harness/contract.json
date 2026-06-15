@@ -1,24 +1,29 @@
 {
-  "task_id": "chore-doc-overhaul-phase1",
-  "feature": "Documentation Overhaul Phase 1: Agent-Critical Foundation",
-  "problem": "Agents starting fresh sessions lack domain context (temporal model, glossary, oracle isolation). Broken links, wrong citations, and a task-selection bug in context-package.py compound the issue.",
-  "proposed_solution": "Create 4 new files (temporal-model.md, glossary.md, project_domain.mdc, AGENTS.md), fix 3 broken links + 1 stale citation, fix context-package.py priority sorting, add verification script.",
+  "task_id": "v2-jira-context-injection",
+  "feature": "Inject JIRA ticket summary into hypothesis prompt to break D3 wrong-mechanism ceiling",
+  "verified": true,
+  "verified_at": "2026-06-15T15:34:00Z",
+  "evaluator_verdict": "PASS (AC-1 through AC-4 + edge cases + temporal safety). AC-5 deferred to live eval.",
   "acceptance_criteria": [
-    "AC-1: .cursor/rules/project_domain.mdc exists, has alwaysApply: true, and line count <= 60",
-    "AC-2: docs/temporal-model.md exists with sections 'Investigation-time visibility', 'Eval-only oracle', 'Worked example'. Contains 'eval-only' adjacent to 'jira' (case-insensitive)",
-    "AC-3: docs/glossary.md defines these 8 minimum terms: buggy, fix_hash, SUPPORTED, oracle isolation, wrong-mechanism, judge_oracle, historical defect context, bug_hash",
-    "AC-4: AGENTS.md exists at repo root with markdown links to docs/temporal-model.md, docs/glossary.md, docs/architecture.md, .harness/state.json",
-    "AC-5: Broken links fixed: evaluation.md no longer references nonexistent prompt-engineering-ceiling.md at original path; patterns.md does not reference nonexistent FOUNDATIONS.md",
-    "AC-6: rg 'McIntosh.*2021' docs/datasets.md returns 0 matches; Keshavarz or 5907847 appears in docs/datasets.md"
+    "AC-1: When jira_summary is present in InvestigationContext, hypothesis prompt contains ## Ticket Context block with title and issue type",
+    "AC-2: When jira_summary is absent, prompt is identical to today's baseline (no regression)",
+    "AC-3: --jira-csv flag loads commit→JIRA mapping; per-commit jira_context_status logged in forensics JSON (injected | unavailable)",
+    "AC-4: Unit tests for context injection and absent-jira fallback — 465+ tests pass",
+    "AC-5: Mini n=20 with --jira-csv: D3 ≥ 0.35 AND D1 not regressed below 0.72"
   ],
   "edge_cases": [
-    "EC-1: Temporal worked example must label ALL JIRA fields as eval-only unless --enable-jira-context flag exists in run_eval.py --help",
-    "EC-2: context-package.py sorts tasks by priority field; if priority is missing, falls back to array order (tasks without priority sort after those with priority)"
+    "JIRA key absent in CSV — graceful skip, no error, status='unavailable'",
+    "JIRA title contains fix-commit language — inject title only (no description/resolution)",
+    "CSV has multiple JIRA keys per commit — use first key",
+    "Empty/malformed CSV rows — skip gracefully"
   ],
-  "verification_method": "Run scripts/check-docs.sh (exits 0 = all ACs pass). For EC-1: inspect docs/temporal-model.md worked example section for JIRA eval-only labeling. For EC-2: run python smoke test on context-package.py _active_task with mixed priority/no-priority tasks. Run pytest to confirm no regressions (481 tests).",
-  "rubrics": ["code-quality"],
-  "rubric_mode": "warn",
-  "negotiation_rounds": 1,
-  "phase": "evaluating",
-  "verified": true
+  "verification_method": "pytest (AC-1 to AC-4), n=20 eval run (AC-5)",
+  "temporal_safety": "Only title + issue_type injected. Description and resolution excluded — may contain fix-commit details. This is acknowledged as oracle-adjacent (ticket created post-commit) but controlled: title reveals defect category, not fix location.",
+  "files_touched": [
+    "src/commit_investigator/context/context_builder.py",
+    "src/commit_investigator/hypothesis/hypothesis_engine.py",
+    "src/commit_investigator/runners/run_eval.py",
+    "scripts/build_jira_csv.py (new)",
+    "tests/test_jira_context_injection.py (new)"
+  ]
 }

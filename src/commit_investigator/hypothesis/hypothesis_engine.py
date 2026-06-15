@@ -360,6 +360,17 @@ def build_investigation_messages(
     if context.router_probability is not None:
         context_parts.append(f"## Router Prior\nrouter_probability: {context.router_probability:.3f}\n")
 
+    # JIRA ticket context (title + issue type only — no description/resolution to avoid fix leakage)
+    if context.jira_summary:
+        ticket_lines = [f"## Ticket Context"]
+        if context.jira_issue_type:
+            ticket_lines.append(f"- Issue type: {context.jira_issue_type}")
+        ticket_lines.append(f"- Title: {context.jira_summary}")
+        context_parts.append("\n".join(ticket_lines))
+        context.jira_context_status = "injected"
+    else:
+        context.jira_context_status = context.jira_context_status or "unavailable"
+
     # Historical defect-category priors (gated by enable flag; status for forensics)
     if not context.enable_historical_defect_context:
         context.historical_defect_context_status = "disabled"

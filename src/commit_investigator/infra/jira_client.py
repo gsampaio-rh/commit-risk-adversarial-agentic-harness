@@ -17,7 +17,7 @@ APACHE_JIRA_BASE = "https://issues.apache.org/jira/rest/api/2/issue"
 
 DEFAULT_CACHE_DIR = Path("data/jira_cache")
 
-FIELDS_TO_FETCH = "summary,description,priority,components,resolution,status"
+FIELDS_TO_FETCH = "summary,description,priority,components,resolution,status,issuetype"
 
 
 @dataclass

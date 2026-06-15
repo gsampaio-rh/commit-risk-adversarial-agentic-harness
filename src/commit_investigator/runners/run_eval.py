@@ -20,6 +20,7 @@ import logging
 import os
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -121,6 +122,7 @@ def _save_investigation(
     route: str,
     *,
     historical_defect_context_status: str | None = None,
+    jira_context_status: str | None = None,
 ) -> None:
     """Persist a single investigation report as JSON."""
     data = {
@@ -129,6 +131,7 @@ def _save_investigation(
         "buggy_label": buggy_label,
         "route": route,
         "historical_defect_context_status": historical_defect_context_status or "disabled",
+        "jira_context_status": jira_context_status or "unavailable",
         "elapsed_seconds": round(elapsed, 2),
         "risk_level": report.risk_assessment.level.value,
         "confidence": report.risk_assessment.confidence,
@@ -228,6 +231,33 @@ def _load_csv_rows(csv_path: str) -> dict[str, dict[str, str]]:
             if commit_id:
                 rows[commit_id] = dict(row)
     return rows
+
+
+@dataclass
+class JiraContextEntry:
+    """A single commit→JIRA mapping from the JIRA CSV."""
+    jira_key: str
+    jira_title: str
+    jira_type: str
+
+
+def _load_jira_csv(csv_path: str) -> dict[str, JiraContextEntry]:
+    """Load commit→JIRA mapping CSV. Returns dict keyed by commit_id (full or prefix)."""
+    mapping: dict[str, JiraContextEntry] = {}
+    with open(csv_path, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            commit_id = row.get("commit_id", "").strip()
+            jira_key = row.get("jira_key", "").strip()
+            jira_title = row.get("jira_title", "").strip()
+            jira_type = row.get("jira_type", "").strip()
+            if commit_id and jira_title:
+                mapping[commit_id] = JiraContextEntry(
+                    jira_key=jira_key,
+                    jira_title=jira_title,
+                    jira_type=jira_type,
+                )
+    return mapping
 
 
 def _filter_v1_projects(
@@ -471,6 +501,12 @@ class EvalRunner:
         if self.enable_historical_defect_context:
             _log("  [config] Historical defect context ENABLED (ApacheJIT KNN priors)")
 
+        self.jira_context_map: dict[str, JiraContextEntry] = {}
+        jira_csv_path = getattr(self.args, "jira_csv", None)
+        if jira_csv_path:
+            self.jira_context_map = _load_jira_csv(jira_csv_path)
+            _log(f"  [config] JIRA context ENABLED ({len(self.jira_context_map)} mappings from {jira_csv_path})")
+
     def select_commits(self) -> None:
         """Select target commits via explicit IDs or stratified sampling."""
         if self.args.commit_ids:
@@ -503,6 +539,8 @@ class EvalRunner:
             "enable_contrastive": self.contrastive,
             "extended_context": self.extended_context,
             "enable_historical_defect_context": self.enable_historical_defect_context,
+            "enable_jira_context": bool(self.jira_context_map),
+            "jira_context_entries": len(self.jira_context_map),
         })
 
     def run_investigations(self) -> None:
@@ -533,6 +571,11 @@ class EvalRunner:
             context.router_probability = decision.probability
             context.router_route = decision.route.value
             context.enable_historical_defect_context = self.enable_historical_defect_context
+
+            jira_entry = self.jira_context_map.get(decision.commit_id)
+            if jira_entry:
+                context.jira_summary = jira_entry.jira_title
+                context.jira_issue_type = jira_entry.jira_type
 
             t0 = time.time()
             try:
@@ -565,6 +608,7 @@ class EvalRunner:
                 elapsed,
                 decision.route.value,
                 historical_defect_context_status=context.historical_defect_context_status,
+                jira_context_status=context.jira_context_status,
             )
             self.timings.append({
                 "commit_id": decision.commit_id[:12],
@@ -673,6 +717,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--enable-historical-defect-context",
         action="store_true",
         help="Enable ApacheJIT KNN historical defect-category priors in hypothesis prompt",
+    )
+    parser.add_argument(
+        "--jira-csv",
+        default=None,
+        metavar="PATH",
+        help="Path to commit→JIRA mapping CSV (columns: commit_id,jira_key,jira_title,jira_type). "
+             "Injects title+type into hypothesis prompt for D3 improvement.",
     )
     return parser
 
