@@ -141,4 +141,4 @@ All six GATE thresholds must pass on a stratified eval (n >= 50, 50/50 buggy/cle
 | D6 Evidence grounding | 0.78 | ≥ 0.70 | **PASS** |
 | FP rate | 24% | ≤ 25% | **PASS** |
 
-**Open gaps:** D1 (hidden-fix-in-CS commits), D3 (prompt-engineering ceiling at 0.31 — JIRA context injection needed). 392 tests passing.
+**Open gaps:** D1 (hidden-fix-in-CS commits), D3 (prompt-engineering ceiling at 0.31 — JIRA context injection needed). 481 tests passing.

@@ -4,7 +4,7 @@ Primary data source for commit-risk investigation and six-dimension evaluation.
 
 ## Active Data Source: ApacheJIT
 
-ApacheJIT (McIntosh et al., MSR 2021) provides labeled commits from 15 Apache projects with numeric change metrics and a replication package linking buggy commits to fixes and JIRA issues.
+ApacheJIT (Keshavarz & Nagappan, MSR 2022, [Zenodo 5907847](https://zenodo.org/records/5907847)) provides labeled commits from 15 Apache projects with numeric change metrics and a replication package linking buggy commits to fixes and JIRA issues.
 
 | Split | Rows | Period |
 |-------|------|--------|

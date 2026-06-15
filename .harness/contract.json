@@ -1,29 +1,24 @@
 {
-  "task_id": "td-h3a-feature-flag",
-  "feature": "Add --enable-historical-defect-context feature flag to run_eval.py (default off)",
-  "problem": "Historical defect context injection is always active when _HISTORICAL_DEFECT_CONTEXT_AVAILABLE=True and csv_features is populated. The measured D3 lift is +0.01±0.03 — within noise. There is no way to A/B test or disable it without code changes. Per-commit forensics JSON has no record of whether historical context was actually injected, making eval forensics incomplete.",
-  "proposed_solution": "1) Add `enable_historical_defect_context: bool = False` and `historical_defect_context_status: str | None = None` fields to InvestigationContext dataclass (context/context_builder.py). 2) In `build_investigation_messages()` (hypothesis/hypothesis_engine.py), gate the _get_historical_defect_context call on `context.enable_historical_defect_context`; set `context.historical_defect_context_status` to one of: disabled | injected | fallback | unavailable. 3) Add `--enable-historical-defect-context` CLI flag (default False) to run_eval.py; wire to `context.enable_historical_defect_context` before each investigation; include in run_config JSON. 4) Update _save_investigation to write `historical_defect_context_status` as a top-level key in the per-commit investigation JSON.",
+  "task_id": "chore-doc-overhaul-phase1",
+  "feature": "Documentation Overhaul Phase 1: Agent-Critical Foundation",
+  "problem": "Agents starting fresh sessions lack domain context (temporal model, glossary, oracle isolation). Broken links, wrong citations, and a task-selection bug in context-package.py compound the issue.",
+  "proposed_solution": "Create 4 new files (temporal-model.md, glossary.md, project_domain.mdc, AGENTS.md), fix 3 broken links + 1 stale citation, fix context-package.py priority sorting, add verification script.",
   "acceptance_criteria": [
-    "AC-1: When `context.enable_historical_defect_context=False` (CLI default), `_get_historical_defect_context` is never called. Unit test mocks `commit_investigator.hypothesis.hypothesis_engine._get_historical_defect_context`, calls `build_investigation_messages()` with `enable_historical_defect_context=False` and populated `csv_features`; asserts `mock.call_count == 0`, user message contains no `## Historical Context` section, and `missing_reasons` does not include any string containing `Historical context`.",
-    "AC-2: Per-commit investigation JSON written to `inv_dir` contains top-level key `historical_defect_context_status` with value exactly one of {injected, fallback, unavailable, disabled}. Unit test exercises `_save_investigation` (or its serialized dict) with `historical_defect_context_status='disabled'` and asserts the key is present at top level with that value.",
-    "AC-3: Default for `--enable-historical-defect-context` is False — `run_eval.py --help` shows the flag, argparse `store_true` default is False when absent, and `run_config.json` written by `_save_run_config` includes `\"enable_historical_defect_context\": false` on a default run.",
-    "AC-4: `rg 'enable-h3a|h3a_status' src/` returns zero matches (no experiment-vocabulary names leak into production code).",
-    "AC-5: When `context.enable_historical_defect_context=True` and mocked `_get_historical_defect_context` returns a non-empty string, `build_investigation_messages()` sets `context.historical_defect_context_status='injected'`, user message contains `## Historical Context`, and mock `call_count == 1`.",
-    "AC-6: `run_eval.py` `run_investigations()` sets `context.enable_historical_defect_context` from the parsed CLI arg before calling the orchestrator (unit test or source inspection: `context.enable_historical_defect_context` mirrors `self.enable_historical_defect_context` / `args.enable_historical_defect_context`).",
-    "AC-7: `pytest` from `.venv` exits 0 with ≥465 passed; `tests/test_hypothesis_engine.py` and `tests/test_historical_rag.py` pass with no regressions."
+    "AC-1: .cursor/rules/project_domain.mdc exists, has alwaysApply: true, and line count <= 60",
+    "AC-2: docs/temporal-model.md exists with sections 'Investigation-time visibility', 'Eval-only oracle', 'Worked example'. Contains 'eval-only' adjacent to 'jira' (case-insensitive)",
+    "AC-3: docs/glossary.md defines these 8 minimum terms: buggy, fix_hash, SUPPORTED, oracle isolation, wrong-mechanism, judge_oracle, historical defect context, bug_hash",
+    "AC-4: AGENTS.md exists at repo root with markdown links to docs/temporal-model.md, docs/glossary.md, docs/architecture.md, .harness/state.json",
+    "AC-5: Broken links fixed: evaluation.md no longer references nonexistent prompt-engineering-ceiling.md at original path; patterns.md does not reference nonexistent FOUNDATIONS.md",
+    "AC-6: rg 'McIntosh.*2021' docs/datasets.md returns 0 matches; Keshavarz or 5907847 appears in docs/datasets.md"
   ],
   "edge_cases": [
-    "EC-1: Flag=False and `_HISTORICAL_DEFECT_CONTEXT_AVAILABLE=True` with populated `csv_features` — `historical_defect_context_status='disabled'`, `_get_historical_defect_context` never called, user message has no `## Historical Context` and no historical-context entry in `missing_reasons`.",
-    "EC-2: Flag=True and `_HISTORICAL_DEFECT_CONTEXT_AVAILABLE=False` (import failed) — `historical_defect_context_status='unavailable'`, no exception raised, user message has no `## Historical Context`.",
-    "EC-3: Flag=True and `_get_historical_defect_context` raises an exception — `historical_defect_context_status='unavailable'`, warning logged, investigation continues (no crash, no `## Historical Context`).",
-    "EC-4: Flag=True and `_get_historical_defect_context` returns None despite populated `csv_features` — `historical_defect_context_status='unavailable'`, `missing_reasons` includes a historical-context-unavailable reason, no `## Historical Context` section.",
-    "EC-5: Flag=True and historical defect context uses project-level fallback (KNN classified < `_MIN_CLASSIFIED_FOR_KNN`) — `historical_defect_context_status='fallback'`, user message contains `## Historical Context` with `project-wide` in the injected block."
+    "EC-1: Temporal worked example must label ALL JIRA fields as eval-only unless --enable-jira-context flag exists in run_eval.py --help",
+    "EC-2: context-package.py sorts tasks by priority field; if priority is missing, falls back to array order (tasks without priority sort after those with priority)"
   ],
-  "verification_method": "Run `pytest` from `.venv` (exit 0, ≥465 passed). Run `rg 'enable-h3a|h3a_status' src/` (zero matches). Run `python src/commit_investigator/runners/run_eval.py --help | grep -F enable-historical-defect-context` to confirm flag exists. Run unit tests covering AC-1/AC-2/AC-5 and edge cases EC-1 through EC-5; assert investigation JSON top-level `historical_defect_context_status` and `run_config.json` key `enable_historical_defect_context: false` on default run.",
+  "verification_method": "Run scripts/check-docs.sh (exits 0 = all ACs pass). For EC-1: inspect docs/temporal-model.md worked example section for JIRA eval-only labeling. For EC-2: run python smoke test on context-package.py _active_task with mixed priority/no-priority tasks. Run pytest to confirm no regressions (481 tests).",
   "rubrics": ["code-quality"],
   "rubric_mode": "warn",
   "negotiation_rounds": 1,
   "phase": "evaluating",
-  "verified": true,
-  "evaluator_notes": "STRENGTHENED (round 1). Fixed wrong function name build_investigation_prompt→build_investigation_messages; fixed proposed_solution dataclass default True→False to match CLI/task intent. AC-1: added missing_reasons regression guard (state.json baseline-equivalence). AC-2: top-level JSON key + exact disabled value, not mere presence. Added AC-5 positive enable path (injected status + prompt section). Added AC-6 run_eval wiring criterion. AC-7: explicit test file regression scope (replaces vague AC-5). Edge cases: EC-4 None-return unavailable path; EC-5 fallback status. Removed manual-only 'inspect sample JSON' as sole forensics check — unit tests required. Status taxonomy unchanged."
+  "verified": true
 }

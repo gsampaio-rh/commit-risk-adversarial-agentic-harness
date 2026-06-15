@@ -219,7 +219,7 @@ output/runs/YYYY-MM-DD_HH-MM-SS_<real|mock>_n<count>/
 
 **Verdict:** FAIL on D1 and D3. FP fixed (32%→24%). Root causes:
 - **D1=0.72:** 8 BUG→MEDIUM (hidden-fix-in-CS commits, diff looks cosmetic), 6 clean→HIGH (≥2 SUPPORTED findings, policy cannot distinguish)
-- **D3=0.31:** Prompt-engineering ceiling confirmed at 0.28–0.31. JIRA context not available to agent. See [docs/prompt-engineering-ceiling.md](prompt-engineering-ceiling.md).
+- **D3=0.31:** Prompt-engineering ceiling confirmed at 0.28–0.31. JIRA context not available to agent. See [prompt-engineering-ceiling analysis](../.harness/.archive/docs/prompt-engineering-ceiling.md) (archived).
 
 **Next:** `v2-jira-context-injection` (D3 ceiling), `spike-confidence-equation` (D1/FP calibration).
 

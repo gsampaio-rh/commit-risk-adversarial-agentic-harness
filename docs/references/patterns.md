@@ -55,7 +55,7 @@ Multiple task types?      → Routing
 
 ## Foundations Patterns (harness & long-running)
 
-Patterns referenced from [FOUNDATIONS.md](../FOUNDATIONS.md). Each entry below matches a Foundations heading for cross-navigation.
+Patterns originally referenced from a FOUNDATIONS.md document (no longer maintained). Each entry below describes a pattern relevant to harness and long-running agent design.
 
 ### Three-Agent Architecture (Planner / Generator / Evaluator)
 
