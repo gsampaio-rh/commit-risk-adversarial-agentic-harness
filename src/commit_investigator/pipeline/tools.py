@@ -1,6 +1,7 @@
-"""Tool registry: defines tools available to the investigative agent.
+"""Tool registry: defines tools available to the attribution agent.
 
-Tools wrap GitContextProvider methods and feature lookup for LLM dispatch.
+Tools wrap GitContextProvider methods for LLM function-calling dispatch.
+V3 tools enable repository-wide search (not single-commit examination).
 """
 
 from __future__ import annotations
@@ -8,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from commit_investigator.context.context_builder import InvestigationContext
 from commit_investigator.context.git_context import GitContextProvider
 
 
@@ -67,100 +67,136 @@ class ToolRegistry:
         ]
 
 
-def build_default_registry(
-    git_provider: GitContextProvider,
-    context: InvestigationContext,
-) -> ToolRegistry:
-    """Build the standard tool registry for commit investigation."""
+def _format_entries(entries: list, label: str = "Results") -> str:
+    """Format FileHistoryEntry list as readable text."""
+    if not entries:
+        return "No results found."
+    lines = [f"{label} ({len(entries)} commits):"]
+    for e in entries:
+        lines.append(f"  {e.commit_id[:12]} | {e.date[:10]} | {e.author} | {e.message}")
+    return "\n".join(lines)
+
+
+def _truncate(text: str, max_chars: int = 8000) -> str:
+    """Truncate long tool output to keep context manageable."""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + f"\n\n... (truncated, {len(text)} chars total)"
+
+
+def build_attribution_tools(git: GitContextProvider) -> ToolRegistry:
+    """Build the tool registry for the V3 attribution agent."""
     registry = ToolRegistry()
 
     registry.register(ToolDefinition(
-        name="get_file_history",
-        description="Get the last N commits that modified a specific file",
+        name="search_commits_by_file",
+        description="Find commits that modified a specific file path. Returns most recent first.",
         parameters={
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "File path to check history for"},
-                "n": {"type": "integer", "description": "Number of commits to return", "default": 3},
+                "path": {"type": "string", "description": "File path to search history for"},
+                "max_results": {"type": "integer", "description": "Max commits to return", "default": 10},
             },
             "required": ["path"],
         },
-        handler=lambda path, n=3: _handle_file_history(git_provider, path, n),
+        handler=lambda path, max_results=10: _format_entries(
+            git.search_commits_by_file(path, max_results=max_results),
+            f"Commits touching {path}",
+        ),
     ))
 
     registry.register(ToolDefinition(
-        name="get_file_diff",
-        description="Get the diff for a specific file in the commit under investigation",
+        name="search_commits_by_keyword",
+        description="Search commit messages for a keyword (case-insensitive). Good for finding JIRA keys, feature names, or error patterns.",
         parameters={
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "File path to get diff for"},
+                "keyword": {"type": "string", "description": "Keyword to search for in commit messages"},
+                "max_results": {"type": "integer", "description": "Max commits to return", "default": 10},
+            },
+            "required": ["keyword"],
+        },
+        handler=lambda keyword, max_results=10: _format_entries(
+            git.search_commits_by_keyword(keyword, max_results=max_results),
+            f"Commits matching '{keyword}'",
+        ),
+    ))
+
+    registry.register(ToolDefinition(
+        name="list_recent_commits",
+        description="List recent commits, optionally filtered by file path.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "max_results": {"type": "integer", "description": "Max commits to return", "default": 20},
+                "path": {"type": "string", "description": "Optional file path filter"},
+            },
+        },
+        handler=lambda max_results=20, path=None: _format_entries(
+            git.list_recent_commits(max_results=max_results, path=path),
+            "Recent commits",
+        ),
+    ))
+
+    registry.register(ToolDefinition(
+        name="get_commit_diff",
+        description="Get the unified diff (patch) for a specific commit. Shows exactly what changed.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "commit_id": {"type": "string", "description": "Full or short commit hash"},
+            },
+            "required": ["commit_id"],
+        },
+        handler=lambda commit_id: _truncate(
+            git.get_diff(commit_id) or f"No diff found for {commit_id}"
+        ),
+    ))
+
+    registry.register(ToolDefinition(
+        name="get_commit_message",
+        description="Get the full commit message for a specific commit.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "commit_id": {"type": "string", "description": "Full or short commit hash"},
+            },
+            "required": ["commit_id"],
+        },
+        handler=lambda commit_id: git.get_commit_message(commit_id) or f"No message for {commit_id}",
+    ))
+
+    registry.register(ToolDefinition(
+        name="get_blame",
+        description="Get git blame for a file, showing which commit last modified each line. Useful for finding who introduced specific code.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path to blame"},
+                "line_start": {"type": "integer", "description": "Start line number", "default": 1},
+                "line_end": {"type": "integer", "description": "End line number (omit for whole file)"},
             },
             "required": ["path"],
         },
-        handler=lambda path: _handle_file_diff(git_provider, context.commit_id, path),
+        handler=lambda path, line_start=1, line_end=None: _truncate(
+            git.get_blame(path, line_start=line_start, line_end=line_end) or f"No blame for {path}"
+        ),
     ))
 
     registry.register(ToolDefinition(
-        name="get_numeric_features",
-        description="Get the numeric commit features (lines added/deleted, entropy, author experience, etc.)",
-        parameters={"type": "object", "properties": {}},
-        handler=lambda: _handle_numeric_features(context),
-    ))
-
-    registry.register(ToolDefinition(
-        name="get_author_stats",
-        description="Get precomputed statistics for the commit author",
-        parameters={"type": "object", "properties": {}},
-        handler=lambda: _handle_author_stats(context),
+        name="get_file_at_commit",
+        description="Get the contents of a file at a specific commit. Useful for seeing state before/after a change.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "commit_id": {"type": "string", "description": "Commit hash"},
+                "path": {"type": "string", "description": "File path"},
+            },
+            "required": ["commit_id", "path"],
+        },
+        handler=lambda commit_id, path: _truncate(
+            git.get_file_at_commit(commit_id, path) or f"File {path} not found at {commit_id}"
+        ),
     ))
 
     return registry
-
-
-def _handle_file_history(git: GitContextProvider, path: str, n: int = 3) -> str:
-    entries = git.get_file_history(path, n=n)
-    if not entries:
-        return f"No history found for {path}"
-    lines = [f"History for {path} (last {n} commits):"]
-    for e in entries:
-        lines.append(f"  {e.commit_id[:8]} | {e.date[:10]} | {e.author} | {e.message}")
-    return "\n".join(lines)
-
-
-def _handle_file_diff(git: GitContextProvider, commit_id: str, path: str) -> str:
-    diff = git.get_diff(commit_id)
-    if not diff:
-        return f"No diff available for {commit_id}"
-    file_sections = []
-    in_section = False
-    for line in diff.splitlines():
-        if line.startswith("diff --git"):
-            in_section = path in line
-        if in_section:
-            file_sections.append(line)
-    return "\n".join(file_sections) if file_sections else f"File {path} not in diff"
-
-
-def _handle_numeric_features(context: InvestigationContext) -> str:
-    if not context.csv_features:
-        return "No numeric features available"
-    lines = ["Numeric features for this commit:"]
-    for k, v in sorted(context.csv_features.items()):
-        lines.append(f"  {k}: {v}")
-    return "\n".join(lines)
-
-
-def _handle_author_stats(context: InvestigationContext) -> str:
-    if not context.author_stats:
-        return "No author stats available"
-    s = context.author_stats
-    return (
-        f"Author stats ({s.author}):\n"
-        f"  Total commits: {s.total_commits}\n"
-        f"  Buggy commits: {s.buggy_commits} ({s.buggy_rate:.1%})\n"
-        f"  Avg files changed: {s.avg_files_changed:.1f}\n"
-        f"  Avg lines added: {s.avg_lines_added:.1f}\n"
-        f"  Avg lines deleted: {s.avg_lines_deleted:.1f}\n"
-        f"  Projects: {', '.join(s.projects)}"
-    )

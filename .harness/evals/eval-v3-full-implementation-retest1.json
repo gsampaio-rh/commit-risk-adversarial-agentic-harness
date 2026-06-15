@@ -1,0 +1,93 @@
+{
+  "task_id": "v3-full-implementation",
+  "evaluator_verdict": "PASS",
+  "retest": 1,
+  "prior_verdict": "FAIL",
+  "criteria_results": {
+    "AC-1": {
+      "status": "PASS",
+      "evidence": "V2 analysis/routing/hypothesis modules archived under _v2_archive/. Active commit_investigator/ has no imports from deleted V2 paths. Residual: src/eval/forensics.py still broken (out of AC-1 scope)."
+    },
+    "AC-2": {
+      "status": "PASS",
+      "evidence": "Contract-listed docs describe V3 bug attribution as current. V2 references are historical pivot context only."
+    },
+    "AC-3": {
+      "status": "PASS",
+      "evidence": "ProblemStatement frozen dataclass; ProblemExtractor.from_jira_issue() maps JiraIssue fields including project and issue_key. tests/test_problem_extractor.py PASS."
+    },
+    "AC-4": {
+      "status": "PASS",
+      "evidence": "GitContextProvider._enforce_bound() uses merge-base --is-ancestor; TemporalBoundViolation on violation. tests/test_temporal_bound.py PASS."
+    },
+    "AC-5": {
+      "status": "PASS",
+      "evidence": "search_commits_by_file, search_commits_by_keyword, list_recent_commits, get_blame plus additional tools in build_attribution_tools(). tests/test_git_search_tools.py PASS."
+    },
+    "AC-6": {
+      "status": "PASS",
+      "evidence": "AgentOrchestrator multi-turn loop with ```tool/```suspects parsing and BudgetState enforcement. tests/test_attribution_agent.py PASS."
+    },
+    "AC-7": {
+      "status": "PASS",
+      "evidence": "score_suspect_evidence() returns SuspectEvidenceScore with grounding_rate. tests/test_evidence_scorer_v3.py PASS."
+    },
+    "AC-8": {
+      "status": "PASS",
+      "evidence": "evaluate_attribution() + aggregate_results() compute Hit@1/3/5, MRR, Retrieval Recall, Evidence Grounding Rate. tests/test_eval_metrics.py PASS."
+    },
+    "AC-9": {
+      "status": "PASS",
+      "evidence": "git_blame_naive and file_history_recency return BugAttributionReport with zero LLM cost. tests/test_baselines.py PASS."
+    },
+    "AC-10": {
+      "status": "PASS",
+      "evidence": "RETEST FIX VERIFIED: select_eval_cases() now uses extractor = ProblemExtractor(); extractor.from_jira_issue(jira_issue, project=project). Runtime verification script OK. New tests: TestSelectEvalCases (3 cases) in tests/test_run_eval.py. run_eval orchestrates case selection, agent, baselines, scoring, comparison output."
+    },
+    "AC-11": {
+      "status": "PASS",
+      "evidence": "204 passed in 9.99s (pytest tests/ --ignore=tests/_v2_archive)."
+    },
+    "AC-12": {
+      "status": "PASS",
+      "evidence": "ReadLints on run_eval.py and test_run_eval.py: no errors. py_compile OK."
+    }
+  },
+  "edge_case_results": {
+    "EC-1": {
+      "status": "PASS",
+      "evidence": "tests/test_temporal_bound.py::test_commit_after_bound_raises — TemporalBoundViolation raised, not silently leaked."
+    },
+    "EC-2": {
+      "status": "PASS",
+      "evidence": "tests/test_attribution_agent.py::test_stops_on_budget — graceful stop with budget_exceeded metadata."
+    },
+    "EC-3": {
+      "status": "PASS",
+      "evidence": "tests/test_problem_extractor.py — empty/whitespace is_empty True; title-only to_prompt_text works."
+    },
+    "EC-4": {
+      "status": "PASS",
+      "evidence": "tests/test_baselines.py + baseline logic returns empty suspects without crash when no file hints."
+    },
+    "EC-5": {
+      "status": "PASS",
+      "evidence": "tests/test_eval_metrics.py::test_no_hit, test_empty — Hit@k=0, MRR=0, no division by zero."
+    }
+  },
+  "findings": [
+    "AC-10 blocker from retest 0 resolved.",
+    "src/eval/forensics.py still imports deleted V2 modules — broken but outside contract AC scope.",
+    "eval_harness.py retains V2 six-dimension harness; V3 eval path is run_eval.py.",
+    "run_single_case() and run_eval() end-to-end still lack integration test with real repos (not required by contract)."
+  ],
+  "recommendations": [
+    "Archive or rewrite forensics.py for V3 in a follow-up task.",
+    "Add run_eval smoke test with mocked LLM + fixture zip when data fixtures available.",
+    "Deprecate or rewrite eval_harness.py to avoid dual eval paths."
+  ],
+  "rubric_notes": {
+    "code-quality": "AC-10 fix is minimal and correct. New select_eval_cases tests close the regression gap that allowed the original bug to ship.",
+    "architecture": "V3 pipeline coherent. Residual V2 eval tooling (forensics, eval_harness) is technical debt but does not block contract verification."
+  }
+}

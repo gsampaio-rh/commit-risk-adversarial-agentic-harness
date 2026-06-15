@@ -1,16 +1,15 @@
-"""Six-dimension evaluation harness.
+"""Evaluation harness (V3 stub — will be rewritten for attribution metrics).
 
-Compares agent investigation output to ApacheJIT ground truth across:
-  D1: Prediction (risk level vs buggy label)
-  D2: Localization (agent files vs fix-commit files, Jaccard)
-  D3: Diagnosis (agent reasoning vs JIRA description, LLM-as-judge rubric 0-4)
-  D4: Severity (agent risk vs JIRA priority, normalized)
-  D5: Recommendations (agent recs vs actual fix pattern, LLM-as-judge rubric 0-3)
-  D6: Evidence grounding (automated, no LLM cost — agent claims vs actual diff/files)
+V2 evaluated six dimensions (D1-D6) against commit risk predictions.
+V3 will evaluate Hit@k, MRR, attribution quality, and evidence grounding
+against bug attribution results.
+
+This file is kept as a structural shell during the V2->V3 transition.
 """
 
 from __future__ import annotations
 
+import enum
 import json
 import logging
 from dataclasses import dataclass, field
@@ -22,7 +21,14 @@ from commit_investigator.infra.ground_truth import GroundTruthGraph
 from commit_investigator.infra.jira_client import JiraClient, JiraClientError, JiraIssue
 from commit_investigator.infra.llm import LLMProvider
 from commit_investigator.analysis.report import CommitInvestigationReport, RiskLevel
-from commit_investigator.routing.router import Route
+
+
+class Route(enum.Enum):
+    """V2 routing placeholder — will be removed when eval harness is rewritten."""
+
+    SAFE = "SAFE"
+    INVESTIGATE = "INVESTIGATE"
+    HIGH = "HIGH"
 
 logger = logging.getLogger(__name__)
 

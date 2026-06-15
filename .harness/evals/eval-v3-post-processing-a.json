@@ -1,0 +1,64 @@
+{
+  "task_id": "v3-post-processing-a",
+  "evaluator_verdict": "PASS",
+  "evaluated_at": "2026-06-15T23:00:00Z",
+  "summary": "Phase A closes the doc/code invariant gap. Evidence Scorer runs in-pipeline inside investigate(), attaches JSON-serializable scores to metadata, preserves LLM suspect order/confidence, and eval_metrics reuses attached scores without redundant get_diff. No re-ranking, confidence mutation, or quality-gate re-entry. 208 tests pass.",
+  "criteria_results": {
+    "AC-1": {
+      "status": "PASS",
+      "evidence": "docs/agent-loop.md lines 15-21, 66-73: Evidence Scorer runs inside AgentOrchestrator.investigate() after agent loop, before report return; eval reuses attached scores. docs/architecture.md lines 59-63, 75-76: stages 2-3 in investigate(); trust diagram shows in-pipeline scorer. Grep docs/ for contradictory 'eval-only' Evidence Scorer references: none (only datasets.md JIRA metadata eval-only, unrelated)."
+    },
+    "AC-2": {
+      "status": "PASS",
+      "evidence": "orchestrator.py:373 calls _attach_evidence_scores() which invokes score_suspect_evidence() per suspect (lines 249-254). Returns list of dicts with commit_id, total_quotes, grounded_quotes, grounding_rate via _evidence_score_to_dict(). Integration test test_runs_multi_turn_investigation asserts metadata['evidence_scores'] populated in suspect order."
+    },
+    "AC-3": {
+      "status": "PASS",
+      "evidence": "investigate() passes suspects list unchanged to BugAttributionReport (line 378). No sort(), no confidence *=, no suspect filtering. test_suspects_unchanged_after_scoring compares before/after tuples — identical. Grep orchestrator for sort/re-rank/confidence mutation: none."
+    },
+    "AC-4": {
+      "status": "PASS",
+      "evidence": "metadata always includes evidence_scoring_applied=True and post_processing_applied=False (orchestrator.py:391-392). Integration tests assert both flags."
+    },
+    "AC-5": {
+      "status": "PASS",
+      "evidence": "eval_metrics._attached_evidence_scores() reads metadata; evaluate_attribution() uses _score_from_attached() when commit_id in attached map, skipping get_diff. test_reuses_attached_evidence_scores: git.get_diff.assert_not_called(). test_fallback_when_no_attached_scores: get_diff called once when evidence_scores absent (baseline path)."
+    },
+    "AC-6": {
+      "status": "PASS",
+      "evidence": "Adversarial script: pipeline-attached report vs live-scoring report on same suspects/diff — evidence_grounding_rate identical (0.5). Reuse path reads grounding_rate from metadata without re-computation drift."
+    },
+    "AC-7": {
+      "status": "PASS",
+      "evidence": "pytest tests/ --ignore=tests/_v2_archive -q → 208 passed (204 baseline + 4 new). New tests: test_evidence_scoring_metadata (2), test_reuses_attached_evidence_scores, test_fallback_when_no_attached_scores, integration metadata assertions (2)."
+    }
+  },
+  "edge_case_results": {
+    "EC-1": {
+      "status": "PASS",
+      "evidence": "test_stops_on_budget: suspects=[], metadata evidence_scores=[], no exception. Contract allows empty list (key present)."
+    },
+    "EC-2": {
+      "status": "PASS",
+      "evidence": "test_suspects_unchanged_after_scoring: suspect with evidence_quotes=[] → attached score total_quotes=0, grounding_rate=0.0."
+    },
+    "EC-3": {
+      "status": "PASS",
+      "evidence": "Adversarial script: git.get_diff raises RuntimeError → _attach_evidence_scores returns grounding_rate=0.0, no exception. score_suspect_evidence marks UNVERIFIABLE when diff=None."
+    },
+    "EC-4": {
+      "status": "PASS",
+      "evidence": "test_fallback_when_no_attached_scores: report without evidence_scores calls git_provider.get_diff; Hit@k/MRR computed from suspect order unchanged."
+    },
+    "EC-5": {
+      "status": "PASS",
+      "evidence": "orchestrator calls score_suspect_evidence() without overriding max_diff_chars — uses DEFAULT_MAX_DIFF_CHARS from evidence_tagger. Eval reuse path does not re-fetch; no truncation drift possible on reuse path."
+    }
+  },
+  "findings": [
+    "INFO: When metadata['evidence_scores'] is present but empty list with non-empty suspects, eval falls back to live scoring per suspect (_attached_evidence_scores returns {} not None). Pipeline always populates scores in rank order — not a runtime risk.",
+    "INFO: Partial attached scores (missing commit_id entry) per-suspect fallback to get_diff is reasonable but untested — low risk since pipeline always scores all suspects atomically.",
+    "INFO: Phase B items correctly excluded — no POST_PROCESS_MODE flag, no rerank_simulator, no loop re-entry."
+  ],
+  "recommended_action": "Mark contract verified. Update state.json v3-post-processing-a to verified. Ready for commit."
+}

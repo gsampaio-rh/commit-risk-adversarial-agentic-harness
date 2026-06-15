@@ -1,304 +1,233 @@
-"""Tests for run_eval commit selection helpers."""
+"""Tests for V3 eval runner orchestration logic."""
 
-import argparse
-import importlib
-import json
-import os
-import subprocess
-import sys
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from commit_investigator.analysis.report import (
-    CommitInvestigationReport,
-    EvidenceItem,
-    EvidenceType,
-    RiskAssessment,
-    RiskLevel,
-)
+from commit_investigator.context.problem_extractor import ProblemStatement
+from commit_investigator.infra.ground_truth import CommitChain, GroundTruthGraph
+from commit_investigator.infra.jira_client import JiraClientError, JiraIssue
+from commit_investigator.pipeline.orchestrator import BugAttributionReport, SuspectCommit
 from commit_investigator.runners.run_eval import (
-    EvalRunner,
-    _build_arg_parser,
-    _resolve_commit_id,
-    _save_investigation,
-    _save_run_config,
-    _select_by_commit_ids,
+    ComparisonReport,
+    EvalCase,
+    _print_comparison,
+    _render_markdown_report,
+    run_single_case,
+    select_eval_cases,
 )
-from commit_investigator.routing.router import Route, RoutingDecision
 
 
-def _csv_rows() -> dict[str, dict[str, str]]:
-    return {
-        "f897d46870baf9eacf8d32d704f4bfaf13df3fd9": {"project": "apache/camel"},
-        "90846b586c5160ee098f9c292d0ad1a655fe4d2a": {"project": "apache/camel"},
-        "b4c933b7f958bb8378990292d14441a2bd1deea5": {"project": "apache/camel"},
-    }
+def _make_problem(title: str = "Test bug", desc: str = "NPE in Foo.java") -> ProblemStatement:
+    return ProblemStatement(title=title, description=desc, project="TEST")
 
 
-def _decisions() -> list[RoutingDecision]:
-    return [
-        RoutingDecision("f897d46870baf9eacf8d32d704f4bfaf13df3fd9", "camel", 0.55, Route.INVESTIGATE),
-        RoutingDecision("90846b586c5160ee098f9c292d0ad1a655fe4d2a", "camel", 0.48, Route.INVESTIGATE),
-        RoutingDecision("b4c933b7f958bb8378990292d14441a2bd1deea5", "camel", 0.62, Route.INVESTIGATE),
-    ]
-
-
-class TestResolveCommitId:
-    def test_prefix_resolves_to_full_id(self) -> None:
-        rows = _csv_rows()
-        assert _resolve_commit_id("f897d46", rows) == "f897d46870baf9eacf8d32d704f4bfaf13df3fd9"
-
-    def test_full_id_passes_through(self) -> None:
-        rows = _csv_rows()
-        full = "b4c933b7f958bb8378990292d14441a2bd1deea5"
-        assert _resolve_commit_id(full, rows) == full
-
-    def test_unknown_prefix_returns_none(self) -> None:
-        assert _resolve_commit_id("deadbeef", _csv_rows()) is None
-
-
-class TestSelectByCommitIds:
-    def test_selects_requested_commits_in_order(self) -> None:
-        git = MagicMock()
-        selected, stats = _select_by_commit_ids(
-            _decisions(),
-            _csv_rows(),
-            {"camel": git},
-            ["b4c933b7", "f897d46"],
-        )
-        assert len(selected) == 2
-        assert selected[0].commit_id.startswith("b4c933b7")
-        assert selected[1].commit_id.startswith("f897d46")
-        assert stats["commit_ids_mode"] == 1
-
-    def test_raises_when_commit_missing(self) -> None:
-        with pytest.raises(ValueError, match="Could not resolve"):
-            _select_by_commit_ids(_decisions(), _csv_rows(), {"camel": MagicMock()}, ["missing"])
-
-
-class TestSaveRunConfigContrastive:
-    def test_enable_contrastive_written_to_run_config(self, tmp_path: Path) -> None:
-        args = argparse.Namespace(enable_contrastive=True, enable_mechanism_evaluator=False)
-        _save_run_config(tmp_path, args, {"enable_contrastive": True})
-        config = json.loads((tmp_path / "run-config.json").read_text(encoding="utf-8"))
-        assert config["enable_contrastive"] is True
-        assert config["args"]["enable_contrastive"] is True
-
-
-class TestNormalizeProject:
-    from commit_investigator.runners.eval_common import _normalize_project
-
-    def test_short_name_passthrough(self) -> None:
-        assert TestNormalizeProject._normalize_project("camel") == "camel"
-
-    def test_apache_prefix_stripped(self) -> None:
-        assert TestNormalizeProject._normalize_project("apache/camel") == "camel"
-
-    def test_uppercase_normalized(self) -> None:
-        assert TestNormalizeProject._normalize_project("CAMEL") == "camel"
-
-    def test_whitespace_stripped(self) -> None:
-        assert TestNormalizeProject._normalize_project("  apache/camel  ") == "camel"
-
-
-class TestLoadDotenvPreservesSetKeys:
-    from commit_investigator.runners.eval_common import _load_dotenv
-
-    def test_set_keys_not_overwritten_unset_keys_loaded(self, tmp_path: Path) -> None:
-        env_file = tmp_path / ".env"
-        env_file.write_text(
-            "TEST_EVAL_KEY=from_file\nTEST_EVAL_UNSET=loaded_value\n",
-            encoding="utf-8",
-        )
-        os.environ["TEST_EVAL_KEY"] = "preset"
-        try:
-            TestLoadDotenvPreservesSetKeys._load_dotenv(env_file)
-            assert os.environ["TEST_EVAL_KEY"] == "preset"
-            assert os.environ["TEST_EVAL_UNSET"] == "loaded_value"
-        finally:
-            os.environ.pop("TEST_EVAL_KEY", None)
-            os.environ.pop("TEST_EVAL_UNSET", None)
-
-
-class TestGitRevUnknownOnFailure:
-    from commit_investigator.runners.eval_common import _git_rev
-
-    def test_returns_unknown_when_git_fails(self) -> None:
-        with patch("commit_investigator.runners.eval_common.subprocess.check_output", side_effect=OSError):
-            assert TestGitRevUnknownOnFailure._git_rev() == "unknown"
-
-
-class TestEvalCommonImportNoSideEffects:
-    def test_import_eval_common_does_not_invoke_subprocess(self) -> None:
-        sys.modules.pop("commit_investigator.runners.eval_common", None)
-        with patch("subprocess.check_output", side_effect=AssertionError("subprocess invoked on import")):
-            importlib.import_module("commit_investigator.runners.eval_common")
-
-    def test_import_run_eval_does_not_load_dotenv(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        marker = "TEST_EVAL_IMPORT_SIDE_EFFECT"
-        monkeypatch.setenv(marker, "keep")
-        before = os.environ.get("OPENAI_API_KEY")
-        importlib.import_module("commit_investigator.runners.run_eval")
-        assert os.environ.get("OPENAI_API_KEY") == before
-        assert os.environ.get(marker) == "keep"
-
-
-def _minimal_report() -> CommitInvestigationReport:
-    return CommitInvestigationReport(
-        commit_id="abc123deadbeef",
-        project="camel",
-        risk_assessment=RiskAssessment(level=RiskLevel.MEDIUM, confidence=0.7),
-        evidence=[
-            EvidenceItem(
-                type=EvidenceType.DIFF_HUNK,
-                source="src/Main.java",
-                content="+ risky",
-                relevance="test",
-            )
-        ],
-        findings=[],
-        reasoning_summary="test",
-        turn_count=1,
+def _make_report(
+    suspects: list[SuspectCommit] | None = None,
+    tool_trace: list | None = None,
+) -> BugAttributionReport:
+    return BugAttributionReport(
+        problem_title="Test bug",
+        problem_description="Test description",
+        suspects=suspects or [],
+        reasoning_summary="Mock investigation",
+        tool_trace=tool_trace or [],
+        metadata={
+            "turns_used": 1,
+            "tool_calls": 0,
+            "tokens_used": 100,
+            "total_cost_usd": 0.001,
+            "elapsed_ms": 50.0,
+            "model": "mock",
+        },
     )
 
 
-class TestSaveInvestigationHistoricalDefectStatus:
-    """AC-2: forensics JSON top-level historical_defect_context_status."""
-
-    def test_disabled_status_written_top_level(self, tmp_path: Path) -> None:
-        inv_dir = tmp_path / "investigations"
-        inv_dir.mkdir()
-        report = _minimal_report()
-        _save_investigation(
-            inv_dir,
-            report,
-            buggy_label=True,
-            elapsed=1.5,
-            route="INVESTIGATE",
-            historical_defect_context_status="disabled",
+class TestEvalCase:
+    def test_dataclass_fields(self) -> None:
+        case = EvalCase(
+            bug_hash="abc123",
+            fix_hash="def456",
+            project="CAMEL",
+            issue_key="CAMEL-1234",
         )
-        data = json.loads(
-            (inv_dir / f"{report.commit_id[:12]}_{report.project}.json").read_text(encoding="utf-8")
-        )
-        assert data["historical_defect_context_status"] == "disabled"
-
-    def test_none_status_defaults_to_disabled_in_json(self, tmp_path: Path) -> None:
-        inv_dir = tmp_path / "investigations"
-        inv_dir.mkdir()
-        report = _minimal_report()
-        _save_investigation(
-            inv_dir,
-            report,
-            buggy_label=False,
-            elapsed=0.5,
-            route="INVESTIGATE",
-            historical_defect_context_status=None,
-        )
-        data = json.loads(
-            (inv_dir / f"{report.commit_id[:12]}_{report.project}.json").read_text(encoding="utf-8")
-        )
-        assert data["historical_defect_context_status"] == "disabled"
+        assert case.bug_hash == "abc123"
+        assert case.problem is None
 
 
-class TestHistoricalDefectContextCli:
-    """AC-3: CLI flag exists, argparse default False, --help works without PYTHONPATH."""
-
-    def test_parser_default_enable_historical_defect_context_false(self) -> None:
-        args = _build_arg_parser().parse_args([])
-        assert args.enable_historical_defect_context is False
-
-    def test_parser_flag_sets_true(self) -> None:
-        args = _build_arg_parser().parse_args(["--enable-historical-defect-context"])
-        assert args.enable_historical_defect_context is True
-
-    def test_help_shows_flag_via_script_path(self) -> None:
-        repo_root = Path(__file__).resolve().parents[1]
-        script = repo_root / "src" / "commit_investigator" / "runners" / "run_eval.py"
-        result = subprocess.run(
-            [sys.executable, str(script), "--help"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert result.returncode == 0, result.stderr
-        assert "enable-historical-defect-context" in result.stdout
-
-
-class TestHistoricalDefectContextRunConfig:
-    """AC-3: default off in run_config."""
-
-    def test_default_enable_historical_defect_context_false(self, tmp_path: Path) -> None:
-        args = _build_arg_parser().parse_args([])
-        assert args.enable_historical_defect_context is False
-        _save_run_config(
-            tmp_path,
-            args,
-            {"enable_historical_defect_context": args.enable_historical_defect_context},
-        )
-        config = json.loads((tmp_path / "run-config.json").read_text(encoding="utf-8"))
-        assert config["enable_historical_defect_context"] is False
-        assert config["args"]["enable_historical_defect_context"] is False
-
-
-class TestRunInvestigationsWiresHistoricalDefectFlag:
-    """AC-6: run_investigations sets context.enable_historical_defect_context from CLI."""
-
-    @patch("commit_investigator.runners.run_eval._print_progress")
-    @patch("commit_investigator.runners.run_eval._save_investigation")
-    @patch("commit_investigator.runners.run_eval._investigate_with_retry")
-    @patch("commit_investigator.runners.run_eval.CommitContextBuilder")
-    def test_context_flag_mirrors_runner_attr(
-        self,
-        mock_builder_cls,
-        mock_investigate,
-        mock_save,
-        mock_progress,
-    ) -> None:
-        captured: dict = {}
-
-        def capture_context(_orchestrator, **kwargs):
-            captured["context"] = kwargs["context"]
-            return _minimal_report()
-
-        mock_investigate.side_effect = capture_context
-        mock_builder = MagicMock()
-        mock_builder_cls.return_value = mock_builder
-        mock_builder.build.return_value = MagicMock(
-            router_probability=None,
-            router_route=None,
-            enable_historical_defect_context=False,
-            historical_defect_context_status=None,
+class TestComparisonReport:
+    def test_to_dict(self) -> None:
+        from commit_investigator.runners.eval_metrics import (
+            AggregateEvalReport,
         )
 
-        args = argparse.Namespace(enable_historical_defect_context=True)
-        runner = EvalRunner(args)
-        runner.enable_historical_defect_context = True
-        runner.extended_context = False
-        runner.mechanism_evaluator = False
-        runner.contrastive = False
-        runner.target_commits = [
-            RoutingDecision("abc123deadbeef", "camel", 0.55, Route.INVESTIGATE),
-        ]
-        runner.git_providers = {"camel": MagicMock()}
-        runner.csv_rows = {"abc123deadbeef": {"project": "apache/camel"}}
-        runner.buggy_lookup = {"abc123deadbeef": True}
-        runner.author_stats = MagicMock()
-        runner.orchestrator = MagicMock()
-        runner.inv_dir = Path("/tmp/inv")
-        runner.baseline_scores = {}
-        runner.jira_context_map = {}
-
-        runner.run_investigations()
-
-        assert captured["context"].enable_historical_defect_context is True
-
-    def test_setup_attr_from_parser_default(self) -> None:
-        args = _build_arg_parser().parse_args([])
-        runner = EvalRunner(args)
-        runner.enable_historical_defect_context = getattr(
-            runner.args, "enable_historical_defect_context", False
+        agent_agg = AggregateEvalReport(
+            total=2, hit_at_1=0.5, hit_at_3=0.5, hit_at_5=1.0,
+            mrr=0.75, retrieval_recall=1.0, evidence_grounding_rate=0.8,
+            total_cost_usd=0.01, avg_tool_calls=5.0,
+            avg_tokens=1000.0, avg_elapsed_ms=500.0,
         )
-        assert runner.enable_historical_defect_context is False
+        baseline_agg = AggregateEvalReport(
+            total=2, hit_at_1=0.0, hit_at_3=0.0, hit_at_5=0.5,
+            mrr=0.1, retrieval_recall=0.5, evidence_grounding_rate=0.0,
+            total_cost_usd=0.0, avg_tool_calls=0.0,
+            avg_tokens=0.0, avg_elapsed_ms=10.0,
+        )
+
+        report = ComparisonReport(
+            agent=agent_agg,
+            baselines={"git-blame-naive": baseline_agg},
+        )
+
+        d = report.to_dict()
+        assert d["agent"]["total"] == 2
+        assert d["agent"]["hit_at_5"] == 1.0
+        assert "git-blame-naive" in d["baselines"]
+        assert d["case_count"] == 0
+
+
+class TestMarkdownRender:
+    def test_renders_table(self) -> None:
+        from commit_investigator.runners.eval_metrics import AggregateEvalReport
+
+        agent_agg = AggregateEvalReport(
+            total=5, hit_at_1=0.2, hit_at_3=0.4, hit_at_5=0.6,
+            mrr=0.3, retrieval_recall=0.8, evidence_grounding_rate=0.7,
+            total_cost_usd=0.05, avg_tool_calls=8.0,
+            avg_tokens=2000.0, avg_elapsed_ms=1000.0,
+        )
+        baseline_agg = AggregateEvalReport(
+            total=5, hit_at_1=0.0, hit_at_3=0.2, hit_at_5=0.4,
+            mrr=0.1, retrieval_recall=0.4, evidence_grounding_rate=0.0,
+            total_cost_usd=0.0, avg_tool_calls=0.0,
+            avg_tokens=0.0, avg_elapsed_ms=5.0,
+        )
+
+        report = ComparisonReport(
+            agent=agent_agg,
+            baselines={"git-blame-naive": baseline_agg},
+        )
+
+        md = _render_markdown_report(report)
+        assert "Hit@1" in md
+        assert "Hit@5" in md
+        assert "Agent" in md
+        assert "git-blame-naive" in md
+        assert "$0.0000" in md
+
+
+class TestPrintComparison:
+    def test_no_error(self, capsys: pytest.CaptureFixture) -> None:
+        from commit_investigator.runners.eval_metrics import AggregateEvalReport
+
+        agent_agg = AggregateEvalReport(
+            total=3, hit_at_1=0.33, hit_at_3=0.33, hit_at_5=0.67,
+            mrr=0.5, retrieval_recall=0.67, evidence_grounding_rate=0.5,
+            total_cost_usd=0.03, avg_tool_calls=5.0,
+            avg_tokens=1500.0, avg_elapsed_ms=800.0,
+        )
+
+        report = ComparisonReport(agent=agent_agg, baselines={})
+        _print_comparison(report)
+
+        out = capsys.readouterr().out
+        assert "V3 EVALUATION RESULTS" in out
+        assert "Agent" in out
+
+
+def _make_jira_issue(
+    key: str = "CAMEL-1234",
+    summary: str = "Test bug",
+    description: str | None = "Description text",
+) -> JiraIssue:
+    return JiraIssue(
+        key=key,
+        summary=summary,
+        description=description,
+        priority="Major",
+        components=[],
+        resolution=None,
+        status="Open",
+    )
+
+
+class TestSelectEvalCases:
+    def test_builds_problem_statement_from_jira(self) -> None:
+        gt = MagicMock(spec=GroundTruthGraph)
+        gt.projects = ["CAMEL"]
+        gt._bug_to_fixes = {"bugabc123": ["fixdef456"]}
+        gt.get_chain.return_value = CommitChain(
+            bug_hash="bugabc123",
+            fix_hashes=["fixdef456"],
+            issue_keys=["CAMEL-9999"],
+        )
+
+        jira = MagicMock()
+        jira.get_issue.return_value = _make_jira_issue(
+            key="CAMEL-9999",
+            summary="NPE in RouteBuilder",
+            description="Stack trace shows NullPointerException in configure()",
+        )
+
+        cases = select_eval_cases(gt, jira, n=1, seed=42)
+
+        assert len(cases) == 1
+        case = cases[0]
+        assert case.bug_hash == "bugabc123"
+        assert case.fix_hash == "fixdef456"
+        assert case.project == "CAMEL"
+        assert case.issue_key == "CAMEL-9999"
+        assert case.problem is not None
+        assert case.problem.title == "NPE in RouteBuilder"
+        assert case.problem.project == "CAMEL"
+        assert case.problem.issue_key == "CAMEL-9999"
+        assert "NullPointerException" in case.problem.description
+
+    def test_skips_issues_without_description(self) -> None:
+        chains = {
+            "bug1": CommitChain(bug_hash="bug1", fix_hashes=["fix1"], issue_keys=["CAMEL-1"]),
+            "bug2": CommitChain(bug_hash="bug2", fix_hashes=["fix2"], issue_keys=["CAMEL-2"]),
+        }
+        gt = MagicMock(spec=GroundTruthGraph)
+        gt.projects = ["CAMEL"]
+        gt._bug_to_fixes = {"bug1": ["fix1"], "bug2": ["fix2"]}
+        gt.get_chain.side_effect = lambda bug_hash: chains[bug_hash]
+
+        jira = MagicMock()
+
+        def _get_issue(issue_key: str) -> JiraIssue:
+            if issue_key == "CAMEL-1":
+                return _make_jira_issue(key="CAMEL-1", summary="No desc bug", description="")
+            return _make_jira_issue(
+                key="CAMEL-2",
+                summary="Has desc",
+                description="Repro steps for the failure",
+            )
+
+        jira.get_issue.side_effect = _get_issue
+
+        cases = select_eval_cases(gt, jira, n=2, seed=42)
+
+        assert len(cases) == 1
+        assert cases[0].issue_key == "CAMEL-2"
+
+    def test_skips_jira_client_errors(self) -> None:
+        gt = MagicMock(spec=GroundTruthGraph)
+        gt.projects = ["CAMEL"]
+        gt._bug_to_fixes = {"bug1": ["fix1"]}
+        gt.get_chain.return_value = CommitChain(
+            bug_hash="bug1",
+            fix_hashes=["fix1"],
+            issue_keys=["CAMEL-404"],
+        )
+
+        jira = MagicMock()
+        jira.get_issue.side_effect = JiraClientError("issue not in cache")
+
+        cases = select_eval_cases(gt, jira, n=1, seed=42)
+
+        assert cases == []

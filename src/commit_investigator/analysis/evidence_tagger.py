@@ -1,16 +1,15 @@
-"""Evidence tier tagger: hybrid script-based hypothesis verification.
+"""Evidence tier tagger: hybrid script-based evidence verification.
 
-Architecture decision: HYBRID — LLM tier is primary label;
-script verifies SUPPORTED claims by checking evidence_quote presence in diff.
-Hallucinated SUPPORTED (quote absent or not in diff) is downgraded to SPECULATIVE.
+V3 usage: grade evidence quotes from SuspectCommit entries against
+their actual diffs. Supports both V2 hypothesis tagging and V3
+suspect evidence scoring.
 
-See .harness/evals/spike-evidence-tagger.json for spike results:
-  strict_agreement=86.1% (auto-extract), 100% (hand-curated corpus)
-  decision=hybrid, supported_verification_rate=100%
+Core function: `quote_in_diff(quote, diff)` → (found, method).
+V3 API: `score_suspect_evidence(suspect, diff)` → SuspectEvidenceScore.
 
 Usage:
   from commit_investigator.analysis.evidence_tagger import (
-      tag_hypothesis, count_supported_from_reasoning
+      tag_hypothesis, quote_in_diff, score_suspect_evidence
   )
 """
 
@@ -305,3 +304,92 @@ def count_supported_from_reasoning(
             count += 1
 
     return count
+
+
+# ---------------------------------------------------------------------------
+# V3: Suspect evidence scoring
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SuspectEvidenceScore:
+    """Evidence grounding score for a single SuspectCommit."""
+
+    commit_id: str
+    total_quotes: int
+    grounded_quotes: int
+    grounding_rate: float
+    per_quote: list[TagResult]
+
+    @property
+    def normalized_score(self) -> float:
+        """0.0-1.0 score: fraction of quotes that are grounded."""
+        return self.grounding_rate
+
+
+def score_suspect_evidence(
+    commit_id: str,
+    evidence_quotes: list[str],
+    diff: str | None,
+    max_diff_chars: int = DEFAULT_MAX_DIFF_CHARS,
+) -> SuspectEvidenceScore:
+    """Grade all evidence quotes for a suspect commit against its diff.
+
+    Args:
+        commit_id: The suspect commit SHA.
+        evidence_quotes: List of evidence quote strings from the agent.
+        diff: The actual unified diff for this commit (None if unavailable).
+
+    Returns:
+        SuspectEvidenceScore with per-quote grounding results.
+    """
+    if not evidence_quotes:
+        return SuspectEvidenceScore(
+            commit_id=commit_id,
+            total_quotes=0,
+            grounded_quotes=0,
+            grounding_rate=0.0,
+            per_quote=[],
+        )
+
+    if diff is None:
+        results = [
+            TagResult(
+                tier="UNVERIFIABLE",
+                quote_in_diff=False,
+                match_method="absent",
+                debug={"reason": "diff not available"},
+            )
+            for _ in evidence_quotes
+        ]
+        return SuspectEvidenceScore(
+            commit_id=commit_id,
+            total_quotes=len(evidence_quotes),
+            grounded_quotes=0,
+            grounding_rate=0.0,
+            per_quote=results,
+        )
+
+    diff_truncated = diff[:max_diff_chars]
+    diff_was_truncated = len(diff) > max_diff_chars
+
+    results = []
+    grounded = 0
+    for quote in evidence_quotes:
+        result = tag_hypothesis(
+            quote,
+            diff_truncated,
+            diff_was_truncated=diff_was_truncated,
+        )
+        results.append(result)
+        if result.tier == "SUPPORTED":
+            grounded += 1
+
+    total = len(evidence_quotes)
+    return SuspectEvidenceScore(
+        commit_id=commit_id,
+        total_quotes=total,
+        grounded_quotes=grounded,
+        grounding_rate=grounded / total if total > 0 else 0.0,
+        per_quote=results,
+    )

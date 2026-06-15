@@ -1,29 +1,47 @@
 {
-  "task_id": "v2-jira-context-injection",
-  "feature": "Inject JIRA ticket summary into hypothesis prompt to break D3 wrong-mechanism ceiling",
-  "verified": true,
-  "verified_at": "2026-06-15T15:34:00Z",
-  "evaluator_verdict": "PASS (AC-1 through AC-4 + edge cases + temporal safety). AC-5 PASS with corrected commit-time keys (D3=0.35, D1=0.90).",
+  "task_id": "v3-post-processing-a",
+  "feature": "Phase A — In-pipeline evidence scoring (metadata attach, no behavioral change)",
+  "problem": "Docs and architecture promise 'LLM reasons, scripts verify' with Evidence Scorer as an in-pipeline stage, but AgentOrchestrator.investigate() returns raw LLM suspects and score_suspect_evidence() runs only at eval time. This violates the documented invariant, wastes redundant git I/O at eval, and prevents forensics from reading grounding scores from saved reports.",
+  "proposed_solution": "After the agent loop completes and suspects are parsed, run score_suspect_evidence() per suspect (fetch diff via git_provider), attach JSON-serializable scores to report.metadata['evidence_scores'], and set metadata flags indicating scoring-only (no re-rank). Update eval_metrics.evaluate_attribution() to prefer attached scores when present; fall back to live scoring only for reports without them (e.g. baselines). Defer re-ranking, confidence adjustment, and quality-gate re-entry to Phase B.",
+  "scope_excluded": [
+    "Suspect re-ranking or confidence mutation",
+    "Quality gate or loop re-entry",
+    "POST_PROCESS_MODE feature flag (Phase B)",
+    "Offline rerank_simulator (Phase B)",
+    "Confidence formula calibration (Phase B)"
+  ],
+  "task_order": [
+    "1-docs: Update docs/agent-loop.md and docs/architecture.md — Evidence Scorer runs inside investigate(), before report return; clarify eval reuses attached scores",
+    "2-harness: Register v3-post-processing-a (P3) and v3-post-processing-b (P5, depends_on first-live-eval) in state.json",
+    "3-orchestrator: Wire score_suspect_evidence() in orchestrator.investigate() after agent loop, before BugAttributionReport return",
+    "4-eval-metrics: Update evaluate_attribution() to reuse metadata evidence_scores when present; skip redundant get_diff",
+    "5-tests: Add/extend tests in test_attribution_agent.py and test_eval_metrics.py; verify 204+ non-archive tests pass"
+  ],
   "acceptance_criteria": [
-    "AC-1: When jira_summary is present in InvestigationContext, hypothesis prompt contains ## Ticket Context block with title and issue type",
-    "AC-2: When jira_summary is absent, prompt is identical to today's baseline (no regression)",
-    "AC-3: --jira-csv flag loads commit→JIRA mapping; per-commit jira_context_status logged in forensics JSON (injected | unavailable)",
-    "AC-4: Unit tests for context injection and absent-jira fallback — 465+ tests pass",
-    "AC-5: Mini n=20 with --jira-csv: D3 ≥ 0.35 AND D1 not regressed below 0.72"
+    "AC-1: docs/agent-loop.md and docs/architecture.md describe Evidence Scorer as an in-pipeline stage executed inside investigate() after the agent loop and before report emission — not eval-only",
+    "AC-2: AgentOrchestrator.investigate() calls score_suspect_evidence() for every parsed suspect and attaches results to report.metadata['evidence_scores'] as a list of dicts (commit_id, total_quotes, grounded_quotes, grounding_rate) in suspect rank order",
+    "AC-3: Suspect rank, confidence, mechanism, and evidence_quotes on report.suspects are identical to LLM-parsed values — no re-sorting, no confidence adjustment, no suspect removal",
+    "AC-4: report.metadata includes evidence_scoring_applied=true and post_processing_applied=false (explicit signal that Phase B re-rank/gate did not run)",
+    "AC-5: evaluate_attribution() uses attached metadata['evidence_scores'] when present and does not call git_provider.get_diff() for those suspects; falls back to live score_suspect_evidence() only when evidence_scores is absent (baseline reports)",
+    "AC-6: D6 evidence_grounding_rate computed from attached scores matches the rate that live re-scoring would produce on the same report (single source of truth, no drift)",
+    "AC-7: pytest tests/ --ignore=tests/_v2_archive — all 204 existing tests pass plus new tests covering orchestrator attach and eval score reuse"
   ],
   "edge_cases": [
-    "JIRA key absent in CSV — graceful skip, no error, status='unavailable'",
-    "JIRA title contains fix-commit language — inject title only (no description/resolution)",
-    "CSV has multiple JIRA keys per commit — use first key",
-    "Empty/malformed CSV rows — skip gracefully"
+    "Zero suspects (budget exceeded or agent never emitted ```suspects```): investigate() returns report with suspects=[]; evidence_scores=[] or key absent; no exception",
+    "Suspect with empty evidence_quotes: attached score has total_quotes=0, grounded_quotes=0, grounding_rate=0.0",
+    "Diff unavailable (git error, missing commit, temporal bound): score_suspect_evidence returns grounding_rate=0.0 with UNVERIFIABLE per_quote; pipeline still returns report",
+    "Baseline BugAttributionReport without evidence_scores: evaluate_attribution() falls back to live scoring via git_provider — Hit@k/MRR unchanged from current behavior",
+    "Truncated diff (> DEFAULT_MAX_DIFF_CHARS): orchestrator uses same max_diff_chars as score_suspect_evidence default; eval reuse path does not re-fetch or re-truncate differently"
   ],
-  "verification_method": "pytest (AC-1 to AC-4), n=20 eval run (AC-5)",
-  "temporal_safety": "Only title + issue_type injected. Description and resolution excluded — may contain fix-commit details. This is acknowledged as oracle-adjacent (ticket created post-commit) but controlled: title reveals defect category, not fix location.",
-  "files_touched": [
-    "src/commit_investigator/context/context_builder.py",
-    "src/commit_investigator/hypothesis/hypothesis_engine.py",
-    "src/commit_investigator/runners/run_eval.py",
-    "scripts/build_jira_csv.py (new)",
-    "tests/test_jira_context_injection.py (new)"
-  ]
+  "verification_method": "Run `pytest tests/ --ignore=tests/_v2_archive -q` (expect 204+ pass). Run new unit tests: (1) mock investigate() end-to-end asserts metadata['evidence_scores'] populated and suspect rank/confidence unchanged vs pre-score snapshot; (2) evaluate_attribution() with pre-attached scores asserts git_provider.get_diff not called (mock call_count=0); (3) evaluate_attribution() without attached scores asserts fallback still works. Grep docs for 'eval-only' or contradictory pipeline ordering — must be absent. Manual inspect: orchestrator has no re-sort, no confidence *=, no loop continuation after suspects parse.",
+  "rubrics": [
+    "code-quality",
+    "architecture"
+  ],
+  "rubric_mode": "warn",
+  "negotiation_rounds": 1,
+  "evaluator_verdict": "APPROVE",
+  "evaluator_notes": "Prior CHALLENGE resolved: plan split into Phase A (this contract) and Phase B (deferred). Behavioral post-processing blocked until first-live-eval. Phase A closes doc/code invariant gap without confounding Hit@k baseline.",
+  "phase": "verified",
+  "verified": true
 }

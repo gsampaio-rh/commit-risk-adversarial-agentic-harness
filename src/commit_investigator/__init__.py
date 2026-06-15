@@ -1,3 +1,3 @@
-"""Commit-risk investigator: bounded multi-turn agent for commit risk assessment."""
+"""Bug attribution agent: given a bug report, find the commit that caused it."""
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"

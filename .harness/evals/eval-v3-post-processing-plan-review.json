@@ -1,0 +1,69 @@
+{
+  "task_id": "v3-post-processing-pipeline",
+  "review_type": "plan_negotiation",
+  "overall_verdict": "CHALLENGE",
+  "summary": "The plan correctly identifies a doc/implementation gap (architecture promises Evidence Scorer in-pipeline; orchestrator emits raw suspects). Stage 1 (attach grounding metadata, close the invariant gap) is justified. Stages 2–3 (confidence re-scoring, quality-gate re-entry, re-ranking) are speculative optimizations with no n=20 forensics and risk degrading Hit@k before we have a floor. Defer behavioral changes until after first-live-eval; ship a minimal, non-mutating post-processing phase first.",
+  "points": [
+    {
+      "id": "necessity",
+      "verdict": "CHALLENGE",
+      "reasoning": "Not all three stages are equally necessary. Evidence scoring in-pipeline is partially required: docs/architecture.md and docs/agent-loop.md already describe 'Agent → Evidence Scorer → Report Assembly' as the runtime pipeline, but AgentOrchestrator.investigate() returns raw LLM suspects with no script verification — a documented invariant violation. That gap should close. Confidence re-scoring (7-signal V2 equation reduced to grounding_rate * tool_trace bonus) and quality-gate re-entry are hypothesis-driven features with zero V3 failure-mode data. V2 forensics showed wrong-mechanism (~57%) dominated missing-context (~9%); ungrounded quotes may not be the primary Hit@5 bottleneck. Building the full V2-style script stack before measuring raw agent output risks optimizing the wrong layer.",
+      "recommendation": "Split into Phase A (mandatory): run score_suspect_evidence per suspect, attach SuspectEvidenceScore to report metadata, do NOT change rank or confidence. Phase B (conditional, after first-live-eval): re-rank and quality gate only if forensics show ordering errors or systematic ungrounded output on correct commits."
+    },
+    {
+      "id": "ordering",
+      "verdict": "BLOCK",
+      "reasoning": "state.json explicitly lists first-live-eval (priority 2) as 'the single most important next step — we have zero real numbers.' Acceptance thresholds are marked provisional pending calibration. Implementing quality-gate re-entry and confidence re-ranking BEFORE the first live n=20 run means: (1) we cannot isolate whether Hit@5 changes come from the agent or post-processing, (2) we cannot compare against the documented baseline floor, (3) we spend implementation budget on unvalidated heuristics. The plan frames this as 'restoring' V2, but V2 solved a different problem (single-commit risk) with different failure modes.",
+      "recommendation": "Mandatory sequence: data-infra → first-live-eval (raw agent) → offline forensics on saved reports (simulate re-rank without re-running LLM) → then contract Phase B if data supports it. Phase A (metadata-only scoring) may ship in parallel with data-infra since it does not alter Hit@k metrics."
+    },
+    {
+      "id": "complexity_vs_value",
+      "verdict": "CHALLENGE",
+      "reasoning": "Quality gate re-entry is the highest-complexity item with the weakest evidence of value. It requires: continuing the message loop after suspects parse (orchestrator currently breaks immediately on ```suspects```), crafting feedback prompts that don't leak oracle info, budget accounting across re-entries, max re-entry cap to prevent cost blowups, and tests for non-deterministic LLM behavior. Edge cases are underspecified: agent concludes with suspects where ALL quotes are ungrounded but commit is correct (paraphrased evidence) — gate fires, agent burns budget, may demote correct answer. Agent concludes with zero suspects at budget limit — gate cannot help. Agent examined correct commit via get_commit_diff but ranked it #4 with bad quotes — gate trigger (all grounding_rate==0) may not fire if one fuzzy match exists. V2 quality_gate had 4 triggers tuned over months; V3 proposes 2 untested triggers ported from a different domain.",
+      "recommendation": "Drop quality-gate re-entry from initial contract. Replace with observability-only gate: log gate_would_fire + reason in report.metadata for forensics. Promote to active re-entry only after offline analysis shows ≥N cases where gate would have improved Hit@5 without cost regression."
+    },
+    {
+      "id": "evidence_scoring_placement",
+      "verdict": "CHALLENGE",
+      "reasoning": "Running score_suspect_evidence twice (in-pipeline + eval_metrics.evaluate_attribution) is not metric double-counting IF eval reuses attached scores — but the plan does not specify this. As written, eval will re-fetch diffs and re-score, wasting git I/O and creating drift risk if pipeline and eval use different diff truncation or git_provider state. Worse: if in-pipeline re-ranking changes suspect order, Hit@k/MRR at eval time reflect post-processed order, confounding comparison with first-live-eval baseline unless post-processing is feature-flagged. D6 evidence_grounding_rate becomes a tautology if we re-rank by grounding then measure grounding on the re-ranked list — it measures pipeline self-consistency, not agent quality.",
+      "recommendation": "Extend SuspectCommit or report.metadata with evidence_scores at pipeline time. eval_metrics should prefer attached scores when present (single source of truth). Emit metadata fields: post_processing_applied (bool), raw_llm_ranks vs final_ranks. Keep a --no-post-process flag for eval A/B. D6 should report BOTH raw-agent grounding and post-processed grounding during transition."
+    },
+    {
+      "id": "confidence_formula",
+      "verdict": "BLOCK",
+      "reasoning": "confidence *= grounding_rate is a poor default with known failure modes: (1) zero evidence_quotes → grounding_rate=0.0 → adjusted confidence=0 regardless of LLM confidence or correctness; (2) one PLAUSIBLE fuzzy match on wrong commit beats zero quotes on correct commit; (3) paraphrased-but-correct mechanisms get zero grounding and drop in rank — V2 D3 forensics showed wrong-mechanism dominates, meaning correct commits often have bad quotes; (4) multiplicative penalty is harsher than V2's weighted equation with tier caps; (5) tool_trace bonus rewards 'examined via get_commit_diff' but orchestrator truncates tool results to 500 chars — agent may have examined commit without quotes reflecting diff content; (6) plan says 'confidence capped not removed' in Stage 1 but Stage 2 applies multiplicative penalty — contradictory.",
+      "recommendation": "Do not ship confidence *= grounding_rate without calibration. If re-ranking is needed, start with simpler rule: sort by (grounded_quotes > 0, LLM confidence) as tie-breaker only; or cap confidence at min(confidence, 0.3 + 0.7*grounding_rate). Require offline simulation on first n=20 JSON outputs before picking formula."
+    },
+    {
+      "id": "llm_skeptic",
+      "verdict": "CHALLENGE",
+      "reasoning": "Evidence quote verification belongs in scripts — APPROVE for that slice (deterministic quote_in_diff cascade already exists and is tested). Re-ranking suspects by script-derived scores is doing attribution selection work the LLM should own; it can reorder a correct #1 suspect to #5 because quotes were paraphrased. Quality gate ('search more') assumes the LLM stopped early with retrievable evidence still available — but many V3 failures may be wrong search strategy (never found the file), which extra turns won't fix without prompt changes. System prompt already mandates 'Always examine the diff of a suspect before ranking it' — script tool_trace bonus duplicates a prompt requirement without fixing non-compliance. The plan imports V2 confidence_model thinking without V2's calibration data.",
+      "recommendation": "Scripts verify, they should not re-decide attribution. Limit script authority to: attach grades, flag ungrounded quotes in report, optionally demote (not remove) suspects with 0 quotes AND 0 tool_trace hits. Push search-strategy improvements to spike-prompt-engineering after forensics."
+    },
+    {
+      "id": "missing_from_plan",
+      "verdict": "CHALLENGE",
+      "reasoning": "Critical gaps: (1) no acceptance criteria or eval gate for the feature itself — how do we know post-processing helped? (2) Report Builder stage in docs/agent-loop.md is absent from plan — only orchestrator wiring; (3) SuspectCommit schema extension not specified; (4) feature flag / rollback strategy missing; (5) interaction with budget_exceeded and max_turns when re-entering loop; (6) no task entry in state.json with depends_on first-live-eval; (7) no forensics script to simulate re-rank offline on existing JSON; (8) plan ignores run_eval.py bug fixes and data-infra blockers; (9) truncated diff handling — score_suspect_evidence marks UNVERIFIABLE on truncated diffs, which may block gate trigger incorrectly; (10) empty suspects handling conflates 'agent failed' with 'needs more search'.",
+      "recommendation": "Add contract ACs: Phase A must not change Hit@k vs baseline on same reports (metadata-only). Phase B requires Hit@5 delta ≥0.05 on n=20 OR MRR delta ≥0.05 with cost increase ≤10%. Add offline rerank_simulator.py spike. Register task in state.json at priority 5, depends_on first-live-eval."
+    },
+    {
+      "id": "priority",
+      "verdict": "CHALLENGE",
+      "reasoning": "Relative to state.json: data-infra (P1) and first-live-eval (P2) must precede any behavioral post-processing. spike-prompt-engineering (P4) likely yields higher Hit@5 ROI than script re-ranking because retrieval failures dominate attribution failures in similar systems. v2-stub-cleanup (P3) unblocks forensics tooling. Post-processing as a monolithic 7-todo feature competes with establishing the floor — the wrong order for a system with zero live numbers.",
+      "recommendation": "Priority placement: Phase A (metadata-only evidence attach) at P3 alongside v2-stub-cleanup — closes doc gap, enables richer forensics on first eval. Phase B (re-rank + gate) at P5, depends_on [first-live-eval, spike-prompt-engineering], gated by forensics sign-off. Do not block first-live-eval on post-processing."
+    }
+  ],
+  "recommended_plan_changes": [
+    "Split into Phase A (metadata-only) and Phase B (behavioral); only Phase A eligible before first-live-eval.",
+    "Phase A: after agent loop, score each suspect, attach evidence_scores to BugAttributionReport.metadata and/or SuspectCommit fields; preserve LLM rank order and confidence unchanged.",
+    "eval_metrics.evaluate_attribution: reuse attached evidence_scores when present; skip redundant diff fetch.",
+    "Remove quality-gate re-entry from initial scope; add gate_would_fire observability logging for forensics.",
+    "Remove confidence *= grounding_rate; defer re-ranking formula to offline simulation on first n=20 outputs.",
+    "Add feature flag POST_PROCESS_MODE=none|attach|rerank for eval A/B isolation.",
+    "Add acceptance criteria: Phase A — no Hit@k delta; Phase B — Hit@5 or MRR lift ≥0.05 with cost ≤10% increase on same n=20 set.",
+    "Add state.json task v3-post-processing-pipeline with depends_on first-live-eval for Phase B.",
+    "Add forensics spike: simulate re-rank on saved investigate() JSON without LLM re-run before committing to Phase B.",
+    "Fix docs only after Phase A lands — agent-loop.md already describes pipeline; implementation should match, not expand prematurely."
+  ],
+  "recommended_priority": "Phase A (evidence attach, no rank mutation): priority 3, parallel with v2-stub-cleanup, before or during first-live-eval — improves forensics without confounding metrics. Phase B (re-rank, confidence adjust, quality gate): priority 5, depends_on first-live-eval + failure forensics; do not start until n=20 raw numbers exist and offline simulation validates the formula."
+}

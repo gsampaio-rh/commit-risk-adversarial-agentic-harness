@@ -14,7 +14,7 @@ from commit_investigator.analysis.report import (
     RiskAssessment,
     RiskLevel,
 )
-from commit_investigator.routing.router import Route
+from commit_investigator.runners.eval_harness import Route
 
 
 def _make_report(
