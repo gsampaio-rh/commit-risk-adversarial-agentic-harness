@@ -10,8 +10,8 @@ The system has three stages with distinct ownership:
 Stage 1: EVAL SETUP (harness)        Stage 2: INVESTIGATION (LLM + scripts)       Stage 3: EVALUATION (oracle)
 ┌─────────────────────────┐          ┌─────────────────────────────────────┐       ┌────────────────────────┐
 │ JIRA ticket              │          │ ProblemStatement                     │       │ BugAttributionReport    │
-│   → ProblemExtractor     │   ───►   │   → Attribution Agent (LLM loop)    │  ───►  │   → Hit@k / MRR        │
-│   → ProblemStatement     │          │   → Evidence Scorer (script)        │       │   → Retrieval Recall   │
+│   → ProblemExtractor     │   ───►   │   → 7-stage Agentic Loop            │  ───►  │   → Hit@k / MRR        │
+│   → ProblemStatement     │          │     (stages 1-5 LLM, 6-7 script)     │       │   → Retrieval Recall   │
 │                          │          │   → BugAttributionReport            │       │   → Evidence Grounding │
 │ GroundTruthGraph         │          │                                     │       │                        │
 │   → fix_hash → bound     │          │ GitContextProvider                  │       │ Ground truth: bug_hash │
@@ -32,15 +32,19 @@ Prepares the investigation context. The agent never sees this stage.
 
 ### Stage 2: Investigation (LLM + scripts)
 
-The agent searches the repository and produces a report. This is the only stage involving an LLM.
+The agent searches the repository and produces a report inside `AgentOrchestrator.investigate()`. This is the only pipeline stage involving an LLM. The **agentic loop** runs from `ProblemStatement` to `BugAttributionReport` as seven stages (stages 1–5 are advisory LLM phases; stages 6–7 are unconditional script steps):
 
-| Step | Owner | Input | Output |
-|------|-------|-------|--------|
-| Multi-turn agent loop | LLM via `AgentOrchestrator` | `ProblemStatement` + bounded `GitContextProvider` | Raw suspect list + reasoning |
-| Evidence scoring | Script (`_attach_evidence_scores`) | Suspects + diffs | Per-suspect grounding scores in `metadata` |
-| Report assembly | Script (inline in `investigate()`) | Scored suspects | `BugAttributionReport` |
+| Stage | Name | Owner | Input | Output |
+|-------|------|-------|-------|--------|
+| 1 | Problem Analysis | LLM | `ProblemStatement` via `to_prompt_text()` | Implicit LLM reasoning (not a structured artifact) |
+| 2 | Search | LLM via tools | Problem understanding + tool catalog | Candidate commit SHAs from search/blame/log tools |
+| 3 | Examine | LLM via tools | Candidate commits | Diff content + commit messages |
+| 4 | Refine | LLM via tools | Examined diffs + prior reasoning | Narrowed suspects, blame chains |
+| 5 | Conclude | LLM | Full investigation context | ` ```suspects``` ` JSON → `list[SuspectCommit]` |
+| 6 | Evidence Scoring | Script (`_attach_evidence_scores`) | Suspects + diffs | Per-suspect grounding scores in `metadata` |
+| 7 | Report Assembly | Script (inline in `investigate()`) | Suspects + scores + trace + timing | `BugAttributionReport` |
 
-Evidence scoring runs **inside** `investigate()` after the LLM loop exits. Suspect rank and confidence are **not modified** — scores are metadata only.
+Stages 2–4 share one code path — the multi-turn tool loop in `investigate()`. They are distinguished by typical tool types, not separate enforcement. Stages 6–7 always run after the LLM loop exits, regardless of exit condition. Suspect rank and confidence are **not modified** in stages 6–7 — evidence scores are metadata only.
 
 ### Stage 3: Evaluation (oracle-owned)
 
@@ -76,7 +80,7 @@ The LLM operates inside a strict information boundary. Everything outside this b
 | Ground truth chain (bug→fix→issue linkage) | Retrospective SZZ assignment |
 | JIRA `priority`, `components`, `resolution`, `status` | Not part of investigation context |
 | `project`, `issue_key`, `extracted_files`, `extracted_symbols` | Stored on `ProblemStatement` but excluded from `to_prompt_text()` |
-| Evidence scores | Computed post-loop; never fed back to LLM |
+| Evidence scores | Computed in stages 6–7 inside `investigate()`; never fed back to LLM |
 | Eval metrics (Hit@k, MRR) | Oracle-only |
 
 ### Prompt structure
@@ -103,36 +107,117 @@ Tool results are plain text in the user message — **not** `role="tool"` messag
 
 ---
 
-## Agent Loop
+## Agentic Loop
 
-The agent loop is a text-based multi-turn conversation controlled by `AgentOrchestrator.investigate()`.
+The **agentic loop** is the entire investigation inside `AgentOrchestrator.investigate()` — from `ProblemStatement` to `BugAttributionReport`. It is a text-based multi-turn conversation (stages 1–5) followed by unconditional script steps (stages 6–7). Stages 1–5 mirror the advisory strategy in `_SYSTEM_PROMPT_TEMPLATE` (Understand → Search → Examine → Refine → Conclude); they are **not** enforced as sequential gates — the LLM may interleave search, examine, and refine across turns.
+
+### Seven stages
+
+| # | Name | Owner | Input | Output | Evaluation dimension |
+|---|------|-------|-------|--------|---------------------|
+| 1 | Problem Analysis | LLM | `ProblemStatement` via `to_prompt_text()` | Implicit LLM reasoning (not a structured artifact) | N/A |
+| 2 | Search | LLM via tools | Problem understanding + tool catalog | Candidate commit SHAs from search/blame/log tools | N/A (see Retrieval Recall for examine tools) |
+| 3 | Examine | LLM via tools | Candidate commits | Diff content + commit messages | Retrieval Recall |
+| 4 | Refine | LLM via tools | Examined diffs + prior reasoning | Narrowed suspects, blame chains | Retrieval Recall (continued) |
+| 5 | Conclude | LLM | Full investigation context | ` ```suspects``` ` JSON → `list[SuspectCommit]` | Hit@k, MRR, D3 (not yet implemented) |
+| 6 | Evidence Scoring | Script | Suspects + diffs | `SuspectEvidenceScore` per suspect in `metadata` | D6 Evidence Grounding |
+| 7 | Report Assembly | Script | Suspects + scores + trace + timing | `BugAttributionReport` | Structural correctness (schema tests) |
+
+#### Stage 1 — Problem Analysis
+
+**Code:** `investigate()` builds initial messages with `_SYSTEM_PROMPT_TEMPLATE` and `problem.to_prompt_text()` (`orchestrator.py`).
+
+The LLM reads the bug report and forms an internal understanding (file names, class names, error messages). No structured output is produced — this is implicit reasoning that propagates into later tool calls.
+
+#### Stages 2–4 — Search, Examine, Refine (shared tool loop)
+
+**Code:** `investigate()` loop — `_parse_tool_calls()` → `ToolRegistry.execute()` (`orchestrator.py`).
+
+All three stages run in the **same** multi-turn loop. They are distinguished by typical tool usage, not separate code paths:
+
+| Stage | Typical tools |
+|-------|---------------|
+| 2 Search | `search_commits_by_file`, `search_commits_by_keyword`, `list_recent_commits` |
+| 3 Examine | `get_commit_diff`, `get_commit_message`, `get_file_at_commit` |
+| 4 Refine | `get_blame`, `search_commits_by_keyword` (cross-reference) |
+
+The LLM may call any tool in any order within resource limits. There are no stage gates.
+
+#### Stage 5 — Conclude
+
+**Code:** `_parse_suspects(response.content)` — if suspects block found, loop breaks (`orchestrator.py`).
+
+The LLM emits a ` ```suspects``` ` JSON array. `_parse_suspects()` assigns `rank` from array order (1-based). Stage 5 may **not** happen — if budget is exceeded, `max_turns` is reached, or the LLM emits neither tools nor suspects, the loop exits with an empty suspect list. Stages 6–7 still run.
+
+**Precedence:** If a response contains both ` ```suspects``` ` and ` ```tool``` ` blocks, suspects are parsed first — tools in that turn are not executed.
+
+#### Stage 6 — Evidence Scoring
+
+**Code:** `_attach_evidence_scores()` → `score_suspect_evidence()` (`orchestrator.py`, `evidence_tagger.py`).
+
+Always runs after the LLM loop exits, regardless of exit condition (including empty suspects):
+
+1. For each suspect, fetch the commit diff via `git_provider.get_diff()`
+2. Call `score_suspect_evidence(commit_id, evidence_quotes, diff)`
+3. For each quote, check presence via `quote_in_diff()` / `tag_hypothesis()` cascade:
+   - Exact substring match
+   - Normalized match (strip `+/-` prefixes, collapse whitespace)
+   - Token-set fuzzy match (≥80% of tokens ≥3 chars found in order within 200-char windows)
+4. A quote is **grounded** if the cascade finds a match (tier = `SUPPORTED`)
+5. `grounding_rate` = grounded_quotes / total_quotes
+
+Scores serialize to `metadata["evidence_scores"]`:
+```json
+[{"commit_id": "abc...", "total_quotes": 3, "grounded_quotes": 2, "grounding_rate": 0.667}]
+```
+
+**Special cases:**
+- Diff unavailable → all quotes `UNVERIFIABLE`, rate = 0.0
+- Diff truncated (>16K chars) and quote not found → `UNVERIFIABLE`
+- Quote < 8 chars → not grounded
+- No quotes → rate = 0.0
+
+Evidence scores are **metadata only** — they do **not** modify suspect rank, confidence, or mechanism.
+
+#### Stage 7 — Report Assembly
+
+**Code:** `return BugAttributionReport(...)` (`orchestrator.py`).
+
+Always runs after stage 6. Assembles `problem_title`, `problem_description`, `suspects`, `reasoning_summary` (first 2000 chars of all LLM responses), `tool_trace` (result truncated to 500 chars per record), and `metadata` including `evidence_scoring_applied=True` and `post_processing_applied=False`.
 
 ### Loop mechanics
 
 ```
-for turn in range(max_turns):         # default: 15
-    if budget_exceeded: break
+for turn in range(max_turns):         # default: 15 (orchestrator counter)
+    if budget.budget_exceeded: break  # tokens, cost, or tool_calls
 
     response = llm.complete(messages)
     budget.record(response)
 
     if response contains ```suspects```:
-        parse suspects → break          # EXIT: conclusion
+        suspects = _parse_suspects(...) → break   # EXIT: stage 5
 
-    if response contains ```tool```:
-        execute each tool call
-        append results via TURN_PROMPT
-    else:
-        break                            # EXIT: no tools, no suspects
+    tool_calls = _parse_tool_calls(...)
+    if not tool_calls:
+        break                                   # EXIT: no tools, no suspects
+
+    for call in tool_calls:                      # stages 2-4
+        if budget.total_tool_calls >= max_tool_calls:
+            append budget-limit message; break  # mid-batch cutoff
+        result = registry.execute(...)
+        tool_trace.append(...)
+    append TURN_PROMPT with tool results
 ```
 
 ### Three exit conditions
 
 | Condition | Result |
 |-----------|--------|
-| LLM emits a ` ```suspects``` ` block | Suspects parsed from JSON array |
+| LLM emits a ` ```suspects``` ` block | Suspects parsed from JSON array (stage 5) |
 | LLM emits neither tools nor suspects | Empty suspect list |
-| Budget exceeded or max_turns reached | Whatever suspects were last parsed (usually empty) |
+| Budget exceeded, max_turns reached, or mid-batch tool cutoff | Whatever suspects were last parsed (usually empty) |
+
+Stages 6–7 run unconditionally after any exit.
 
 ### Tool calling format
 
@@ -146,11 +231,11 @@ I'll search for commits touching the RouteBuilder file.
 ` ` `
 ```
 
-The orchestrator extracts all ` ```tool``` ` blocks via regex, executes them sequentially, and returns results as plain text in the next user message.
+The orchestrator extracts all ` ```tool``` ` blocks via `_TOOL_CALL_PATTERN`, executes them sequentially via `ToolRegistry.execute()`, and returns results as plain text in the next user message.
 
 ### Suspect output format
 
-When the LLM concludes, it emits:
+When the LLM concludes (stage 5), it emits:
 
 ```
 ` ` `suspects
@@ -162,22 +247,20 @@ When the LLM concludes, it emits:
 ` ` `
 ```
 
-Parsing: array order determines `rank` (1-based). `confidence` and `mechanism` are LLM-provided. Missing fields get defaults.
+Parsing: array order determines `rank` (1-based). `confidence` and `mechanism` are LLM-provided. Missing fields get defaults via `_parse_suspects()`.
 
-### Strategy (advisory, not enforced)
+### Resource limits (stages 1–5 collectively)
 
-The system prompt suggests five phases — **Understand, Search, Examine, Refine, Conclude** — but these are advisory text in the prompt, not enforced stages. The LLM may follow any strategy within budget.
-
-### Budget enforcement
+Resource limits apply to the entire LLM loop — not per advisory stage. Budget check runs at the **start** of each turn.
 
 | Resource | Limit | Enforced by |
 |----------|-------|-------------|
-| Tool calls | 30 | Counter incremented per executed tool; mid-batch cutoff |
-| Tokens | 100,000 | Accumulated from `LLMResponse.tokens_used` |
-| Cost | $0.50 USD | Accumulated from `LLMResponse.estimated_cost` |
-| Turns | 15 | Loop counter (each LLM call = 1 turn) |
+| Tool calls | 30 | `BudgetState.total_tool_calls`; mid-batch cutoff when limit reached mid-turn |
+| Tokens | 100,000 | `BudgetState.budget_exceeded` (from `LLMResponse.tokens_used`) |
+| Cost | $0.50 USD | `BudgetState.budget_exceeded` (from `LLMResponse.estimated_cost`) |
+| Turns | 15 | Orchestrator `for turn in range(self._max_turns)` — separate from `budget_exceeded` |
 
-Budget check runs at the **start** of each turn. If any limit is exceeded, the loop breaks immediately.
+When `budget_exceeded` is true at turn start, or `max_turns` is exhausted, the loop exits and stages 6–7 proceed with whatever suspects were collected (often none).
 
 ---
 
@@ -306,32 +389,6 @@ Two mechanisms in `GitContextProvider`:
 2. **Search pre-filtering**: all `git log` commands append the bound ref as a positional argument, limiting traversal to commits reachable from `COMMIT_B~1`.
 
 Edge case: if a commit SHA cannot be resolved (e.g. short hash ambiguity), the bound check is silently skipped rather than raising.
-
----
-
-## Evidence Scoring (Post-Loop)
-
-After the agent loop exits, `_attach_evidence_scores()` runs inside `investigate()`:
-
-1. For each suspect, fetch the commit diff via `git_provider.get_diff()`
-2. Call `score_suspect_evidence(commit_id, evidence_quotes, diff)`
-3. For each quote, check if it appears in the diff via a cascade:
-   - Exact substring match
-   - Normalized match (strip `+/-` prefixes, collapse whitespace)
-   - Token-set fuzzy match (>=80% of tokens >=3 chars found in order within 200-char windows)
-4. A quote is **grounded** if the cascade finds a match (tier = `SUPPORTED`)
-5. `grounding_rate` = grounded_quotes / total_quotes
-
-Scores are serialized to `metadata["evidence_scores"]` as:
-```json
-[{"commit_id": "abc...", "total_quotes": 3, "grounded_quotes": 2, "grounding_rate": 0.667}]
-```
-
-Special cases:
-- Diff unavailable → all quotes `UNVERIFIABLE`, rate = 0.0
-- Diff truncated (>16K chars) and quote not found → `UNVERIFIABLE`
-- Quote < 8 chars → not grounded
-- No quotes → rate = 0.0
 
 ---
 

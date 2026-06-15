@@ -1,0 +1,73 @@
+{
+  "task_id": "arch-spec-rewrite",
+  "evaluated_at": "2026-06-15T23:39:00Z",
+  "verdict": "PASS",
+  "checks": [
+    {
+      "name": "docs-no-links-to-deleted-files",
+      "result": "PASS",
+      "evidence": "Glob confirms docs/architecture.md, docs/evaluation.md, docs/temporal-model.md absent. rg markdown links to those paths across repo: 0 matches. docs/ cross-links point to system-specification.md, evaluation-framework.md, agent-loop.md only."
+    },
+    {
+      "name": "docs-internal-consistency",
+      "result": "PASS",
+      "evidence": "7-stage agentic loop consistent across system-specification.md (Pipeline Overview table + Agentic Loop section), agent-loop.md, glossary.md (Evidence Scorer = stage 6), AGENTS.md reading order, README doc table. Temporal model lives in system-specification.md#temporal-model; agent-loop.md and AGENTS.md link there."
+    },
+    {
+      "name": "system-spec-agentic-loop-vs-orchestrator",
+      "result": "PASS",
+      "evidence": "investigate() flow matches doc: messages=[system+problem.to_prompt_text()] (305-308); loop with budget_exceeded at turn start (314-317); suspects before tool_calls (323-328); shared tool loop via _parse_tool_calls/registry.execute (328-357); mid-batch tool cutoff (335-339); unconditional _attach_evidence_scores (373) then BugAttributionReport return with evidence_scoring_applied/post_processing_applied (375-393). Limits: max_turns=15, max_tool_calls=30, max_tokens=100K, max_cost=0.50 (271-280)."
+    },
+    {
+      "name": "system-spec-evidence-scoring-vs-evidence-tagger",
+      "result": "PASS",
+      "evidence": "Stage 6 doc cascade (exact/normalized/fuzzy, SUPPORTED=grounded) matches quote_in_diff() and tag_hypothesis(). Special cases match score_suspect_evidence(): diff None→UNVERIFIABLE rate 0 (355-370), no quotes→rate 0 (346-352), quote<8 via _MIN_QUOTE_LEN (81-82), truncated diff+not found→UNVERIFIABLE (147-153)."
+    },
+    {
+      "name": "evaluation-framework-stage-to-metric-vs-eval-metrics",
+      "result": "PASS",
+      "evidence": "Stage-to-Metric Mapping: stages 3-4 Retrieval Recall via tool_trace[].args.commit_id only — evaluate_attribution() lines 166-174. Hit@k/MRR from suspect rank vs bug_hash (158-164). D6 from attached evidence_scores or live score_suspect_evidence fallback (176-193). D3 documented not implemented. Stage 2 search listing excluded per args-only caveat (lines 44, 83-89)."
+    },
+    {
+      "name": "stale-references-grep",
+      "result": "PASS",
+      "evidence": "rg docs/**/*.md for architecture.md, evaluation.md (not -framework), temporal-model.md, post-loop, Post-Loop: 0 matches. Single 'Agent Loop' string in docs/harness.md:42 ASCII diagram (cosmetic label, not a deleted-doc link)."
+    },
+    {
+      "name": "agent-loop-md-useful-summary",
+      "result": "PASS",
+      "evidence": "No deprecated banner. Concise 7-stage table, pipeline diagram, tools, collective resource limits, stage-to-metric pointer, canonical link to system-specification.md#agentic-loop. Reflects advisory stages 1-5 + unconditional 6-7."
+    },
+    {
+      "name": "contract-acceptance-criteria-ac1-ac9",
+      "result": "PASS",
+      "evidence": "AC1: single ## Agentic Loop (line 110), no Agent Loop/Evidence Scoring (Post-Loop) sections. AC2: seven-stage table with owners/inputs/outputs/dimensions; stage 1 implicit reasoning. AC3: code refs + shared tool loop for 2-4. AC4: pipeline diagram references 7-stage agentic loop. AC5: Stage-to-Metric Mapping present with negotiated retrieval-recall stages 3-4. AC6-AC8: advisory 1-5, collective limits, unconditional 6-7. AC9: loop mechanics, exit conditions, formats, budget table, cascade, special cases, metadata keys preserved."
+    },
+    {
+      "name": "contract-edge-cases-ec1-ec8",
+      "result": "PASS",
+      "evidence": "EC1 interleave/no gates (lines 112, 144). EC2 collective budget (252-263). EC3 empty suspects + stages 6-7 (150, 158). EC4 special cases (174-178). EC5 metadata-only scores (180, 47). EC6 args-only retrieval (evaluation-framework 44, 83-89). EC7 suspects-before-tools (152, orchestrator 323-328). EC8 mid-batch cutoff continues loop (205-206, 335-367)."
+    },
+    {
+      "name": "phase2-doc-freshness",
+      "result": "PASS",
+      "evidence": "agent-loop.md full rewrite (7-stage, not deprecated). glossary.md Evidence Scorer = stage 6 of agentic loop; Three-stage pipeline mentions agentic loop. AGENTS.md reading order cites agentic loop (7 stages). README doc table lists current V3 docs only."
+    },
+    {
+      "name": "phase3-deprecated-doc-deletion",
+      "result": "PASS",
+      "evidence": "architecture.md, evaluation.md, temporal-model.md deleted. README, agent-loop.md, experiment-context.md, datasets.md, harness.md Related sections updated to canonical replacements."
+    },
+    {
+      "name": "pytest-suite",
+      "result": "PASS",
+      "evidence": "python -m pytest tests/ -x -q --ignore=tests/_v2_archive → 208 passed in 9.75s"
+    }
+  ],
+  "findings": [
+    "WARN: README.md links archived spikes at .harness/archive/docs/ but actual path is .harness/.archive/docs/ — broken link, out of contract AC scope",
+    "WARN: docs/harness.md still describes V2 CommitInvestigationReport pipeline and links agent-loop.md#multi-turn-policy (anchor absent) — not updated in this task; canonical V3 spec is system-specification.md",
+    "WARN: docs/harness.md:42 ASCII diagram label 'Agent Loop' predates Agentic Loop terminology",
+    "INFO: docs/experiment-context.md retains V2 six-dimension CommitInvestigationReport framing — orthogonal to arch-spec-rewrite contract"
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "task_id": "arch-spec-rewrite",
+  "evaluator_verdict": "PASS",
+  "evaluated_at": "2026-06-16T03:15:00Z",
+  "summary": "7-stage Agentic Loop doc rewrite verified. Single section in system-specification.md; Stage-to-Metric Mapping in evaluation-framework.md. All negotiated amendments incorporated. 208 tests pass.",
+  "criteria_results": {
+    "AC1": {
+      "status": "PASS",
+      "evidence": "grep docs/system-specification.md: no '## Agent Loop' or '## Evidence Scoring (Post-Loop)'. Single '## Agentic Loop' at line 110."
+    },
+    "AC2": {
+      "status": "PASS",
+      "evidence": "Seven stages table lines 116-124 with #, name, owner, input, output, evaluation dimension. Stage 1 output: 'Implicit LLM reasoning (not a structured artifact)'."
+    },
+    "AC3": {
+      "status": "PASS",
+      "evidence": "Per-stage code refs: investigate(), _SYSTEM_PROMPT_TEMPLATE, _parse_tool_calls(), ToolRegistry.execute(), _parse_suspects(), _attach_evidence_scores(), score_suspect_evidence(), quote_in_diff(), tag_hypothesis(). Stages 2-4 section explicitly states shared tool loop with typical-tools table."
+    },
+    "AC4": {
+      "status": "PASS",
+      "evidence": "Pipeline diagram lines 13-14: '7-stage Agentic Loop (stages 1-5 LLM, 6-7 script)'. Stage 2 table lines 37-45 enumerates all 7 stages."
+    },
+    "AC5": {
+      "status": "PASS",
+      "evidence": "evaluation-framework.md 'Stage-to-Metric Mapping' lines 30-44. Stage 2 = no metric; stages 3-4 = Retrieval Recall; stage 5 = Hit@k/MRR + D3 not yet implemented; stage 6 = D6. Caveat matches eval_metrics.py args-only logic."
+    },
+    "AC6": {
+      "status": "PASS",
+      "evidence": "Agentic Loop intro line 112: 'not enforced as sequential gates — the LLM may interleave'. Stage 2-4 section: 'no stage gates'."
+    },
+    "AC7": {
+      "status": "PASS",
+      "evidence": "Resource limits section lines 252-263: BudgetState.budget_exceeded for tokens/cost/tool_calls; max_turns via orchestrator loop counter; collective stages 1-5."
+    },
+    "AC8": {
+      "status": "PASS",
+      "evidence": "Stage 6 line 158: 'Always runs after the LLM loop exits, regardless of exit condition (including empty suspects)'. Stage 7 line 186. Exit table line 220: 'Stages 6-7 run unconditionally after any exit.' Matches orchestrator.py lines 373-394 post-loop."
+    },
+    "AC9": {
+      "status": "PASS",
+      "evidence": "Preserved under Agentic Loop: loop mechanics (188-210), three exit conditions (212-220), tool format (222-234), suspect format (236-250), resource limits table (252-263), evidence cascade + special cases (160-178), metadata keys in Data Structures (333-347)."
+    }
+  },
+  "edge_case_results": {
+    "EC1": {
+      "status": "PASS",
+      "evidence": "Line 112 advisory framing; line 144 'any tool in any order'; no stage gate language."
+    },
+    "EC2": {
+      "status": "PASS",
+      "evidence": "Resource limits section: collective stages 1-5; budget at turn start; max_turns=15 separate counter."
+    },
+    "EC3": {
+      "status": "PASS",
+      "evidence": "Stage 5 section line 150: budget/max_turns/no-tools exit with empty suspects; stages 6-7 still run."
+    },
+    "EC4": {
+      "status": "PASS",
+      "evidence": "Stage 6 special cases lines 174-178 match evidence_tagger.py score_suspect_evidence() and tag_hypothesis() behavior."
+    },
+    "EC5": {
+      "status": "PASS",
+      "evidence": "Line 180 metadata-only; Stage 2 table line 47; Stage 6 line 180 explicit no rank/confidence modification."
+    },
+    "EC6": {
+      "status": "PASS",
+      "evidence": "evaluation-framework.md lines 44, 83-89; Known Limitations line 233. Matches eval_metrics.py lines 166-174."
+    },
+    "EC7": {
+      "status": "PASS",
+      "evidence": "Line 152 precedence documented. orchestrator.py lines 323-328: _parse_suspects before _parse_tool_calls."
+    },
+    "EC8": {
+      "status": "PASS",
+      "evidence": "Loop mechanics lines 205-206; resource limits line 258. orchestrator.py lines 335-339: budget message + break mid-batch, loop continues via TURN_PROMPT."
+    }
+  },
+  "findings": [
+    "INFO: docs/agent-loop.md deprecation banner references obsolete 'Agent Loop' section name",
+    "INFO: docs/glossary.md 'post-loop' wording stale — not in contract scope"
+  ],
+  "recommended_action": "Mark contract verified. Update state.json arch-spec-rewrite to verified. Ready for commit."
+}

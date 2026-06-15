@@ -1,28 +1,55 @@
-> **DEPRECATED** — This document is superseded by [system-specification.md](system-specification.md) (see "Agent Loop" section). Kept for historical reference only.
+# Agentic Loop — Bug Attribution
 
-# Agent Loop — Bug Attribution
+The agentic loop is the entire investigation inside `AgentOrchestrator.investigate()` — from `ProblemStatement` to `BugAttributionReport`. It runs as seven stages: five advisory LLM phases sharing a single multi-turn tool loop, followed by two unconditional script steps.
 
-The agent loop is the multi-turn search process that attributes a reported bug to an introducing commit.
+> **Canonical specification:** [system-specification.md — Agentic Loop](system-specification.md#agentic-loop) has the full stage details, loop mechanics, exit conditions, and code references.
+
+## Seven Stages
+
+| # | Name | Owner | Evaluation Dimension |
+|---|------|-------|---------------------|
+| 1 | Problem Analysis | LLM | — |
+| 2 | Search | LLM via tools | — |
+| 3 | Examine | LLM via tools | Retrieval Recall |
+| 4 | Refine | LLM via tools | Retrieval Recall |
+| 5 | Conclude | LLM | Hit@k, MRR, D3 |
+| 6 | Evidence Scoring | Script | D6 Evidence Grounding |
+| 7 | Report Assembly | Script | Schema tests |
+
+**Stages 1–5** are advisory phases from `_SYSTEM_PROMPT_TEMPLATE` (Understand → Search → Examine → Refine → Conclude). They are **not** enforced as sequential gates — the LLM may interleave search, examine, and refine across turns within a single multi-turn loop.
+
+**Stages 6–7** always run after the LLM loop exits, regardless of exit condition (including empty suspects). Evidence scores are **metadata only** — suspect rank and confidence are never modified.
 
 ## Pipeline
 
 ```
-ProblemStatement (input, opaque to agent)
-    |
-    v
-Attribution Agent (LLM, max 30 tool calls)
-  Phases: Understand -> Search -> Examine -> Refine -> Conclude
-    |
-    v
-Evidence Scorer (Script) --> grounding scores attached (suspects unchanged)
-    |
-    v
-BugAttributionReport (assembled in investigate())
+ProblemStatement (input)
+    │
+    ▼
+┌─────────────────────────────────────────────┐
+│  Stages 1–5: Multi-turn LLM tool loop       │
+│  (advisory phases, shared code path)        │
+│                                              │
+│  Budget: 30 tool calls, 100K tokens,        │
+│          $0.50, 15 turns (collective)        │
+└──────────────────┬──────────────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────────────┐
+│  Stage 6: Evidence Scoring (script)          │
+│  _attach_evidence_scores() → quote_in_diff() │
+│  3-tier cascade: exact → normalized → fuzzy  │
+└──────────────────┬───────────────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────────────┐
+│  Stage 7: Report Assembly (script)           │
+│  return BugAttributionReport(...)            │
+└──────────────────┬───────────────────────────┘
+                   │
+                   ▼
+BugAttributionReport (output)
 ```
-
-The Evidence Scorer runs **inside** `AgentOrchestrator.investigate()` after the agent loop completes and before the report is returned. It grades each suspect's evidence quotes against the commit diff and attaches scores to `report.metadata["evidence_scores"]`. Suspect rank and confidence are **not** modified. At eval time, `evaluate_attribution()` reuses these attached scores instead of re-fetching diffs.
-
-The agent receives a `ProblemStatement` as a black-box input — it contains a title and description of the bug. How that statement was constructed (e.g. from a JIRA ticket via `ProblemExtractor`) is an eval/infrastructure concern, not part of the agent loop. See [architecture.md](architecture.md) for the full system including eval setup.
 
 ## Input
 
@@ -31,51 +58,38 @@ The agent receives a `ProblemStatement` as a black-box input — it contains a t
 | `ProblemStatement` | Provided by caller (eval harness builds it from JIRA) | What broke, symptoms |
 | `GitContextProvider` | Local clone, bound to `COMMIT_B~1` | All git reads |
 
-## Tools
+## Tools (stages 2–4)
 
-| Tool | Use case |
-|------|----------|
-| `search_commits_by_file` | Find commits touching a file |
-| `search_commits_by_keyword` | Search commit messages |
-| `get_commit_diff` | Inspect candidate changes |
-| `get_commit_message` | Read author intent |
-| `get_blame` | Trace line-level authorship |
-| `get_file_at_commit` | Read file state |
-| `list_recent_commits` | Browse recent history |
+| Tool | Typical stage | Use case |
+|------|---------------|----------|
+| `search_commits_by_file` | Search | Find commits touching a file |
+| `search_commits_by_keyword` | Search | Search commit messages |
+| `list_recent_commits` | Search | Browse recent history |
+| `get_commit_diff` | Examine | Inspect candidate changes |
+| `get_commit_message` | Examine | Read author intent |
+| `get_file_at_commit` | Examine | Read file state at commit |
+| `get_blame` | Refine | Trace line-level authorship |
 
-All tools enforce the temporal bound.
+All tools enforce the temporal bound. Stage association is typical, not enforced.
 
-## Phases
+## Resource Limits (stages 1–5 collectively)
 
-| Phase | Activity |
-|-------|----------|
-| **Understand** | Parse problem; identify files, symbols, error patterns |
-| **Search** | Execute git queries based on extracted signals |
-| **Examine** | Read candidate diffs; correlate with symptoms |
-| **Refine** | Narrow suspects; gather deeper evidence |
-| **Conclude** | Rank suspects; emit AttributionResponse |
+| Limit | Value | Enforced by |
+|-------|-------|-------------|
+| Tool calls | 30 | `BudgetState.total_tool_calls` (mid-batch cutoff) |
+| Tokens | 100,000 | `BudgetState.budget_exceeded` |
+| Cost | $0.50 | `BudgetState.budget_exceeded` |
+| Turns | 15 | `for turn in range(self._max_turns)` (separate from budget) |
 
-## Budget
+## Stage-to-Metric Mapping
 
-| Limit | Value | On exceed |
-|-------|-------|-----------|
-| Tool calls | 30 | Force conclude |
-| Tokens | 100,000 | Force conclude |
-| Cost | $0.50 | Force conclude |
+See [evaluation-framework.md — Stage-to-Metric Mapping](evaluation-framework.md#stage-to-metric-mapping) for how each stage connects to evaluation metrics.
 
-## Post-Processing (in-pipeline)
-
-These stages run inside `investigate()` after the agent loop, before report return:
-
-| Stage | Owner | Purpose |
-|-------|-------|---------|
-| Evidence Scorer | Script | Grade evidence quotes against suspect diffs; attach scores to metadata |
-| Report Assembly | Script | Build `BugAttributionReport` with LLM suspects unchanged |
-
-Eval metrics reuse `metadata["evidence_scores"]` when scoring D6 evidence grounding — no redundant diff fetches.
+Key insight: **Retrieval Recall** only counts `commit_id` in `tool_trace[].args` (examine/refine tools), not SHAs in search result text. A case can have low retrieval recall even if search listed the right commit.
 
 ## Related
 
-- [temporal-model.md](temporal-model.md) — COMMIT_B~1 bound
-- [evaluation.md](evaluation.md) — Hit@k, MRR scoring
-- [architecture.md](architecture.md) — system design
+- [system-specification.md](system-specification.md) — full spec: loop mechanics, exit conditions, tool/suspect formats, prompt structure
+- [evaluation-framework.md](evaluation-framework.md) — metrics, stage-to-metric mapping, baselines
+- [system-specification.md — Temporal Model](system-specification.md#temporal-model) — COMMIT_B~1 bound
+- [glossary.md](glossary.md) — term definitions

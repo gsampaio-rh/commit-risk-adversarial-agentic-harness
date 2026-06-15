@@ -2,11 +2,11 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v3-ready-for-eval",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-16T02:30:00Z",
+  "updated": "2026-06-15T23:30:00Z",
   "schema_version": 5,
   "_archive": "V2 state archived to .harness/state-v2-archive.json. V2 final: D1=0.72 D3=0.31 (n=50), JIRA injection brought D3=0.35 on n=20.",
   "vision": "Build a bug attribution agent: given a JIRA bug report (title + description), autonomously search a git repository to identify the commit that introduced the bug. The agent uses git tools (log, blame, diff, show) with temporal bounds, producing a ranked list of suspect commits with evidence-grounded causal explanations. Evaluated via Hit@k, MRR, and attribution quality metrics against ApacheJIT ground truth.",
-  "direction": "V3 implementation complete. Data infrastructure ready (10 repos, JIRA cache, 20/20 cases runnable). Architecture + evaluation specs rewritten (system-specification.md, evaluation-framework.md). Next: first-live-eval (P2) — run baselines + agent against real data, establish Hit@5 floor. We have zero real numbers.",
+  "direction": "V3 implementation complete. Data infrastructure ready (10 repos, JIRA cache, 20/20 cases runnable). Docs fully aligned: 7-stage agentic loop spec in system-specification.md, stage-to-metric mapping in evaluation-framework.md, all cross-references updated (agent-loop.md, glossary.md, architecture.md, etc.). Next: first-live-eval (P2) — run baselines + agent against real data, establish Hit@5 floor. We have zero real numbers.",
   "invariants": {
     "temporal_bound": "Agent sees repo up to COMMIT_B~1 (parent of earliest fix commit). COMMIT_B diff/content/message are NOT visible. JIRA ticket (title + description) is the input -- temporally valid (created before fix).",
     "llm_reasons_scripts_verify": "LLM owns search strategy, candidate selection, and attribution reasoning. Scripts own evidence grounding (verifying quotes against diffs) and report assembly.",
@@ -55,9 +55,23 @@
     "v3-eval: Eval metrics (Hit@k, MRR, D3, D6) + eval runner",
     "v3-post-processing-a: In-pipeline evidence scoring — attach grounding metadata, no re-rank",
     "data-infra: 10 Apache repos cloned (7.8GB), JIRA cache warmed (108 entries), 20/20 eval cases runnable",
-    "arch-spec-rewrite: system-specification.md + evaluation-framework.md replacing 4 fragmented docs"
+    "arch-spec-rewrite: 7-stage Agentic Loop spec in system-specification.md + Stage-to-Metric Mapping in evaluation-framework.md + doc freshness pass (agent-loop.md, glossary.md, architecture.md, temporal-model.md, evaluation.md, README.md, AGENTS.md)"
   ],
   "tasks": [
+    {
+      "id": "arch-spec-rewrite",
+      "name": "Agentic Loop specification: 7-stage pipeline in system-specification.md and evaluation-framework.md",
+      "type": "docs",
+      "status": "verified",
+      "priority": 1,
+      "depends_on": ["v3-post-processing-a"],
+      "subtasks": [
+        "rewrite-agentic-loop: Merge Agent Loop + Evidence Scoring into single Agentic Loop section (7 stages)",
+        "update-pipeline-overview: Stage 2 table references 7-stage agentic loop",
+        "stage-metric-mapping: Add Stage-to-Metric Mapping section to evaluation-framework.md",
+        "doc-freshness: Updated agent-loop.md (full rewrite), glossary.md (post-loop→stage 6, three-stage→agentic loop), architecture.md (pipeline table + mermaid), temporal-model.md, evaluation.md, README.md, AGENTS.md — all cross-references aligned"
+      ]
+    },
     {
       "id": "data-infra",
       "name": "Data infrastructure: clone Apache repos, prepare ApacheJIT zip, warm JIRA cache",

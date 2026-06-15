@@ -8,7 +8,7 @@
 | **SuspectCommit** | Candidate bug-introducing commit with rank, confidence, mechanism, and evidence quotes. Produced by the LLM, parsed from ` ```suspects``` ` JSON. |
 | **BugAttributionReport** | Final pipeline output: ranked suspects, reasoning summary, tool trace, and metadata (evidence scores, cost, model). |
 | **Attribution Agent** | Multi-turn LLM agent that searches a temporally-bounded git repository to find the commit that introduced a reported bug. Implemented in `AgentOrchestrator`. |
-| **Evidence Scorer** | Script that verifies evidence quotes against commit diffs via exact, normalized, and fuzzy matching. Runs post-loop inside `investigate()`. |
+| **Evidence Scorer** | Script that verifies evidence quotes against commit diffs via exact, normalized, and fuzzy matching. Runs as stage 6 of the agentic loop inside `investigate()`. See [system-specification.md — Stage 6](system-specification.md#stage-6--evidence-scoring). |
 | **ProblemExtractor** | Eval infrastructure that builds `ProblemStatement` from JIRA tickets. Level 1: raw pass-through. Not part of the agent's runtime. |
 | **GitContextProvider** | Temporally-bounded git access layer wrapping `git` CLI. All tools route through this. |
 | **ToolRegistry** | Registry of 7 git tools available to the agent. Tool calls are text-based (markdown fences), not native function calling. |
@@ -54,11 +54,11 @@
 | Term | Definition |
 |------|------------|
 | **LLM reasons, scripts verify** | Design principle: the LLM drives search and attribution; scripts verify evidence grounding and compute metrics. |
-| **Three-stage pipeline** | Stage 1: Eval Setup (harness). Stage 2: Investigation (LLM + scripts). Stage 3: Evaluation (oracle). |
+| **Three-stage pipeline** | Stage 1: Eval Setup (harness). Stage 2: Investigation — the **agentic loop** with 7 stages (5 advisory LLM phases + 2 script steps). Stage 3: Evaluation (oracle). See [system-specification.md](system-specification.md). |
 | **Baselines** | Zero-LLM deterministic methods (git-blame-naive, file-history-recency) that establish the performance floor the agent must beat. |
 
 ## Related
 
-- [system-specification.md](system-specification.md) — pipeline, LLM boundary, agent loop
+- [system-specification.md](system-specification.md) — pipeline, LLM boundary, agentic loop (7 stages)
 - [evaluation-framework.md](evaluation-framework.md) — metrics, rubrics, thresholds
 - [datasets.md](datasets.md) — ApacheJIT data, ground truth chain

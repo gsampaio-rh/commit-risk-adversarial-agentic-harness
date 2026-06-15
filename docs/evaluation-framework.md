@@ -27,6 +27,24 @@ These metrics evaluate the quality of the LLM's output independent of whether it
 
 ---
 
+## Stage-to-Metric Mapping
+
+This table links agentic loop stages (see [system-specification.md](system-specification.md#agentic-loop)) to the metrics that measure them. Stages 1–5 are advisory LLM phases; stages 6–7 are script steps inside `investigate()`.
+
+| Agentic loop stage | Metric(s) | What is measured | Status |
+|--------------------|-----------|------------------|--------|
+| 1 Problem Analysis | — | No separate metric; quality propagates to tool usage | — |
+| 2 Search | — | Search listing tools do not feed Retrieval Recall directly (see below) | — |
+| 3 Examine | **Retrieval Recall** | Whether `bug_hash` appears in `tool_trace[].args.commit_id` from examine tools (`get_commit_diff`, `get_commit_message`, `get_file_at_commit`) | Implemented |
+| 4 Refine | **Retrieval Recall** (continued) | Same as stage 3 — any tool call with `commit_id` in args counts | Implemented |
+| 5 Conclude | **Hit@k**, **MRR**, **D3 Attribution Quality** | Final ranked suspect list vs ground truth `bug_hash`; causal mechanism quality | Hit@k/MRR implemented; D3 not yet implemented |
+| 6 Evidence Scoring | **D6 Evidence Grounding** | Whether evidence quotes appear in suspect diffs | Implemented |
+| 7 Report Assembly | — | Structural correctness of `BugAttributionReport` | Tested via schema, not scored |
+
+**Retrieval Recall caveat:** `evaluate_attribution()` in `eval_metrics.py` checks only `commit_id` values in `tool_trace[].args`. Commit SHAs that appear **only** in search tool result text (`search_commits_by_file`, `search_commits_by_keyword`, `list_recent_commits`) are **not** counted. A case can have low retrieval recall even if search listed the right commit, until the agent calls an examine tool with that `commit_id`.
+
+---
+
 ## Metric Definitions
 
 ### Hit@k (k = 1, 3, 5)
@@ -58,15 +76,19 @@ mrr = mean(mrr_case for all cases)
 
 ### Retrieval Recall
 
-**What it measures:** Whether the agent ever *looked at* the bug-introducing commit during its search, regardless of whether it ranked it as a suspect.
+**What it measures:** Whether the agent ever *fetched* the bug-introducing commit via an examine tool (commit in `tool_trace[].args`), regardless of whether it ranked it as a suspect.
+
+**Agentic loop stages:** Primarily stages 3–4 (Examine, Refine). Stage 2 search listing alone does not satisfy retrieval recall.
 
 **Computation:**
 ```
-all commit_ids referenced in tool_trace[].args
-retrieval_recall = 1 if bug_hash[:12] in {traced_commit[:12] for all traced commits}
+commit_ids = {tool_trace[i].args.commit_id for all tool calls where commit_id present}
+retrieval_recall = 1 if bug_hash[:12] in {cid[:12] for cid in commit_ids}, else 0
 ```
 
-**Why it matters:** Separates search quality from ranking quality. If retrieval recall is high but Hit@5 is low, the agent sees the right commit but doesn't recognize it — a reasoning problem. If retrieval recall is low, the agent isn't searching in the right places — a search strategy problem.
+**Not counted:** SHAs appearing only in search tool **result text** (e.g. output of `search_commits_by_file`) — only `args.commit_id` on tool trace records matters.
+
+**Why it matters:** Separates examine/refine quality from ranking quality. If retrieval recall is high but Hit@5 is low, the agent fetched the right commit but did not rank it — a reasoning problem. If retrieval recall is low, the agent never called an examine tool on `bug_hash` — a search or examine strategy problem.
 
 ### D6 Evidence Grounding
 
@@ -208,7 +230,8 @@ These thresholds are **provisional** — they will be calibrated after the first
 |------------|--------|------------|
 | SZZ noise in `bug_hash` labels | Format changes and refactoring labeled as bug-introducing. Hit@1 unreliable. | Hit@5 as primary metric; manual review planned (task `gt-noise-analysis`). |
 | Tool output truncation (8K chars) | Large diffs or blame output may lose relevant lines | Truncation appends a notice; agent can request specific line ranges via `get_blame` |
-| Tool trace truncation (500 chars) | Retrieval Recall may miss commits referenced only in truncated results | Full results still sent to LLM; only the trace record is truncated |
+| Retrieval Recall args-only | Only `tool_trace[].args.commit_id` counts; search result SHAs ignored | Documented in Stage-to-Metric Mapping; agent must call examine tools on suspects |
+| Tool trace truncation (500 chars) | Trace record truncated; full results still sent to LLM | Does not affect retrieval recall (uses args, not result text) |
 | No D3 judge | Cannot evaluate reasoning quality in V3 today | Rubric defined above; implementation planned (task `d3-llm-judge`) |
 | Advisory phases | Agent may ignore the suggested 5-phase strategy entirely | Acceptable — the agent is measured on outcomes, not process |
 | Single-LLM architecture | No multi-agent debate, no separate planning model | Simplicity first; reconsider if Hit@5 plateaus |
@@ -220,6 +243,6 @@ These thresholds are **provisional** — they will be calibrated after the first
 
 | Document | Content |
 |----------|---------|
-| [system-specification.md](system-specification.md) | Pipeline stages, LLM boundary, agent loop, tools |
+| [system-specification.md](system-specification.md) | Pipeline stages, LLM boundary, agentic loop, tools |
 | [datasets.md](datasets.md) | ApacheJIT data, ground truth chain |
 | [glossary.md](glossary.md) | Term definitions |

@@ -5,7 +5,7 @@ This project builds an agentic attribution harness that, given a JIRA bug report
 ## Reading Order
 
 1. **This file** — entry point, key invariants, task policy
-2. [docs/system-specification.md](docs/system-specification.md) — pipeline stages, LLM boundary, agent loop, tools, data structures, temporal model
+2. [docs/system-specification.md](docs/system-specification.md) — pipeline stages, LLM boundary, agentic loop (7 stages), tools, data structures, temporal model
 3. [docs/evaluation-framework.md](docs/evaluation-framework.md) — system-level vs output-quality metrics, D3 rubric, baselines, thresholds
 4. [docs/glossary.md](docs/glossary.md) — all project-specific terms and definitions
 5. [docs/datasets.md](docs/datasets.md) — ApacheJIT data, ground truth chain, bug→commit mappings

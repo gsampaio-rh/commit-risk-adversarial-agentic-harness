@@ -71,5 +71,5 @@ data/
 
 ## Related
 
-- [experiment-context.md](experiment-context.md) — why ApacheJIT enables six-dimension eval
-- [evaluation.md](evaluation.md) — how ground truth feeds D1–D6 scoring
+- [evaluation-framework.md](evaluation-framework.md) — how ground truth feeds Hit@k, MRR, D3, D6 scoring
+- [glossary.md](glossary.md) — term definitions

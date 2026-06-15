@@ -84,14 +84,13 @@ python -m commit_investigator.runners.run_eval --max-evals 20 --mock
 
 | Document | Purpose |
 |----------|---------|
-| [docs/architecture.md](docs/architecture.md) | System identity, design philosophy, investigation method, trust boundaries |
-| [docs/harness.md](docs/harness.md) | Deterministic infrastructure: routing, budget, schema, control plane, improvement cycle |
-| [docs/agent-loop.md](docs/agent-loop.md) | Investigation process: flow, validation, quality gates, model strategy |
-| [docs/evaluation.md](docs/evaluation.md) | Six-dimension framework, acceptance thresholds, results |
-| [docs/experiment-context.md](docs/experiment-context.md) | Research thesis, oracle isolation rationale |
-| [docs/datasets.md](docs/datasets.md) | ApacheJIT splits, ground truth chain, download instructions |
+| [docs/system-specification.md](docs/system-specification.md) | Pipeline, LLM boundary, agentic loop (7 stages), tools, data structures, temporal model |
+| [docs/evaluation-framework.md](docs/evaluation-framework.md) | Metrics (Hit@k, MRR, D3, D6), stage-to-metric mapping, baselines, thresholds |
+| [docs/agent-loop.md](docs/agent-loop.md) | Agentic loop summary: 7-stage pipeline, tools, resource limits |
+| [docs/datasets.md](docs/datasets.md) | ApacheJIT data, ground truth chain, git clones |
+| [docs/glossary.md](docs/glossary.md) | Project-specific term definitions |
 
-Research spikes (archived): [.harness/archive/docs/](.harness/archive/docs/)
+Research spikes (archived): [.harness/.archive/docs/](.harness/.archive/docs/)
 
 ## Acceptance Thresholds
 
