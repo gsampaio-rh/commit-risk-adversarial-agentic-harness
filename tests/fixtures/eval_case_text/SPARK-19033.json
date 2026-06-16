@@ -1,0 +1,6 @@
+{
+  "issue_key": "SPARK-19033",
+  "project": "SPARK",
+  "title": "HistoryServer still uses old ACLs even if ACLs are updated",
+  "description": "In the current implementation of HistoryServer, Application ACLs is picked from event log rather than configuration:\n\n{code}\n            val uiAclsEnabled = conf.getBoolean(\"spark.history.ui.acls.enable\", false)\n            ui.getSecurityManager.setAcls(uiAclsEnabled)\n            // make sure to set admin acls before view acls so they are properly picked up\n            ui.getSecurityManager.setAdminAcls(appListener.adminAcls.getOrElse(\"\"))\n            ui.getSecurityManager.setViewAcls(attempt.sparkUser,\n              appListener.viewAcls.getOrElse(\"\"))\n            ui.getSecurityManager.setAdminAclsGroups(appListener.adminAclsGroups.getOrElse(\"\"))\n            ui.getSecurityManager.setViewAclsGroups(appListener.viewAclsGroups.getOrElse(\"\"))\n{code}\n\nThis will become a problem when ACLs is updated (newly added admin), only the new application can be effected, the old applications were still using the old ACLs. So these new admin still cannot check the logs of old applications.\n\nIt is hard to say this is a bug, but in our scenario this is not the expected behavior we wanted."
+}

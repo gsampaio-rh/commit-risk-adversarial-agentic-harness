@@ -1,175 +1,33 @@
 {
-  "feature": "v4-prompt-assembler",
-  "description": "PromptAssembler — 10-section ordered template with stage-specific formatting and truncation policy",
-  "adr_ref": ".harness/docs/mechanism-design.md §Q3",
-  "phase": "evaluating",
-  "verified": true,
-  "negotiation_round": 1,
-  "negotiation_notes": [
-    "AC4/AC6/AC18: exact ADR §Q3 section header strings including stage suffix on Hard/Soft Rules and (top N of M) on Candidate Summary",
-    "AC18 (new): Problem Statement body matches ADR example (Title/Description/Extracted files/keywords), not nested to_prompt_text() header",
-    "AC10: explicit examined/unexamined selection by rank order; files_changed comma-space joined",
-    "AC9: required stage-instruction substrings from ADR examples (testable without LLM)",
-    "AC11: FIFO evidence removal; truncation cascade targets match ADR (evidence → candidates top-10 → skills top-1); protected sections explicit",
-    "AC19 (new): seed-data integration test without mocks for load_rules/retrieve_skills wiring",
-    "AC15: corrected import paths (relative .rules/.skills or models/extraction, not self-import governance)",
-    "Edge cases E7–E10 added for None state/brief, zero examined attribution, empty problem statement"
-  ],
+  "feature": "v4-audit-fixes",
+  "phase": "accepted",
+  "description": "Fix 3 blocking issues from P1-P4 audit before starting P5 input pipeline",
   "acceptance_criteria": [
-    {
-      "id": "AC1",
-      "description": "New module src/commit_investigator/governance/prompt_assembler.py. governance/__init__.py additionally exports: assemble_prompt, PromptConfig.",
-      "verification": "Import test: from commit_investigator.governance import assemble_prompt, PromptConfig"
-    },
-    {
-      "id": "AC2",
-      "description": "PromptConfig dataclass with fields: token_budget (int, default=100_000), truncation_threshold (float, default=0.80), candidate_limit_stage2 (int, default=20), candidate_limit_stage3_unexamined (int, default=5), max_skills (int, default=3). All numeric fields must be > 0; otherwise ValueError on construction.",
-      "verification": "Unit test: default construction has expected values; override token_budget=50_000 works; token_budget=0 raises ValueError"
-    },
-    {
-      "id": "AC3",
-      "description": "assemble_prompt(stage: Literal['planning','examination','attribution'], problem_statement: ProblemStatement, candidate_set: CandidateSet, investigation_state: InvestigationState | None = None, brief: InvestigationBrief | None = None, evidence: list[str] | None = None, config: PromptConfig | None = None) → str. Invalid stage raises ValueError. Returns ordered multi-section prompt string with sections separated by a blank line.",
-      "verification": "Unit test: call with stage='planning', minimal ProblemStatement and CandidateSet; returns non-empty string; split on double-newline blocks; stage='invalid' raises ValueError"
-    },
-    {
-      "id": "AC4",
-      "description": "Up to 10 sections in strict order when populated. Exact headers: (1) `## System Role`, (2) `## Hard Rules ({Stage})` where Stage is Planning|Examination|Attribution (title-cased from stage param), (3) `## Soft Rules ({Stage})`, (4) `## Relevant Skills`, (5) `## Stage Instructions`, (6) `## Problem Statement`, (7) `## Candidate Summary` or `## Candidate Summary (top N of M)` when N<M commits shown, (8) `## Investigation Progress`, (9) `## Investigation Brief`, (10) `## Evidence Collected`. Regex extraction of `^## .+` lines preserves this order among present sections.",
-      "verification": "Unit test: assemble with all sections populated; extract section headers via regex; verify exact strings and order match spec including Hard Rules (Examination) and Candidate Summary (top N of M)"
-    },
-    {
-      "id": "AC5",
-      "description": "Empty sections omitted entirely — no header, no blank placeholder. Sections 8–9 only for stages examination/attribution AND only when investigation_state (§8) or brief (§9) is not None respectively. Section 10 only for attribution when evidence is non-empty list.",
-      "verification": "Unit test: stage='planning' → no sections 8–10; stage='examination' with state=None → no section 8; brief=None → no section 9; stage='attribution' with evidence=[] → no section 10"
-    },
-    {
-      "id": "AC6",
-      "description": "System Role section (1) contains stage-specific role text including substring 'Planning stage'|'Examination stage'|'Attribution stage' matching stage param, and includes 'bug attribution investigator' (case-insensitive).",
-      "verification": "Unit test: each stage produces distinct system_role text containing the stage name phrase and 'bug attribution investigator'"
-    },
-    {
-      "id": "AC7",
-      "description": "Hard Rules section (2) calls load_rules(stage) and renders each hard rule as bullet `- {rule.description}` (one per line). Soft Rules section (3) renders each soft rule's prompt_text verbatim (preserving internal newlines). Either section omitted when corresponding rule list empty.",
-      "verification": "Unit test with mocked load_rules returning 1 hard + 1 soft rule: hard description appears as `- {description}`; soft prompt_text appears verbatim; empty hard list omits section 2"
-    },
-    {
-      "id": "AC8",
-      "description": "Skills section (4) calls retrieve_skills(problem_statement, top_k=config.max_skills). Each skill rendered as `### {skill.id}` followed by skill.body on subsequent lines. Skills appear in retrieve_skills return order (score descending). Section omitted when retrieve_skills returns empty.",
-      "verification": "Unit test with mocked retrieve_skills returning 2 skills in score order: both appear under ### headers with body text in same order"
-    },
-    {
-      "id": "AC9",
-      "description": "Stage Instructions section (5) contains stage-specific task instructions. Planning MUST include 'InvestigationBrief' and 'JSON'. Examination MUST include 'examine' and 'evidence' (case-insensitive). Attribution MUST include 'rank' and 'confidence' (case-insensitive). Text differs across the three stages.",
-      "verification": "Unit test: each stage output contains required substrings; pairwise stage instruction bodies are not identical"
-    },
-    {
-      "id": "AC10",
-      "description": "Candidate Summary section (7) formats commits sorted by rank ascending as numbered lines: `{rank}. {commit_id[:12]} — \"{summary}\" — {files_changed joined with ', '}'`. Selection: planning — first config.candidate_limit_stage2 by rank; examination — examined commits (first min(candidates_examined, len(commits)) by rank) plus next config.candidate_limit_stage3_unexamined unexamined by rank; attribution — examined commits only (same first-N-by-rank rule). Header uses `(top N of M)` when N<M total commits in candidate_set.",
-      "verification": "Unit test: planning with 30 candidates → 20 lines + header `(top 20 of 30)`; examination with candidates_examined=5 and 15 commits → 5 examined + 5 unexamined lines; attribution with candidates_examined=3 → exactly 3 lines"
-    },
-    {
-      "id": "AC11",
-      "description": "Truncation policy per ADR §Q3: estimate tokens as len(full_text)//4. When estimated > config.token_budget * config.truncation_threshold, apply cascade until under threshold or exhausted: (1) evidence — remove entries from index 0 (oldest) one at a time; (2) candidate_summary — keep top 10 by rank; (3) skills — keep top 1. Never truncate content in sections 1–6 (system_role, hard_rules, soft_rules, stage_instructions, problem_statement). Re-estimate after each cascade step.",
-      "verification": "Unit test: token_budget=400, threshold=0.80, large evidence + 30 candidates + 3 skills → evidence removed first (FIFO), then candidates capped to 10, then skills to 1; problem_statement Title line always present; hard_rules and stage_instructions unchanged"
-    },
-    {
-      "id": "AC12",
-      "description": "Investigation Progress section (8) when investigation_state is not None and stage is examination or attribution: single line `Stage: {current_stage}, Examined: {candidates_examined}/{candidates_total}, Hypotheses tested: {hypotheses_tested}, confirmed: {hypotheses_confirmed}, Evidence quotes: {evidence_quotes_collected}`.",
-      "verification": "Unit test: InvestigationState with known field values on examination stage → progress line matches exact format"
-    },
-    {
-      "id": "AC13",
-      "description": "Investigation Brief section (9) renders json.dumps(brief.to_dict(), indent=2) inside section when brief is not None and stage is examination or attribution.",
-      "verification": "Unit test: brief with 2 hypotheses on examination stage → JSON block contains hypothesis ids/statements"
-    },
-    {
-      "id": "AC14",
-      "description": "Evidence Collected section (10) on attribution when evidence non-empty: numbered list `{i}. {quote}` starting at 1, preserving evidence list order.",
-      "verification": "Unit test: stage='attribution', evidence=['quote1','quote2'] → lines `1. quote1` and `2. quote2` under section header"
-    },
-    {
-      "id": "AC15",
-      "description": "Package isolation: prompt_assembler.py imports only from commit_investigator.governance.rules, commit_investigator.governance.skills (or relative .rules/.skills), commit_investigator.extraction (ProblemStatement), commit_investigator.models (CandidateSet, CandidateCommit, InvestigationState, InvestigationBrief), and stdlib. Zero imports from agent/, eval/, infra/.",
-      "verification": "grep: no 'from commit_investigator.(agent|eval|infra)' in prompt_assembler.py"
-    },
-    {
-      "id": "AC16",
-      "description": "prompt_assembler.py ≤ 300 lines. governance/__init__.py updated to export assemble_prompt and PromptConfig in __all__.",
-      "verification": "wc -l on prompt_assembler.py ≤ 300; __all__ includes assemble_prompt and PromptConfig"
-    },
-    {
-      "id": "AC17",
-      "description": "tests/test_prompt_assembler.py with ≥22 tests covering all ACs and edge cases. pytest tests/ passes with zero regressions (260+ existing tests).",
-      "verification": "pytest tests/ --ignore=tests/_v2_archive exits 0; test_prompt_assembler.py exists with ≥22 tests"
-    },
-    {
-      "id": "AC18",
-      "description": "Problem Statement section (6) body format per ADR §Q3 example: `Title: {title}`, `Description: {description}` on separate lines; when extracted_files non-empty append `Extracted files: {comma-space joined}`; when extracted_keywords non-empty append `Extracted keywords: {comma-space joined}`. Must NOT embed `## Bug Report` nested header from ProblemStatement.to_prompt_text(). Section omitted when problem_statement.is_empty is True.",
-      "verification": "Unit test: ProblemStatement with title, description, files, keywords → section contains all four label lines without `## Bug Report`; is_empty True → no `## Problem Statement` header"
-    },
-    {
-      "id": "AC19",
-      "description": "Integration wiring without mocks: assemble_prompt(stage='examination', ProblemStatement with any keywords, CandidateSet with ≥1 commit) invokes real load_rules/retrieve_skills against seed data/governance/. Output includes `## Hard Rules (Examination)` with `- {continue_below_confidence.description}` and `## Soft Rules (Examination)` containing substring from parent_chain_examine.prompt_text in seed YAML.",
-      "verification": "Integration test against DEFAULT_RULES_DIR seed files (skip if seed missing): examination prompt contains both rule sections with seed rule content"
-    }
+    "AC1: ProblemExtractor.from_jira_issue() populates extracted_files with file paths found via regex in title+description (e.g., Foo.java, path/to/Bar.scala)",
+    "AC2: ProblemExtractor.from_jira_issue() populates extracted_symbols with CamelCase class/method names from title+description",
+    "AC3: ProblemExtractor.from_jira_issue() populates extracted_keywords with lowercase title words filtered through stopwords",
+    "AC4: ProblemExtractor.from_raw() populates all three fields identically to from_jira_issue()",
+    "AC5: Unit tests cover Level 1 extraction with committed fixtures at tests/fixtures/eval_case_text/{CASSANDRA-7570,SPARK-19033,GROOVY-8298}.json containing title/description/project/issue_key",
+    "AC6: recall@100 validation test runs retrieve_candidates() on >= 3 eval cases from manifest.json with real cloned repos at data/repos/, using GitContextProvider(..., temporal_bound=manifest temporal_bound)",
+    "AC7: recall@100 test asserts CASSANDRA-7570 found=True with len(strategies_that_found) > 0 and fallback_triggered=False when repo exists; other cases assert at least 1 finds ground truth",
+    "AC8: tests/test_v4_integration.py chains ProblemStatement (with populated signals from extraction) → retrieve_candidates (mock GitContextProvider keyed on problem.extracted_files/keywords/symbols) → assemble_prompt for all 3 stages",
+    "AC9: Integration test asserts no TypeErrors, non-empty prompt strings, len(candidate_set.commits) >= 1, correct section count per stage",
+    "AC10: create_default_registry exported from governance/__init__.py",
+    "AC11: ProblemStatement.to_prompt_text() has deprecation docstring naming PromptAssembler/assemble_prompt as replacement",
+    "AC12: Integration test sets InvestigationState.candidates_total = len(candidate_set.commits) with documenting comment",
+    "AC13: All existing 291 tests continue to pass with zero regressions",
+    "AC14: New tests bring total test count above 291",
+    "AC15: problem_extractor.py stays <= 300 lines"
   ],
   "edge_cases": [
-    {
-      "id": "E1",
-      "description": "Empty CandidateSet (commits=[]) → Candidate Summary section omitted",
-      "verification": "Unit test: CandidateSet with commits=[] → no `## Candidate Summary` in output"
-    },
-    {
-      "id": "E2",
-      "description": "No rules for stage (planning with seed data) → Hard Rules and Soft Rules sections omitted",
-      "verification": "Unit test: stage='planning' with seed load_rules → no `## Hard Rules` or `## Soft Rules` headers"
-    },
-    {
-      "id": "E3",
-      "description": "No skills match problem_statement → Skills section omitted",
-      "verification": "Unit test: keywords with no trigger overlap → no `## Relevant Skills` header"
-    },
-    {
-      "id": "E4",
-      "description": "candidates_examined > len(candidate_set.commits) → examined selection capped to len(commits); no index errors",
-      "verification": "Unit test: state.candidates_examined=10 with 3 commits on examination → Candidate Summary shows 3 examined + up to 5 unexamined (0 remaining)"
-    },
-    {
-      "id": "E5",
-      "description": "Truncation cascade: evidence removed entirely still over budget → candidates reduced to ≤10 → skills reduced to ≤1; protected sections intact",
-      "verification": "Unit test: artificially small budget triggers full cascade; final output has ≤1 skill header, ≤10 candidate lines, no Evidence Collected section content, problem_statement present"
-    },
-    {
-      "id": "E6",
-      "description": "Invalid stage raises ValueError with message referencing invalid stage value",
-      "verification": "Unit test: assemble_prompt(stage='invalid', ...) raises ValueError matching 'invalid' or 'stage'"
-    },
-    {
-      "id": "E7",
-      "description": "examination/attribution with investigation_state=None → Investigation Progress section omitted even though stage allows it",
-      "verification": "Unit test: stage='examination', investigation_state=None → no `## Investigation Progress`"
-    },
-    {
-      "id": "E8",
-      "description": "examination/attribution with brief=None → Investigation Brief section omitted",
-      "verification": "Unit test: stage='examination', brief=None → no `## Investigation Brief`"
-    },
-    {
-      "id": "E9",
-      "description": "attribution with candidates_examined=0 → Candidate Summary omitted (no examined commits)",
-      "verification": "Unit test: stage='attribution', candidates_examined=0, non-empty candidate_set → no `## Candidate Summary`"
-    },
-    {
-      "id": "E10",
-      "description": "Truncation with empty evidence list skips evidence step and proceeds directly to candidate/skill reduction when over budget",
-      "verification": "Unit test: over budget with evidence=[] or None → candidate/skill truncation still applied; no error"
-    }
+    "EC1: Title-only JIRA (empty description) — extraction still produces keywords from title",
+    "EC2: Description with no file paths — extracted_files is empty list, not error",
+    "EC3: Unicode in description — regex doesn't crash",
+    "EC4: recall@100 test skips gracefully if repo not cloned (pytest.mark.skipif) — except CASSANDRA-7570 which is mandatory when repo present",
+    "EC5: Integration test works without real git repos (mock GitContextProvider)",
+    "EC6: Extraction handles None description from JIRA",
+    "EC7: AC5 extraction tests always run (no skip); recall tests skip only when repo absent"
   ],
-  "out_of_scope": [
-    "Actual LLM invocation — assembler only builds the prompt string",
-    "Brief validation logic (v4-investigation-harness P7)",
-    "Hard rule enforcement at stage transitions (v4-investigation-harness P7)",
-    "Token counting via tiktoken or similar (len//4 approximation is sufficient for V4)",
-    "PromptAssembler class wrapper — assemble_prompt function satisfies ADR §Q3 assembly algorithm"
-  ],
-  "verification_method": "pytest tests/test_prompt_assembler.py + full pytest tests/ --ignore=tests/_v2_archive + grep import isolation on prompt_assembler.py + wc -l file sizing + ReadLints on src/commit_investigator/governance/"
+  "verification_method": "pytest sensors (all tests pass, no regressions) + /evaluator adversarial review",
+  "verified": false
 }

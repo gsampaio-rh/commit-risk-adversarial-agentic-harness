@@ -1,0 +1,6 @@
+{
+  "issue_key": "CASSANDRA-7570",
+  "project": "CASSANDRA",
+  "title": "CqlPagingRecordReader is broken",
+  "description": "As mentioned on CASSANDRA-7059, it broke CPRR.  It's not quite as simple as changing the greater than to a greater than equal, either, since that makes the task run forever."
+}

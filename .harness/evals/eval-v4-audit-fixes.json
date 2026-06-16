@@ -1,0 +1,132 @@
+{
+  "task_id": "v4-audit-fixes",
+  "timestamp": "2026-06-16T23:58:00Z",
+  "overall": "FAIL",
+  "tests_run": 330,
+  "tests_passed": 330,
+  "slow_tests_run": 6,
+  "slow_tests_passed": 6,
+  "computational_checks": {
+    "lint": "NOT_RUN — no linter in verification_method",
+    "types": "NOT_RUN — no mypy in verification_method",
+    "tests": "PASS — pytest tests/ --ignore=tests/_v2_archive -m 'not slow' -q: 330/330 passed, 6 deselected; pytest tests/test_retrieval_recall_validation.py -m slow -q: 6/6 passed",
+    "build": "PASS — PYTHONPATH=src imports: create_default_registry, assemble_prompt, ProblemExtractor"
+  },
+  "criteria": [
+    {
+      "criterion": "AC1: from_jira_issue populates extracted_files via regex in title+description",
+      "result": "PASS",
+      "evidence": "problem_extractor.py _extract_file_paths() on combined title+description; spot-check from_jira_issue with 'Error in Foo.java line 5' → extracted_files=['Foo.java']; parity test + _extract_file_paths unit tests cover path/to/Bar.scala patterns"
+    },
+    {
+      "criterion": "AC2: from_jira_issue populates extracted_symbols (CamelCase)",
+      "result": "PASS",
+      "evidence": "test_level1_extracts_symbols_from_title asserts 'RouteBuilder' in ps.extracted_symbols from from_jira_issue; _extract_symbols unit tests cover multi-part CamelCase and dot exclusion"
+    },
+    {
+      "criterion": "AC3: from_jira_issue populates extracted_keywords (lowercase, stopword-filtered title words)",
+      "result": "PASS",
+      "evidence": "test_level1_extracts_keywords_from_title via from_jira_issue: npe, routebuilder, context, null present; stopwords in/is/when absent"
+    },
+    {
+      "criterion": "AC4: from_raw populates all three fields identically to from_jira_issue",
+      "result": "PASS",
+      "evidence": "Both call _build_with_extraction(); test_from_raw_extracts_same_as_from_jira asserts files/symbols/keywords equality"
+    },
+    {
+      "criterion": "AC5: Unit tests with fixtures CASSANDRA-7570, SPARK-19033, GROOVY-8298",
+      "result": "PASS",
+      "evidence": "Fixtures exist at tests/fixtures/eval_case_text/{CASSANDRA-7570,SPARK-19033,GROOVY-8298}.json with issue_key/project/title/description; TestLevel1ExtractionWithRealFixtures has 3 tests using _load_fixture"
+    },
+    {
+      "criterion": "AC6: recall@100 on >=3 manifest cases with real repos and temporal_bound",
+      "result": "PASS",
+      "evidence": "test_retrieval_recall_validation.py runs 5 smoke cases (CASSANDRA-7570, SPARK-19033, GROOVY-8298, SPARK-27907, AMQ-4338); GitContextProvider(repo_path=case['repo_path'], temporal_bound=case['temporal_bound']); slow suite 6/6 passed with repos present"
+    },
+    {
+      "criterion": "AC7: CASSANDRA-7570 found + strategies + no fallback; other cases assert >=1 finds ground truth",
+      "result": "PASS",
+      "evidence": "test_cassandra_7570_recall asserts diagnostic.found, len(strategies_that_found)>0, fallback_triggered is False; test_amq_4338_found_via_signal_strategies asserts found + strategies>0 (satisfies 'at least 1 other case')"
+    },
+    {
+      "criterion": "AC8: test_v4_integration.py chains extraction → retrieve_candidates (mock keyed on signals) → assemble_prompt all 3 stages",
+      "result": "PASS",
+      "evidence": "populated_problem fixture uses ProblemExtractor.from_raw; _build_mock_git side_effects gate on problem.extracted_files/keywords/symbols; TestPromptAssemblyAllStages calls assemble_prompt for planning/examination/attribution"
+    },
+    {
+      "criterion": "AC9: Integration asserts no TypeErrors, non-empty prompts, commits>=1, correct section count per stage",
+      "result": "FAIL",
+      "evidence": "Tests cover TypeErrors (test_no_type_errors_any_stage), non-empty strings, len(commits)>=1. No assertion on section header count. Adversarial spot-check on integration path: planning=4 headers, examination=8, attribution=8 — none verified in tests. Tests only check substring presence (e.g. 'System Role in prompt'), not len(re.findall(r'^## .+', prompt)).",
+      "fix_suggestion": "In tests/test_v4_integration.py add per-stage header extraction (reuse _headers from test_prompt_assembler.py) and assert expected counts/order for planning (4), examination (8), attribution (8) given the integration fixture inputs."
+    },
+    {
+      "criterion": "AC10: create_default_registry exported from governance/__init__.py",
+      "result": "PASS",
+      "evidence": "governance/__init__.py imports and __all__ includes create_default_registry; live import returns HardRuleRegistry"
+    },
+    {
+      "criterion": "AC11: ProblemStatement.to_prompt_text() deprecation docstring names PromptAssembler/assemble_prompt",
+      "result": "PASS",
+      "evidence": "Docstring lines 121-125 reference governance.prompt_assembler.assemble_prompt() and PromptAssembler"
+    },
+    {
+      "criterion": "AC12: Integration sets InvestigationState.candidates_total = len(candidate_set.commits) with comment",
+      "result": "PASS",
+      "evidence": "investigation_state fixture lines 163-168 and TestCandidatesTotalDocumentation lines 262-265 with documenting comments"
+    },
+    {
+      "criterion": "AC13: All existing 291 tests pass with zero regressions",
+      "result": "PASS",
+      "evidence": "330 passed (291 prior + 39 new), 0 failures in fast suite"
+    },
+    {
+      "criterion": "AC14: New tests bring total above 291",
+      "result": "PASS",
+      "evidence": "330 total tests (+39): test_problem_extractor additions, test_retrieval_recall_validation.py (3 test functions, 6 slow), test_v4_integration.py (12 tests)"
+    },
+    {
+      "criterion": "AC15: problem_extractor.py <= 300 lines",
+      "result": "PASS",
+      "evidence": "wc -l: 185 lines"
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "EC1: Title-only JIRA — keywords from title",
+      "result": "PASS",
+      "evidence": "test_title_only_still_produces_keywords asserts nullpointerexception keyword and StreamProcessor symbol"
+    },
+    {
+      "case": "EC2: Description with no file paths — extracted_files empty list, not error",
+      "result": "PASS",
+      "evidence": "Spot-check: from_raw('simple bug report', 'no files here just text') → extracted_files=[]; no exception. No dedicated EC2-named test but behavior verified."
+    },
+    {
+      "case": "EC3: Unicode in description — regex doesn't crash",
+      "result": "PASS",
+      "evidence": "test_unicode_description_no_crash with résumé, ñ, €, Façade.java"
+    },
+    {
+      "case": "EC4: recall skips if repo absent; CASSANDRA mandatory when repo present",
+      "result": "PASS",
+      "evidence": "@pytest.mark.skipif on cassandra repo path; test_cassandra_7570_recall has hard asserts when repo present; parametrized cases pytest.skip when repo missing"
+    },
+    {
+      "case": "EC5: Integration works without real git repos",
+      "result": "PASS",
+      "evidence": "test_v4_integration.py uses MagicMock git only; 12/12 passed in 0.10s"
+    },
+    {
+      "case": "EC6: Extraction handles None description from JIRA",
+      "result": "PASS",
+      "evidence": "from_jira_issue line 153: description = issue.description or ''; test_empty_description_preserved with description=None; spot-check extracts keywords from title"
+    },
+    {
+      "case": "EC7: AC5 extraction tests always run; recall skip only when repo absent",
+      "result": "PASS",
+      "evidence": "TestLevel1ExtractionWithRealFixtures has no skipif; recall tests use skipif on repo/manifest paths only"
+    }
+  ],
+  "recommendation": "fix_and_retest",
+  "notes": "Strong implementation on BI1-BI3 core fixes. Single blocking gap: AC9 section-count assertions missing from integration tests despite contract requirement. Slow recall validation passes live against cloned repos (CASSANDRA-7570 signal strategies confirmed)."
+}

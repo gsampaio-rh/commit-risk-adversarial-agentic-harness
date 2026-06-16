@@ -4,6 +4,7 @@ from commit_investigator.governance.rules import (
     GovernanceRule,
     HardRuleRegistry,
     RuleViolation,
+    create_default_registry,
     load_rules,
 )
 from commit_investigator.governance.prompt_assembler import PromptConfig, assemble_prompt
@@ -16,6 +17,7 @@ __all__ = [
     "PromptConfig",
     "RuleViolation",
     "assemble_prompt",
+    "create_default_registry",
     "load_rules",
     "retrieve_skills",
 ]
