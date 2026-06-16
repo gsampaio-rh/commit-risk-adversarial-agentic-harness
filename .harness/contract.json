@@ -1,134 +1,141 @@
 {
-  "feature": "v4-governance-loaders",
-  "description": "YAML rule loader and Markdown skill retriever for V4 investigation harness governance",
-  "adr_ref": ".harness/docs/mechanism-design.md §Q1 (rules), §Q2 (skills)",
+  "feature": "v4-retrieval-module",
+  "description": "Deterministic retrieval module — combined git-signal strategy producing CandidateSet from ProblemStatement + repo + temporal_bound",
+  "adr_ref": ".harness/docs/retrieval-spike-findings.md",
   "phase": "complete",
   "verified": true,
   "negotiation_round": 1,
   "acceptance_criteria": [
     {
       "id": "AC1",
-      "description": "GovernanceRule dataclass with fields: id (str), enforcement (Literal['hard','soft']), stage (Literal['planning','examination','attribution','all']), description (str), check (str | None), prompt_text (str). Invalid enforcement or stage values raise ValueError on construction.",
-      "verification": "Unit test: construct from valid dict; assert all fields; assert ValueError for enforcement='maybe' and stage='invalid'"
+      "description": "New package src/commit_investigator/retrieval/ with __init__.py, strategies.py, retriever.py. __init__.py exports: retrieve_candidates, RetrievalConfig, RecallDiagnostic, compute_recall_at_k.",
+      "verification": "Import test: from commit_investigator.retrieval import retrieve_candidates, RetrievalConfig, RecallDiagnostic, compute_recall_at_k"
     },
     {
       "id": "AC2",
-      "description": "load_rules(stage, rules_dir=None) → tuple[list[GovernanceRule], list[GovernanceRule]] as (hard_rules, soft_rules). Includes rules where rule.stage == stage OR rule.stage == 'all'. Default rules_dir=data/governance/rules/.",
-      "verification": "Unit test against seed files: load_rules('attribution') returns only min_suspects (hard); load_rules('examination') returns parent_chain_examine (soft) + continue_below_confidence (hard); load_rules('planning') returns ([], [])"
+      "description": "RetrievalConfig dataclass with fields: max_candidates (int, default=100), strategies (list[str], default=['file_log','keyword_grep','pickaxe','blame']), fallback_recency_threshold (int, default=10), file_log_per_file (int, default=50), keyword_grep_per_kw (int, default=30), pickaxe_per_symbol (int, default=50), blame_per_file (int, default=100). Invalid strategy names ignored or rejected at retrieve time (test asserts unknown names do not invoke git).",
+      "verification": "Unit test: default construction has expected values; override max_candidates=50 works; config.strategies=['blame'] results in only blame git calls"
     },
     {
       "id": "AC3",
-      "description": "Hard/soft partition is exhaustive and exclusive: every loaded rule appears in exactly one of hard_rules or soft_rules based on enforcement field.",
-      "verification": "Unit test: len(hard)+len(soft) == total matched; hard all enforcement=hard; soft all enforcement=soft; no overlap by id"
+      "description": "retrieve_candidates(problem: ProblemStatement, git: GitContextProvider, config: RetrievalConfig | None = None) → CandidateSet. Runs enabled strategies from config.strategies in combined mode. Returns CandidateSet with commits ranked by signal_count desc, best_rank asc. Temporal bound comes from git.temporal_bound (not a separate parameter).",
+      "verification": "Integration test with unittest.mock MagicMock GitContextProvider (or project-root git fixture): controlled per-strategy returns produce deterministic rank order matching AC8 rules"
     },
     {
       "id": "AC4",
-      "description": "RuleViolation dataclass with fields: rule_id (str), message (str), context (dict). HardRuleRegistry.register(rule_id, check_fn) and check_all(stage, context) → list[RuleViolation] invoking registered check_fns for hard rules at stage.",
-      "verification": "Unit test: register stub for min_suspects returning one violation; check_all('attribution', ctx) returns it; unregistered hard rules skipped without error"
+      "description": "File-log strategy: for each unique extracted_file in ProblemStatement, resolve via git.resolve_file_path(), then for each returned path call git.search_commits_by_file(path, max_results=config.file_log_per_file). Skip files with empty resolve_file_path(). Deduplicate commits by commit_id across files and paths.",
+      "verification": "Unit test: mock resolve_file_path returning 2 paths for one file; assert search_commits_by_file called twice with max_results=file_log_per_file; merged commits deduped by SHA"
     },
     {
       "id": "AC5",
-      "description": "HardRuleRegistry includes stub check implementations registered by default for min_suspects and continue_below_confidence. Stubs read context keys suspects/candidate_set/top_confidence/confidence_gate/budget_hard_stop and return violations when check condition fails.",
-      "verification": "Unit test: min_suspects stub returns violation when len(suspects)<3 and len(candidate_set)>=3; continue_below_confidence stub returns violation when top_confidence<gate and not budget_hard_stop"
+      "description": "Keyword-grep strategy: for each unique extracted_keyword (case-sensitive match, deduped preserving first occurrence), git.search_commits_by_keyword(keyword, max_results=config.keyword_grep_per_kw). Deduplicates by commit_id across keywords.",
+      "verification": "Unit test: mock with duplicate keywords in ProblemStatement; assert search_commits_by_keyword called once per unique keyword with max_results=keyword_grep_per_kw"
     },
     {
       "id": "AC6",
-      "description": "GovernanceSkill dataclass with fields: id (str), scope (Literal['project','general']), project (str | None), triggers (list[str]), source (Literal['manual','trace-derived']), trace_ref (str), body (str — markdown after frontmatter). scope=project requires non-empty project.",
-      "verification": "Unit test: parse spark_serde_blame and npe_null_check_removal seed files; assert all fields including body non-empty; ValueError when scope=project and project empty"
+      "description": "Pickaxe strategy: for each unique extracted_symbol (deduped preserving first occurrence), git.search_commits_by_pickaxe(symbol, max_results=config.pickaxe_per_symbol). Deduplicates by commit_id across symbols.",
+      "verification": "Unit test: mock GitContextProvider with known symbols; pickaxe returns expected commits; duplicate symbols invoke pickaxe once"
     },
     {
       "id": "AC7",
-      "description": "retrieve_skills(problem_statement, top_k=3, skills_dir=None) → list[tuple[GovernanceSkill, int]] ranked by score descending. score = len({t.lower() for t in triggers} ∩ {k.lower() for k in problem_statement.extracted_keywords}); include only score > 0. Default skills_dir=data/governance/skills/ (excludes skills/drafts/ subtree).",
-      "verification": "Unit test: ProblemStatement(project='SPARK', keywords=['serialization','kryo']) returns spark_serde_blame with score 2 as first result"
+      "description": "Blame strategy: for each resolved file path (same resolve_file_path loop as file_log), git.get_blame(path, line_start=1, line_end=config.blame_per_file), parse blame output, extract unique commit SHAs. Skip boundary commits prefixed with '^'. Abbreviated SHAs normalized to full 40-char hex via a public GitContextProvider API (add resolve_ref(ref)->str|None wrapper if needed; retrieval/ must not call private _resolve_ref).",
+      "verification": "Unit test: mock blame output with abbreviated SHAs and ^prefixed SHAs; assert output commit_ids are 40-char hex, no ^ commits; grep retrieval/ for _resolve_ref returns zero matches"
     },
     {
       "id": "AC8",
-      "description": "retrieve_skills scope filter: project-scoped skills included only when problem_statement.project equals skill.project (case-insensitive). general-scoped skills match any project when triggers overlap.",
-      "verification": "Unit test: SPARK skill not returned for GROOVY project even when keywords match; general npe skill returned for GROOVY when NPE keywords match"
+      "description": "Signal-count ranking: each commit scored by number of distinct enabled strategies that found it (1-4). best_rank = minimum 1-based position within that strategy's ordered result list before merge. Ties broken by best_rank ascending. Final ordering: signal_count desc, best_rank asc, commit_id asc (stable final tie-break).",
+      "verification": "Unit test: commit found by 3 strategies ranks above commit found by 1; equal signal_count broken by lower best_rank; equal best_rank broken by commit_id lexicographic order"
     },
     {
       "id": "AC9",
-      "description": "retrieve_skills tie-breaking: on equal score, project-scoped skills rank before general-scoped skills; stable order by skill id when still tied.",
-      "verification": "Unit test: fixture with project and general skill sharing one trigger keyword — project skill ranks first"
+      "description": "Recency fallback: when unique signal-driven commit count (post cross-strategy dedup, pre max_candidates trim) is strictly less than config.fallback_recency_threshold, augment with git.list_recent_commits(max_results=config.max_candidates). Fallback commits have retrieval_signal='recency_fallback', are deduped against existing signal commits, and fill only until max_candidates total.",
+      "verification": "Unit test: zero-signal ProblemStatement triggers fallback_triggered=True; mock list_recent_commits returns SHAs overlapping signal set — overlap excluded from final commits"
     },
     {
       "id": "AC10",
-      "description": "Loaders parse committed seed governance artifacts without modification: 3 YAML rules + 2 active MD skills at data/governance/ match ADR field values (enforcement, stage, triggers, scope, source, trace_ref).",
-      "verification": "Integration test: load seed dirs; assert rule ids {min_suspects, parent_chain_examine, continue_below_confidence}; assert skill ids {spark_serde_blame, npe_null_check_removal}; parent_chain_examine.check is None"
+      "description": "CandidateSet.retrieval_metadata dict with keys: strategies_used (list[str] — enabled strategies from config actually executed), total_raw_candidates (int — unique commits after merge/dedup, before max_candidates trim), signal_counts (dict[int,int] mapping signal_count→num_commits on pre-trim set), fallback_triggered (bool), temporal_bound (str — git.temporal_bound or '' if None).",
+      "verification": "Unit test: metadata present with all required keys and correct types; total_raw_candidates equals len(pre-trim unique set); signal_counts sum equals total_raw_candidates"
     },
     {
       "id": "AC11",
-      "description": "governance/__init__.py exports: GovernanceRule, GovernanceSkill, RuleViolation, load_rules, retrieve_skills, HardRuleRegistry",
-      "verification": "Import test: from commit_investigator.governance import all seven names"
+      "description": "Each CandidateCommit in the result has: commit_id (full 40-char SHA), rank (1-based contiguous after trim), retrieval_signal (comma-separated enabled strategy names that found it, sorted alphabetically; 'recency_fallback' for fallback-only commits), summary (commit message first line from FileHistoryEntry.message or get_commit_message first line), files_changed (list from git.get_touched_files(commit_id) or [] when None), date (author date from FileHistoryEntry.date when available).",
+      "verification": "Unit test: CandidateCommit fields populated; retrieval_signal='blame,file_log' when both found commit; get_touched_files invoked for output commits"
     },
     {
       "id": "AC12",
-      "description": "Package isolation: governance imports only from commit_investigator.extraction (ProblemStatement) and stdlib/third-party (yaml). Zero imports from agent/, eval/, infra/, or models/.",
-      "verification": "grep: no 'from commit_investigator.(agent|eval|infra|models)' in src/commit_investigator/governance/"
+      "description": "Output capped at config.max_candidates commits. When more raw candidates exist, lowest-ranked commits (by AC8 ordering) are trimmed; ranks renumbered 1..N contiguously.",
+      "verification": "Unit test: set max_candidates=5 with 8 raw unique commits; result has exactly 5 commits with ranks 1-5; trimmed commits are the 3 lowest by AC8 order"
     },
     {
       "id": "AC13",
-      "description": "pyyaml listed in pyproject.toml [project].dependencies (package name pyyaml, import yaml).",
-      "verification": "pyproject.toml dependencies include pyyaml; python -c 'import yaml' succeeds in project venv"
+      "description": "RecallDiagnostic dataclass with fields: ground_truth_sha (str), found (bool), rank (int | None), total_candidates (int), strategies_that_found (list[str]). compute_recall_at_k(candidate_set, ground_truth_sha, k=100) → RecallDiagnostic; rank is 1-based position in candidate_set.commits or None when not found within k.",
+      "verification": "Unit test: ground truth at rank 3 with k=100 → found=True rank=3 strategies_that_found non-empty; ground truth absent → found=False rank=None; ground truth at rank 150 with k=100 → found=False"
     },
     {
       "id": "AC14",
-      "description": "tests/test_governance.py covers all ACs and edge cases; pytest tests/ passes with zero regressions (188+ existing tests).",
-      "verification": "pytest tests/ --ignore=tests/_v2_archive exits 0; test_governance.py exists with ≥15 tests"
+      "description": "Package isolation: retrieval/ imports only from commit_investigator.extraction (ProblemStatement), commit_investigator.models (CandidateSet, CandidateCommit), commit_investigator.infra (GitContextProvider, FileHistoryEntry). Zero imports from agent/, eval/, governance/.",
+      "verification": "grep: no 'from commit_investigator.(agent|eval|governance)' in src/commit_investigator/retrieval/"
     },
     {
       "id": "AC15",
-      "description": "Each module file under src/commit_investigator/governance/ ≤ 300 lines.",
-      "verification": "wc -l on all .py files in governance package"
+      "description": "Each module file under src/commit_investigator/retrieval/ ≤ 300 lines.",
+      "verification": "wc -l on all .py files in retrieval package"
+    },
+    {
+      "id": "AC16",
+      "description": "tests/test_retrieval.py with ≥20 tests covering all ACs and edge cases. pytest tests/ passes with zero regressions (232+ existing tests).",
+      "verification": "pytest tests/ --ignore=tests/_v2_archive exits 0; test_retrieval.py exists with ≥20 tests"
     }
   ],
   "edge_cases": [
     {
       "id": "E1",
-      "description": "load_rules('planning') against seed data returns empty hard and soft lists",
-      "verification": "Unit test: ([], [])"
+      "description": "ProblemStatement with empty extracted_files, extracted_symbols, extracted_keywords → recency fallback triggers, returns non-empty CandidateSet (when repo has commits)",
+      "verification": "Unit test: empty signals → fallback_triggered=True in metadata; len(commits)>0 when list_recent_commits returns entries"
     },
     {
       "id": "E2",
-      "description": "Rule with stage='all' is returned for every load_rules(stage) call",
-      "verification": "Unit test: tmp rules dir with stage=all rule; load_rules('examination') and load_rules('attribution') both include it"
+      "description": "ProblemStatement with files that don't resolve to any repo path → those files skipped, other strategies still run",
+      "verification": "Unit test: resolve_file_path returns [] for one file + valid keyword → keyword results returned; file_log/blame not called for unresolvable file"
     },
     {
       "id": "E3",
-      "description": "retrieve_skills returns [] when no keyword overlap (score=0 for all skills)",
-      "verification": "Unit test: keywords=['unrelated_xyz'] returns []"
+      "description": "All enabled strategies return the same commit → appears once at rank 1 with signal_count equal to len(enabled strategies)",
+      "verification": "Unit test: mock all four strategies returning same SHA; result has 1 commit at rank 1 with signal_count=4 and retrieval_signal listing all four strategies alphabetically"
     },
     {
       "id": "E4",
-      "description": "retrieve_skills ignores skills/drafts/ even when draft file has matching triggers",
-      "verification": "Unit test: draft skill in tmp skills/drafts/ with matching keywords not returned"
+      "description": "Blame output contains boundary commits (^sha) → skipped (initial commits before the blame range)",
+      "verification": "Unit test: blame output with ^-prefixed SHAs; those SHAs not in result"
     },
     {
       "id": "E5",
-      "description": "Malformed YAML rule file skipped with warning logged; other valid rules still load",
-      "verification": "Unit test: tmp dir with one bad.yaml + one valid.yaml; caplog/warning assert; valid rule loaded"
+      "description": "GitContextProvider methods returning None/empty on failure (GitContextProvider failure mode) → that strategy contributes zero commits; other strategies still succeed",
+      "verification": "Unit test: mock search_commits_by_keyword returning [] while pickaxe returns commits → result contains pickaxe commits only"
     },
     {
       "id": "E6",
-      "description": "Malformed skill markdown (missing/invalid frontmatter) skipped with warning; valid skills still load",
-      "verification": "Unit test: tmp dir with broken.md + valid.md; warning logged; valid skill returned"
+      "description": "Duplicate keywords/symbols in ProblemStatement don't cause duplicate strategy invocations or inflated signal counts",
+      "verification": "Unit test: duplicate keywords → search_commits_by_keyword call_count equals unique keyword count; signal_count not inflated"
     },
     {
       "id": "E7",
-      "description": "Empty rules_dir and skills_dir return empty results without error",
-      "verification": "Unit test: load_rules('examination', rules_dir=empty_tmp) → ([],[]); retrieve_skills(..., skills_dir=empty_tmp) → []"
+      "description": "max_candidates=0 returns empty CandidateSet with metadata (total_raw_candidates may be >0)",
+      "verification": "Unit test: config max_candidates=0 → commits=[], metadata keys still present including total_raw_candidates"
     },
     {
       "id": "E8",
-      "description": "Keyword matching is case-insensitive: trigger 'Kryo' matches extracted keyword 'kryo'",
-      "verification": "Unit test: case-variant keywords produce score ≥ 1"
+      "description": "CandidateSet.temporal_bound populated from GitContextProvider.temporal_bound (empty string when provider temporal_bound is None)",
+      "verification": "Unit test: provider with temporal_bound='abc123~1' → CandidateSet.temporal_bound='abc123~1'; unbounded provider → temporal_bound=''"
     }
   ],
   "out_of_scope": [
-    "PromptAssembler and §Q3 section ordering (v4-prompt-assembler task)",
-    "Q1 conflict-resolution precedence at harness transitions (v4-investigation-harness task)",
-    "Skill draft writer from traces (future harness task)",
-    "Composite trigger 'project + keyword' beyond seed file triggers (spark_serde_blame uses keyword list only)"
+    "Level 2 LLM-assisted extraction (spike-level2-extractor task P8)",
+    "Time-window filtering (no empirical benefit per retrieval-spike ADR)",
+    "Embedding/vector retrieval (mechanism-design ADR constraint)",
+    "End-to-end integration with input pipeline (v4-input-pipeline P5)",
+    "Live eval against n=20 cases (v4-checkpoint-retrieval P6)",
+    "Per-strategy rank exposure beyond best_rank tie-breaker (CandidateCommit.retrieval_signal remains strategy names only; no model schema change)"
   ],
-  "verification_method": "pytest tests/test_governance.py tests/ + grep import isolation + wc -l file sizing + ReadLints on src/commit_investigator/governance/"
+  "verification_method": "pytest tests/test_retrieval.py tests/ + grep import isolation + grep retrieval/ for _resolve_ref + wc -l file sizing + ReadLints on src/commit_investigator/retrieval/"
 }

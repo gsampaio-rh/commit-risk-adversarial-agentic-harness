@@ -86,6 +86,10 @@ class GitContextProvider:
         """The temporal bound ref, if set."""
         return self._temporal_bound
 
+    def resolve_ref(self, ref: str) -> str | None:
+        """Resolve a ref to its full 40-char SHA. Public wrapper for blame normalization."""
+        return self._resolve_ref(ref)
+
     def _resolve_ref(self, ref: str) -> str | None:
         """Resolve a ref to its full SHA."""
         result = self._run_git(["rev-parse", "--verify", ref])
