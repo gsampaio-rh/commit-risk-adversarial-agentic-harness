@@ -1,33 +1,25 @@
 {
-  "feature": "v4-audit-fixes",
+  "feature": "v4-input-pipeline",
   "phase": "accepted",
-  "description": "Fix 3 blocking issues from P1-P4 audit before starting P5 input pipeline",
+  "description": "Wire Stage 0 (extraction) + Stage 1 (retrieval) into a single prepare_investigation() entry point for the V4 agent pipeline",
   "acceptance_criteria": [
-    "AC1: ProblemExtractor.from_jira_issue() populates extracted_files with file paths found via regex in title+description (e.g., Foo.java, path/to/Bar.scala)",
-    "AC2: ProblemExtractor.from_jira_issue() populates extracted_symbols with CamelCase class/method names from title+description",
-    "AC3: ProblemExtractor.from_jira_issue() populates extracted_keywords with lowercase title words filtered through stopwords",
-    "AC4: ProblemExtractor.from_raw() populates all three fields identically to from_jira_issue()",
-    "AC5: Unit tests cover Level 1 extraction with committed fixtures at tests/fixtures/eval_case_text/{CASSANDRA-7570,SPARK-19033,GROOVY-8298}.json containing title/description/project/issue_key",
-    "AC6: recall@100 validation test runs retrieve_candidates() on >= 3 eval cases from manifest.json with real cloned repos at data/repos/, using GitContextProvider(..., temporal_bound=manifest temporal_bound)",
-    "AC7: recall@100 test asserts CASSANDRA-7570 found=True with len(strategies_that_found) > 0 and fallback_triggered=False when repo exists; other cases assert at least 1 finds ground truth",
-    "AC8: tests/test_v4_integration.py chains ProblemStatement (with populated signals from extraction) → retrieve_candidates (mock GitContextProvider keyed on problem.extracted_files/keywords/symbols) → assemble_prompt for all 3 stages",
-    "AC9: Integration test asserts no TypeErrors, non-empty prompt strings, len(candidate_set.commits) >= 1, correct section count per stage",
-    "AC10: create_default_registry exported from governance/__init__.py",
-    "AC11: ProblemStatement.to_prompt_text() has deprecation docstring naming PromptAssembler/assemble_prompt as replacement",
-    "AC12: Integration test sets InvestigationState.candidates_total = len(candidate_set.commits) with documenting comment",
-    "AC13: All existing 291 tests continue to pass with zero regressions",
-    "AC14: New tests bring total test count above 291",
-    "AC15: problem_extractor.py stays <= 300 lines"
+    "AC1: retrieval/pipeline.py exports prepare_investigation(jira_issue_or_raw, repo_path, temporal_bound, project) → tuple[ProblemStatement, CandidateSet]",
+    "AC2: prepare_investigation uses ProblemExtractor.from_jira_issue() when given JiraIssue, from_raw() when given raw title+description",
+    "AC3: prepare_investigation calls retrieve_candidates() with GitContextProvider(repo_path, temporal_bound)",
+    "AC4: When CandidateSet has < fallback_recency_threshold candidates, prepare_investigation re-runs with widened RetrievalConfig (2x file_log/keyword/pickaxe limits) — brief-validation retry path",
+    "AC5: prepare_investigation returns even if retry still produces few candidates (degraded mode, not error)",
+    "AC6: RetrievalResult dataclass wraps (ProblemStatement, CandidateSet, metadata dict with retry_triggered, strategies_used, total_raw)",
+    "AC7: Tests cover: normal path, widened-retry path, degraded mode (zero signals), JiraIssue input, raw input",
+    "AC8: One end-to-end pytest using real repo (CASSANDRA-7570 via data/repos/cassandra) proving prepare_investigation returns non-empty CandidateSet — marked @pytest.mark.slow",
+    "AC9: pipeline.py is exported from retrieval/__init__.py",
+    "AC10: All existing 330 tests + new tests pass with zero regressions",
+    "AC11: pipeline.py <= 150 lines"
   ],
   "edge_cases": [
-    "EC1: Title-only JIRA (empty description) — extraction still produces keywords from title",
-    "EC2: Description with no file paths — extracted_files is empty list, not error",
-    "EC3: Unicode in description — regex doesn't crash",
-    "EC4: recall@100 test skips gracefully if repo not cloned (pytest.mark.skipif) — except CASSANDRA-7570 which is mandatory when repo present",
-    "EC5: Integration test works without real git repos (mock GitContextProvider)",
-    "EC6: Extraction handles None description from JIRA",
-    "EC7: AC5 extraction tests always run (no skip); recall tests skip only when repo absent"
+    "EC1: Repo not found raises GitRepoNotFoundError (not swallowed)",
+    "EC2: Invalid temporal_bound raises GitCommitNotFoundError",
+    "EC3: Empty title + empty description → ProblemStatement.is_empty=True, retrieval falls back to recency",
+    "EC4: Real repo test skips if repo not cloned"
   ],
-  "verification_method": "pytest sensors (all tests pass, no regressions) + /evaluator adversarial review",
-  "verified": false
+  "verification_method": "pytest sensors + /evaluator adversarial review"
 }
