@@ -2,11 +2,11 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v4-architecture-redesign",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-16T18:05:00Z",
+  "updated": "2026-06-16T22:30:00Z",
   "schema_version": 5,
   "_archive": "V2 state archived to .harness/state-v2-archive.json. V2 final: D1=0.72 D3=0.31 (n=50), JIRA injection brought D3=0.35 on n=20.",
   "vision": "Build a plan-driven bug attribution agent with internal governance. The system separates concerns into three pipelines: (1) Input Pipeline — deterministic extraction and candidate retrieval at zero LLM cost; (2) Agent Pipeline — LLM plans, examines, and attributes within an InvestigationBrief, governed by an investigation harness with rules and skills; (3) Evaluation Pipeline — oracle scores output. The agent receives a CandidateSet (not raw repo access), operates within completion criteria (not just budget), produces structured InvestigationTraces for learning, and improves over time via skills derived from traces. Evaluated via Hit@k, MRR, D3, D6, and Retrieval Recall against ApacheJIT ground truth.",
-  "direction": "ARCHITECTURE V4: Redesign from fully-agentic (LLM searches + reasons) to Retrieve-then-Reason (scripts retrieve, LLM reasons). V3 achieved Hit@5=0.50 but hits a ceiling because 25-30% of LLM budget is wasted on mechanical search. V4 introduces: (1) input pipeline with deterministic retrieval, (2) investigation harness governing the LLM, (3) InvestigationBrief as completion criteria, (4) structured traces for learning. ADR at .harness/docs/topology-debate.md. Next: resolve mechanism-design + retrieval-spike, then implement.",
+  "direction": "ARCHITECTURE V4: Redesign from fully-agentic (LLM searches + reasons) to Retrieve-then-Reason (scripts retrieve, LLM reasons). V3 achieved Hit@5=0.50 but hits a ceiling because 25-30% of LLM budget is wasted on mechanical search. V4 introduces: (1) input pipeline with deterministic retrieval, (2) investigation harness governing the LLM, (3) InvestigationBrief as completion criteria, (4) structured traces for learning. ADRs: topology-debate + mechanism-design (both verified). Build tasks P13–P19 planned — core models and governance can start in parallel with retrieval-spike; retrieval module and downstream integration block on spike results.",
   "invariants": {
     "temporal_bound": "Temporal bound (COMMIT_B~1) constrains the ENTIRE system — input pipeline retrieval and agent tools. In eval mode, bound comes from fix_hash. In production mode (future), from bug report date or HEAD.",
     "llm_reasons_scripts_retrieve": "Scripts own retrieval (candidate set assembly) and evidence verification. LLM owns planning, examination reasoning, and attribution. The LLM never searches from scratch — it receives a curated CandidateSet.",
@@ -186,9 +186,9 @@
         {"arch": "Cursor SDK Cloud REST API", "verdict": "requires GitHub-hosted repos, not local"},
         {"arch": "Ollama qwen3:32b + orchestrator", "verdict": "too slow (343s/case) on 32GB Mac"},
         {"arch": "Ollama qwen3:8b + improved prompt", "verdict": "better grounding but 0% Hit@5 — model too small"},
-        {"arch": "Ollama qwen3:8b + /no_think", "verdict": "fast (15s/case) but destroys reasoning — 0% Hit@5"}
+        {"arch": "Ollama qwen3:8b + /no_think", "verdict": "fast (15s/case) but destroys reasoning — 0% Hit@5"},
+        {"arch": "Task Subagent Investigator (generalPurpose subagents)", "verdict": "WINNER — Hit@5=0.35, stable, parallel, zero extra cost"}
       ],
-      {"arch": "Task Subagent Investigator (generalPurpose subagents)", "verdict": "WINNER — Hit@5=0.35, stable, parallel, zero extra cost"},
       "conclusion": "Task Subagent approach solves the architecture problem. Each investigation runs as independent Cursor subagent with Shell/Read/Grep tools. Claude Sonnet quality + git tool access + no bridge instability. BLOCKER RESOLVED.",
       "blocker": "RESOLVED. Task Subagent approach bypasses SDK bridge entirely."
     }
@@ -558,10 +558,311 @@
       "id": "retrieval-spike",
       "name": "Architecture V4: retrieval spike — empirically test retrieval strategies for recall@100",
       "type": "spike",
-      "status": "pending",
+      "status": "verified",
       "priority": 2,
-      "depends_on": ["topology-debate"],
-      "note": "Empirical research. Questions: (1) Which git retrieval strategies achieve best recall@100 on n=20? (2) Optimal candidate set size (50 vs 100 vs 200)? (3) Does Level 2 extraction improve retrieval over Level 1? (4) Time-window bounding effect on precision? Can run in parallel with mechanism-design."
+      "depends_on": ["topology-debate", "mechanism-design"],
+      "note": "Empirical research spike — NOT production retrieval module (that is v4-retrieval-module P16). Spike code lives under eval/retrieval_spike/ and scripts/run_retrieval_spike.py. Uses frozen manifest results/v3-subagent-eval-v2/manifest.json (n=20, seed=42). Resolves mechanism-design deferred CandidateSet ranking + evaluation-framework Retrieval Recall@100 TBDs.",
+      "results": {
+        "combined_recall_at_100": 0.450,
+        "combined_recall_at_200": 0.500,
+        "blame_recall_at_100": 0.350,
+        "file_log_recall_at_100": 0.200,
+        "keyword_grep_recall_at_100": 0.200,
+        "pickaxe_recall_at_100": 0.200,
+        "recency_recall_at_100": 0.050,
+        "time_window_recall_at_100": 0.050,
+        "recommended_k": 100,
+        "gate": 0.35,
+        "target": 0.60,
+        "level2_needed": true
+      },
+      "research_questions": [
+        "Q1: Which git retrieval strategies achieve best recall@100 on n=20?",
+        "Q2: Optimal candidate set size — 50 vs 100 vs 200?",
+        "Q3: Does Level 2 extraction improve retrieval over Level 1?",
+        "Q4: Does time-window bounding help or hurt recall@100?"
+      ],
+      "constraints": [
+        "Temporal bound fix_hash~1 on every strategy (GitContextProvider._enforce_bound or equivalent pre-filter)",
+        "No embeddings, vector stores, or external retrieval services (mechanism-design ADR pragmatic constraints)",
+        "Deterministic git CLI only — reuse GitContextProvider; extend minimally for pickaxe and time-window",
+        "Spike scope only — findings inform P16 v4-retrieval-module, not wired into agent pipeline"
+      ],
+      "deliverables": [
+        "results/retrieval-spike/ (per-strategy JSON + summary.json — frozen research output)",
+        ".harness/docs/retrieval-spike-findings.md (Accepted ADR)",
+        "docs/evaluation-framework.md (Retrieval Recall@100 gate/target from findings)",
+        "src/commit_investigator/infra/git_context.py (pickaxe, date-bounded log, resolve_file_path — permanent infrastructure)",
+        "src/commit_investigator/extraction/problem_extractor.py (extracted_keywords field — permanent data model)"
+      ],
+      "spike_code_deleted": "Spike code (eval/retrieval_spike/, scripts/run_retrieval_spike.py, tests/test_retrieval_spike.py) intentionally deleted after research completion. Results frozen in results/retrieval-spike/.",
+      "acceptance_criteria": [
+        "AC1: scripts/run_retrieval_spike.py exists, --help documents --manifest, --strategy, --k, --output-dir",
+        "AC2: src/commit_investigator/eval/retrieval_spike/ with recall_at_k() (12-char prefix match per evaluation-framework.md) and RetrievalStrategy protocol",
+        "AC3: Harness loads results/v3-subagent-eval-v2/manifest.json and runs all 20 cases without manual case list",
+        "AC4: Every strategy enforces temporal bound; spot-check asserts zero candidate commits are descendants of fix_hash",
+        "AC5: Level 1 extraction populates extracted_files, extracted_symbols, extracted_keywords on ProblemStatement; results/retrieval-spike/hint_coverage.json reports per-case signal counts",
+        "AC6: Individual strategy JSON artifacts for file_log, keyword_grep, pickaxe, blame, recency_fallback, time_window — each with per-case recall@100 and aggregate mean",
+        "AC7: Combined strategy (union of top individual strategies) JSON with recall@50, recall@100, recall@200",
+        "AC8: Set-size analysis table in findings ADR comparing 50 vs 100 vs 200 for recommended combined strategy",
+        "AC9: Conditional Level 2 — if best Level 1 combined recall@100 >= 0.70, findings doc documents skip with rationale; else Level 1 vs Level 2 comparison table on same combined strategy",
+        "AC10: .harness/docs/retrieval-spike-findings.md Status Accepted — answers Q1–Q4, recommends strategy + set size + ranking heuristic for P16, proposes gate/target recall@100 values",
+        "AC11: docs/evaluation-framework.md Retrieval Recall@100 gate/target TBDs replaced, referencing retrieval-spike-findings ADR",
+        "AC12: No embedding/vector-store imports or calls (rg verification); git subprocess only",
+        "AC13: pytest coverage for recall_at_k metric and at least one strategy; full suite still passes",
+        "AC14: results/retrieval-spike/summary.json committed or generated by script with reproducible command documented in findings ADR"
+      ],
+      "subtasks": [
+        {
+          "id": "rs-scaffold",
+          "name": "Spike evaluation harness — manifest loader, recall@K metric, strategy protocol, CLI",
+          "status": "pending",
+          "deliverables": [
+            "scripts/run_retrieval_spike.py",
+            "src/commit_investigator/eval/retrieval_spike/__init__.py",
+            "src/commit_investigator/eval/retrieval_spike/metrics.py (recall_at_k, aggregate_recall)",
+            "src/commit_investigator/eval/retrieval_spike/harness.py (load manifest, run case, write JSON)"
+          ],
+          "verify": [
+            "python scripts/run_retrieval_spike.py --help exits 0",
+            "Dry-run on 1 manifest case with stub strategy returns JSON with bug_hash, recall@100, candidate_count"
+          ],
+          "answers": "Infrastructure for all subsequent subtasks"
+        },
+        {
+          "id": "rs-git-extensions",
+          "name": "Minimal GitContextProvider extensions — pickaxe (-S) and date-bounded log",
+          "status": "pending",
+          "depends_on": ["rs-scaffold"],
+          "deliverables": [
+            "GitContextProvider.search_commits_by_pickaxe(symbol, max_results)",
+            "GitContextProvider.list_commits_since(date_iso, max_results) or --until/--after log variant bounded by temporal_bound"
+          ],
+          "verify": [
+            "Unit test on known repo path: pickaxe returns commits; date filter excludes post-bound commits",
+            "Existing git_context tests still pass"
+          ],
+          "answers": "Enables pickaxe and time-window strategies without P16 production module"
+        },
+        {
+          "id": "rs-level1-extraction",
+          "name": "Level 1 hint extraction — regex files, symbols, keywords from JIRA text",
+          "status": "pending",
+          "depends_on": ["rs-scaffold"],
+          "deliverables": [
+            "src/commit_investigator/eval/retrieval_spike/level1_extractor.py (refactor baselines _extract_file_hints, _extract_class_names; add keyword/error-token extraction)",
+            "ProblemStatement.extracted_keywords field (or spike-local RetrievalHints dataclass if ProblemStatement change too broad)",
+            "results/retrieval-spike/hint_coverage.json after first run"
+          ],
+          "verify": [
+            "≥15/20 cases have ≥1 extracted signal (file, symbol, or keyword)",
+            "Zero-signal cases listed for combined-strategy fallback testing"
+          ],
+          "answers": "Q3 baseline — Level 1 retrieval input quality"
+        },
+        {
+          "id": "rs-strategy-file-log",
+          "name": "Strategy: file log — git log -- <extracted_files> → recall@100",
+          "status": "pending",
+          "depends_on": ["rs-level1-extraction", "rs-git-extensions"],
+          "deliverables": ["results/retrieval-spike/file_log.json"],
+          "verify": ["Aggregate recall@100 printed; per-case rank of bug_hash when hit"],
+          "answers": "Q1 — file-log baseline recall"
+        },
+        {
+          "id": "rs-strategy-keyword-grep",
+          "name": "Strategy: keyword grep — git log --grep for extracted keywords/symbols → recall@100",
+          "status": "pending",
+          "depends_on": ["rs-level1-extraction"],
+          "deliverables": ["results/retrieval-spike/keyword_grep.json"],
+          "verify": ["Uses search_commits_by_keyword; max 10 keywords per case, union commits"],
+          "answers": "Q1 — message-search recall"
+        },
+        {
+          "id": "rs-strategy-pickaxe",
+          "name": "Strategy: pickaxe — git log -S for extracted symbols → recall@100",
+          "status": "pending",
+          "depends_on": ["rs-level1-extraction", "rs-git-extensions"],
+          "deliverables": ["results/retrieval-spike/pickaxe.json"],
+          "verify": ["Top 5 symbols per case; union commits capped at 200 before truncate to K"],
+          "answers": "Q1 — code-level search recall"
+        },
+        {
+          "id": "rs-strategy-blame",
+          "name": "Strategy: blame — git blame on resolved file paths at temporal bound → recall@100",
+          "status": "pending",
+          "depends_on": ["rs-level1-extraction"],
+          "deliverables": ["results/retrieval-spike/blame.json"],
+          "verify": ["File path resolution heuristic documented (CamelCase → src/... path guess optional); frequency-ranked commits"],
+          "answers": "Q1 — blame recall (extends git-blame-naive to K=100)"
+        },
+        {
+          "id": "rs-strategy-recency",
+          "name": "Strategy: recency fallback — list_recent_commits(n=200) when signals sparse",
+          "status": "pending",
+          "depends_on": ["rs-scaffold"],
+          "deliverables": ["results/retrieval-spike/recency_fallback.json"],
+          "verify": ["Always returns candidates; measures recall@100 as absolute floor for bounded history"],
+          "answers": "Q1 — fallback recall ceiling; input for combined strategy weighting"
+        },
+        {
+          "id": "rs-strategy-time-window",
+          "name": "Strategy: time-window — commits within N days of bug_date before temporal bound",
+          "status": "pending",
+          "depends_on": ["rs-git-extensions", "rs-level1-extraction"],
+          "deliverables": [
+            "results/retrieval-spike/time_window_90d.json",
+            "results/retrieval-spike/time_window_365d.json",
+            "results/retrieval-spike/time_window_unbounded.json"
+          ],
+          "verify": [
+            "bug_date loaded from ApacheJIT commit_links CSV (not JIRA cache — created field absent)",
+            "Compare recall@100 across 90d, 365d, unbounded windows"
+          ],
+          "answers": "Q4 — time-window effect on recall (precision impact noted qualitatively via candidate_count)"
+        },
+        {
+          "id": "rs-strategy-combined",
+          "name": "Combined strategy — union top-N strategies with signal-count + recency rank",
+          "status": "pending",
+          "depends_on": [
+            "rs-strategy-file-log",
+            "rs-strategy-keyword-grep",
+            "rs-strategy-pickaxe",
+            "rs-strategy-blame",
+            "rs-strategy-recency"
+          ],
+          "deliverables": [
+            "src/commit_investigator/eval/retrieval_spike/combined.py",
+            "results/retrieval-spike/combined.json"
+          ],
+          "verify": [
+            "Combined recall@100 ≥ best individual strategy recall@100",
+            "Ranking: (1) number of strategies retrieving commit, (2) earliest strategy rank, (3) commit date desc"
+          ],
+          "answers": "Q1 — recommended retrieval recipe for P16"
+        },
+        {
+          "id": "rs-set-size-analysis",
+          "name": "Set size analysis — recall@50 vs @100 vs @200 on combined strategy",
+          "status": "pending",
+          "depends_on": ["rs-strategy-combined"],
+          "deliverables": ["results/retrieval-spike/set_size_analysis.json"],
+          "verify": [
+            "Table: K=50,100,200 × recall, median candidate_count, GT rank when hit",
+            "Recommendation: smallest K where recall@K ≥ 0.80 OR highest recall if none reach 0.80"
+          ],
+          "answers": "Q2 — default CandidateSet size for V4"
+        },
+        {
+          "id": "rs-level2-conditional",
+          "name": "Level 2 extraction comparison (conditional) — LLM-synthesized hints vs Level 1",
+          "status": "pending",
+          "depends_on": ["rs-strategy-combined"],
+          "gate": "Skip if combined Level 1 recall@100 >= 0.70; else run",
+          "deliverables": [
+            "src/commit_investigator/eval/retrieval_spike/level2_extractor.py (one-shot LLM prompt, structured JSON output)",
+            "results/retrieval-spike/level2_comparison.json"
+          ],
+          "verify": [
+            "Same combined strategy; compare recall@100 Level 1 vs Level 2",
+            "Document LLM model used and cost estimate",
+            "Does NOT merge into ProblemExtractor product — spike-only"
+          ],
+          "answers": "Q3 — whether P16 should depend on spike-level2-extractor task"
+        },
+        {
+          "id": "rs-findings-doc",
+          "name": "Spike findings ADR — strategy selection, thresholds, P16 handoff",
+          "status": "pending",
+          "depends_on": [
+            "rs-set-size-analysis",
+            "rs-strategy-time-window",
+            "rs-level2-conditional"
+          ],
+          "deliverables": [
+            ".harness/docs/retrieval-spike-findings.md",
+            "docs/evaluation-framework.md (gate/target update)",
+            "results/retrieval-spike/summary.json"
+          ],
+          "verify": [
+            "ADR Status: Accepted",
+            "Sections: Executive summary, Q1–Q4 answers, per-strategy table, set-size recommendation, ranking heuristic, gate/target values, P16 implementation notes, reproducibility command",
+            "Explicitly states what P16 must implement vs what was spike-only"
+          ],
+          "answers": "Unblocks v4-retrieval-module (P16) and v4-trace-and-eval-integration Retrieval Recall metric calibration"
+        }
+      ]
+    },
+    {
+      "id": "v4-core-models",
+      "name": "V4 build: core data structures — CandidateSet, InvestigationBrief, InvestigationState, InvestigationTrace",
+      "type": "feature",
+      "status": "pending",
+      "priority": 13,
+      "depends_on": ["mechanism-design"],
+      "scope": "New package commit_investigator/models/ (or harness/) with dataclasses from system-specification.md: CandidateSet, CandidateCommit, InvestigationBrief (Hypothesis, ExaminationStep), InvestigationState, CompletionCriteria, InvestigationTrace and nested records from mechanism-design ADR §Q4. JSON serialization helpers. Extend BugAttributionReport with optional investigation_trace. Unit tests for construction, defaults (max_effort=18, thresholds), and round-trip JSON. Does NOT wire into orchestrator yet.",
+      "note": "Foundational types shared by retrieval, harness, and eval. Can start immediately — no retrieval-spike dependency."
+    },
+    {
+      "id": "v4-governance-loaders",
+      "name": "V4 build: governance loaders — YAML rule loader + Markdown skill retriever",
+      "type": "feature",
+      "status": "pending",
+      "priority": 14,
+      "depends_on": ["v4-core-models", "mechanism-design"],
+      "scope": "New commit_investigator/governance/ package: load_rules(stage) splitting hard/soft from data/governance/rules/; retrieve_skills(problem_statement, top_k=3) with keyword overlap and project scope from data/governance/skills/. Hard-rule check registry stubs for harness. Tests against seed governance files (3 rules, 2 skills). Does NOT assemble prompts yet.",
+      "note": "Implements mechanism-design ADR §Q1–Q2. Parallel with retrieval-spike."
+    },
+    {
+      "id": "v4-prompt-assembler",
+      "name": "V4 build: PromptAssembler — 10-section ordered template with truncation policy",
+      "type": "feature",
+      "status": "pending",
+      "priority": 15,
+      "depends_on": ["v4-governance-loaders"],
+      "scope": "commit_investigator/governance/prompt_assembler.py: assemble(stage, problem_statement, candidate_set, investigation_state, brief, evidence) producing ordered sections per mechanism-design ADR §Q3. Truncation at 80% token budget (evidence → candidates → skills). Stage-specific candidate formatting (top 20 for Stage 2; examined + next 5 for Stage 3). Tests with fixture data verifying section order, empty-section omission, and truncation behavior.",
+      "note": "Parallel with retrieval-spike. Consumes governance loaders + core models."
+    },
+    {
+      "id": "v4-retrieval-module",
+      "name": "V4 build: deterministic retrieval module — CandidateSet from git signals",
+      "type": "feature",
+      "status": "pending",
+      "priority": 16,
+      "depends_on": ["retrieval-spike", "v4-core-models"],
+      "scope": "New commit_investigator/retrieval/ package implementing strategy chosen by retrieval-spike (file log, grep, pickaxe, blame, time-window — combined per spike findings). Input: ProblemStatement + repo + temporal_bound. Output: CandidateSet with retrieval_metadata. Fallback paths: zero signals → broad heuristics; <10 candidates → widen parameters. recall@100 diagnostic helper for eval. Tests on fixture repos + n=20 eval cases measuring recall@100 against ground truth.",
+      "note": "BLOCKED on retrieval-spike strategy selection. First runnable input-pipeline increment."
+    },
+    {
+      "id": "v4-input-pipeline",
+      "name": "V4 build: input pipeline entry — Stage 0 extraction + Stage 1 retrieval wired",
+      "type": "feature",
+      "status": "pending",
+      "priority": 17,
+      "depends_on": ["v4-retrieval-module"],
+      "scope": "commit_investigator/retrieval/pipeline.py (or input_pipeline.py): prepare_investigation(problem, repo, temporal_bound) → (ProblemStatement, CandidateSet). Reuses existing ProblemExtractor for Stage 0. Brief-validation retry path: re-run Stage 1 with widened retrieval (mechanism-design ADR §Q6). CLI smoke script or pytest proving end-to-end input for one eval case. Does NOT invoke LLM.",
+      "note": "Testable increment: given JIRA + repo + bound, get CandidateSet with metadata. Zero LLM cost."
+    },
+    {
+      "id": "v4-investigation-harness",
+      "name": "V4 build: investigation harness — state machine, brief validator, completion criteria, scoped tools",
+      "type": "feature",
+      "status": "pending",
+      "priority": 18,
+      "depends_on": ["v4-prompt-assembler", "v4-input-pipeline"],
+      "scope": "New commit_investigator/harness/ package: InvestigationHarness orchestrating Stages 2→3→4. BriefValidator (min 2 hypotheses, 1 retry, default brief fallback per ADR §Q6). CompletionCriteria evaluator after each Stage 3 turn (evidence=3, hypotheses=2, confidence=0.60, max_effort=18). Re-plan loop max 2. Hard-rule enforcement at transitions. Stage 3 tools scoped to CandidateSet (get_commit_diff, get_commit_message, get_file_at_commit, get_blame — no repo-wide search). Refactor or wrap existing orchestrator LLM calls behind harness interface. Tests with MockLLMProvider for stage transitions, validation failures, degraded mode.",
+      "note": "Core agent pipeline. Replaces V3 self-governed loop. Can use mock retrieval output until eval integration."
+    },
+    {
+      "id": "v4-trace-and-eval-integration",
+      "name": "V4 build: trace writer + run_eval integration — V4 path with Retrieval Recall metric",
+      "type": "feature",
+      "status": "pending",
+      "priority": 19,
+      "depends_on": ["v4-investigation-harness"],
+      "scope": "TraceWriter: JSON InvestigationTrace per investigation at results/traces/{issue_key}/{run_id}.json with per-turn Stage 3 granularity (ADR §Q4). Wire V4 harness into eval/run_eval.py behind --agent-version v4 (or env flag); V3 path preserved for baseline comparison. Attach investigation_trace to BugAttributionReport. Compute Retrieval Recall (ground truth in top 100). Smoke eval on 1–3 cases then n=20 comparison vs V3 baselines. Evidence scoring (existing evidence_tagger) runs post-attribution unchanged.",
+      "note": "Final integration increment. Enables first V4 live eval against V3 Hit@5=0.50 baseline."
     }
   ]
 }

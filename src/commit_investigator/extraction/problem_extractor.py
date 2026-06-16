@@ -30,6 +30,7 @@ class ProblemStatement:
     issue_key: str = ""
     extracted_files: list[str] = field(default_factory=list)
     extracted_symbols: list[str] = field(default_factory=list)
+    extracted_keywords: list[str] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:

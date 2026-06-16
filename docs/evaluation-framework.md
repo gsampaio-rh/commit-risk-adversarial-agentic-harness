@@ -38,7 +38,7 @@ This table maps the V4 pipeline stages to the metrics that measure them. See [sy
 | Stage | Metric | What is measured | Status |
 |-------|--------|------------------|--------|
 | 0 Extraction | **Extraction Signal Count** | Number of search signals produced (files, symbols, keywords) | Concept — not yet implemented |
-| 1 Retrieval | **Retrieval Recall@100** | Is `bug_hash` in the `CandidateSet`? | Concept — to be built in `retrieval-spike` |
+| 1 Retrieval | **Retrieval Recall@100** | Is `bug_hash` in the `CandidateSet`? | Calibrated — gate >= 0.35, target >= 0.60 ([retrieval-spike findings](../.harness/docs/retrieval-spike-findings.md)) |
 
 **Retrieval Recall@100** is the foundational metric for V4. If the input pipeline does not include `bug_hash` in the candidate set, the agent cannot succeed regardless of reasoning quality. This metric measures input pipeline quality independently of the agent.
 
@@ -138,7 +138,7 @@ retrieval_recall = 1 if bug_hash[:12] in {cid[:12] for cid in commit_ids}, else 
 retrieval_recall_100 = 1 if bug_hash[:12] in {c.commit_id[:12] for c in candidate_set.commits}, else 0
 ```
 
-**Why it matters:** Foundational metric for V4. If `bug_hash` is not in the candidate set, the agent cannot succeed regardless of reasoning quality. A low Retrieval Recall@100 indicates an input pipeline failure, not an agent failure. Target: **TBD** — to be calibrated in `retrieval-spike` task.
+**Why it matters:** Foundational metric for V4. If `bug_hash` is not in the candidate set, the agent cannot succeed regardless of reasoning quality. A low Retrieval Recall@100 indicates an input pipeline failure, not an agent failure. Gate: **>= 0.35**, Target: **>= 0.60** — calibrated from [retrieval-spike findings](../.harness/docs/retrieval-spike-findings.md). Level 1 extraction achieves 0.45; Level 2 (LLM-synthesized) expected to reach 0.55-0.65.
 
 ### D6 Evidence Grounding
 
@@ -242,7 +242,7 @@ These thresholds are **provisional** — they will be calibrated after the first
 | **D3 Attribution** | >= 0.20 | >= 0.40 |
 | **D6 Evidence** | >= 0.60 | >= 0.60 |
 | **Retrieval Recall (agent)** | >= 0.40 | >= 0.60 |
-| **Retrieval Recall@100 (input)** | **TBD** — after `retrieval-spike` | **TBD** — target >= 0.80 |
+| **Retrieval Recall@100 (input)** | >= 0.35 | >= 0.60 |
 
 **GATE:** The agent must exceed all gates to be considered minimally functional.
 
@@ -280,7 +280,7 @@ These thresholds are **provisional** — they will be calibrated after the first
 | Limitation | Impact | Mitigation |
 |------------|--------|------------|
 | SZZ noise in `bug_hash` labels | Format changes and refactoring labeled as bug-introducing. Hit@1 unreliable. | Hit@5 as primary metric; gt-noise-analysis done (35% noise rate). |
-| Retrieval Recall@100 ceiling | If input pipeline can't get `bug_hash` in top 100, agent fails at foundation | `retrieval-spike` task will empirically test strategies |
+| Retrieval Recall@100 ceiling | If input pipeline can't get `bug_hash` in top 100, agent fails at foundation | Retrieval spike achieved 0.45 with Level 1 extraction; Level 2 expected to reach 0.60 ([findings](../.harness/docs/retrieval-spike-findings.md)) |
 | Tool output truncation (8K chars) | Large diffs or blame output may lose relevant lines | Truncation appends a notice; agent can request specific line ranges via `get_blame` |
 | Agent Retrieval Recall args-only | Only `tool_trace[].args.commit_id` counts; search result SHAs ignored | Agent examines from CandidateSet — V4 reduces this gap |
 | Plan Quality (eval-only) | Plan Overlap Score requires eval-mode oracle (`bug_hash` files) | Metric defined in [mechanism-design ADR §9](../.harness/docs/mechanism-design.md#9-plan-quality-metric-ac12); not available in production mode |

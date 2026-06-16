@@ -1,0 +1,126 @@
+{
+  "task_id": "retrieval-spike",
+  "date": "2026-06-16",
+  "retest": 2,
+  "retest_context": "Post-cleanup re-evaluation after user decision to delete spike research code (eval/retrieval_spike/, run_retrieval_spike.py, test_retrieval_spike.py). Permanent artifacts retained per spike task policy.",
+  "criteria": {
+    "AC1": {
+      "status": "N/A",
+      "note": "Spike code deleted per user decision. scripts/run_retrieval_spike.py absent (confirmed)."
+    },
+    "AC2": {
+      "status": "N/A",
+      "note": "Spike code deleted per user decision. src/commit_investigator/eval/retrieval_spike/ absent (confirmed)."
+    },
+    "AC3": {
+      "status": "N/A",
+      "note": "Spike harness deleted. Research output verified: results/retrieval-spike/summary.json reports n=20, manifest=results/v3-subagent-eval-v2/manifest.json, seed=42."
+    },
+    "AC4": {
+      "status": "N/A",
+      "note": "Spike strategy enforcement deleted. Permanent git_context infrastructure verified: temporal_bound on all search methods (get_file_history, search_commits_by_keyword, search_commits_by_pickaxe, list_commits_in_date_range, list_recent_commits); _enforce_bound on direct commit access; GitCommitNotFoundError on invalid bound ref at init."
+    },
+    "AC5": {
+      "status": "N/A",
+      "note": "Spike level1_extractor harness deleted. Permanent artifacts verified: ProblemStatement.extracted_keywords field present; results/retrieval-spike/hint_coverage.json exists with 20/20 cases reporting extracted_files, extracted_symbols, extracted_keywords."
+    },
+    "AC6": {
+      "status": "PASS",
+      "note": "All 7 individual strategy JSONs present with per-case recall@100 and aggregate: file_log.json (0.20), keyword_grep.json (0.20), pickaxe.json (0.20), blame.json (0.35), recency_fallback.json (0.05), time_window_90d.json (0.05), time_window_365d.json (0.05)."
+    },
+    "AC7": {
+      "status": "PASS",
+      "note": "combined.json recall@100=0.45 (9/20); set-size-k50/combined.json recall=0.30; set-size-k200/combined.json recall=0.50. Matches summary.json set_size_analysis."
+    },
+    "AC8": {
+      "status": "PASS",
+      "note": "Findings ADR §Q2 set-size table: K=50 (0.300), K=100 (0.450), K=200 (0.500) with recommendation K=100."
+    },
+    "AC9": {
+      "status": "PASS",
+      "note": "L1 combined recall@100=0.45 < 0.70 skip threshold. ADR §Q3 documents Level 1 vs Level 2 comparison table with deferral rationale to P8. Artifact: results/retrieval-spike/level2_comparison.json."
+    },
+    "AC10": {
+      "status": "PASS",
+      "note": "Findings ADR Status: Accepted. Q1–Q4 answered. Recommends combined (file_log+keyword_grep+pickaxe+blame), K=100, signal-count ranking, gate=0.35/target=0.60, P16 implementation notes present."
+    },
+    "AC11": {
+      "status": "PASS",
+      "note": "docs/evaluation-framework.md Retrieval Recall@100 gate >= 0.35, target >= 0.60 with ADR reference. No Retrieval Recall@100 TBDs remain (only unrelated multi-agent TBD at line 288)."
+    },
+    "AC12": {
+      "status": "PASS",
+      "note": "rg 'embedding|vector.store|faiss|chromadb' src/ — zero matches."
+    },
+    "AC13": {
+      "status": "N/A",
+      "note": "Spike tests deleted per user decision. Full suite verified: 165 passed (down from 186; 21 retrieval-spike tests removed as expected)."
+    },
+    "AC14": {
+      "status": "PASS",
+      "note": "results/retrieval-spike/summary.json present with full strategy results and reproducibility field. CONCERN: reproducibility command references deleted script (see concerns)."
+    }
+  },
+  "edge_cases": {
+    "E1": {
+      "status": "N/A",
+      "note": "Spike CombinedStrategy recency fallback deleted. Behavior documented in findings ADR §Q1 (recency fallback when <10 signal-driven candidates). hint_coverage.json shows 20/20 cases have signals; zero-hint path not re-runnable."
+    },
+    "E2": {
+      "status": "PASS",
+      "note": "Permanent git_context: GitCommitNotFoundError raised when temporal_bound ref not found at init; _run_git returns None on unknown revision/bad object (graceful, no crash)."
+    },
+    "E3": {
+      "status": "N/A",
+      "note": "Spike strategy cap logic deleted. git_context search methods accept max_results parameters (e.g., pickaxe default 50, keyword default 20). Production P16 must re-implement union caps."
+    }
+  },
+  "overall": "PASS",
+  "overall_rationale": "All permanent deliverables (findings ADR, result JSONs, evaluation-framework gate/target, git_context extensions, ProblemStatement data model, AC12 embedding ban) verified correct. Spike-code ACs appropriately N/A after intentional deletion. Task objective (empirical strategy selection + gate/target calibration for P16) is fully captured in retained artifacts.",
+  "concerns": [
+    "Stale reproducibility: findings ADR §Reproducibility and summary.json reproducibility field reference deleted scripts/run_retrieval_spike.py and spike package path. Recommend updating ADR to note spike code was intentionally removed post-research and results are frozen artifacts.",
+    "state.json task note and deliverables list still reference spike code paths (scripts/run_retrieval_spike.py, eval/retrieval_spike/). Recommend planner cleanup to reflect retained-artifacts-only policy.",
+    "Results are not re-runnable without restoring spike code or re-implementing in P16. Acceptable for research spike closure; P16 must treat findings ADR + JSON as source of truth.",
+    "E1/E3 edge-case behavior documented in ADR but no longer executable in codebase until P16."
+  ],
+  "recommendations": [
+    "Update .harness/docs/retrieval-spike-findings.md Reproducibility section: mark commands as historical; point to frozen results/retrieval-spike/ and P16 for re-execution.",
+    "Unblock v4-retrieval-module (P16) — spike findings are Accepted and gate/target values are in evaluation-framework.md.",
+    "Add git_context unit tests for search_commits_by_pickaxe, list_commits_in_date_range, resolve_file_path when building P16 (replaces deleted spike test coverage)."
+  ],
+  "verification_evidence": {
+    "spike_code_deleted": {
+      "eval_retrieval_spike_dir": "No such file or directory",
+      "run_retrieval_spike_py": "not found",
+      "test_retrieval_spike_py": "not found"
+    },
+    "permanent_git_context_methods": [
+      "search_commits_by_pickaxe",
+      "list_commits_in_date_range",
+      "resolve_file_path",
+      "get_blame"
+    ],
+    "problem_statement_fields": [
+      "extracted_files",
+      "extracted_symbols",
+      "extracted_keywords"
+    ],
+    "result_artifacts": [
+      "results/retrieval-spike/summary.json",
+      "results/retrieval-spike/hint_coverage.json",
+      "results/retrieval-spike/combined.json",
+      "results/retrieval-spike/level2_comparison.json",
+      "results/retrieval-spike/file_log.json",
+      "results/retrieval-spike/keyword_grep.json",
+      "results/retrieval-spike/pickaxe.json",
+      "results/retrieval-spike/blame.json",
+      "results/retrieval-spike/recency_fallback.json",
+      "results/retrieval-spike/time_window_90d.json",
+      "results/retrieval-spike/time_window_365d.json",
+      "results/retrieval-spike/set-size-k50/combined.json",
+      "results/retrieval-spike/set-size-k200/combined.json"
+    ],
+    "pytest_full_suite": "165 passed in 7.37s",
+    "embedding_rg": "zero matches in src/"
+  }
+}

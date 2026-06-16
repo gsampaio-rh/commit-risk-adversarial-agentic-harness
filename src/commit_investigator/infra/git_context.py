@@ -261,6 +261,88 @@ class GitContextProvider:
         args.extend([ref, "--", path])
         return self._run_git(args)
 
+    def search_commits_by_pickaxe(
+        self,
+        symbol: str,
+        max_results: int = 50,
+    ) -> list[FileHistoryEntry]:
+        """Search for commits that add or remove a string (git log -S).
+
+        Pickaxe search finds commits where the number of occurrences of
+        the given string changed — i.e., the string was added or removed.
+        Bounded by temporal_bound when set.
+        """
+        args = [
+            "log", f"-{max_results}",
+            "--format=%H|%an|%ai|%s",
+            "--first-parent",
+            "-S", symbol,
+        ]
+        if self._temporal_bound:
+            args.append(self._temporal_bound)
+
+        result = self._run_git(args)
+        return self._parse_log_entries(result)
+
+    def list_commits_in_date_range(
+        self,
+        after: str | None = None,
+        before: str | None = None,
+        max_results: int = 200,
+        path: str | None = None,
+    ) -> list[FileHistoryEntry]:
+        """List commits within a date range, bounded by temporal_bound.
+
+        Dates should be ISO-8601 format (e.g., '2015-01-01').
+        """
+        args = [
+            "log", f"-{max_results}",
+            "--format=%H|%an|%ai|%s",
+            "--first-parent",
+        ]
+        if after:
+            args.extend(["--after", after])
+        if before:
+            args.extend(["--before", before])
+        if self._temporal_bound:
+            args.append(self._temporal_bound)
+        if path:
+            args.extend(["--", path])
+
+        result = self._run_git(args)
+        return self._parse_log_entries(result)
+
+    def resolve_file_path(self, filename: str) -> list[str]:
+        """Find full repo paths matching a bare filename or partial path.
+
+        Uses git ls-tree at temporal bound (or HEAD) to search the tree.
+        Returns matching full paths, most specific first.
+        """
+        all_files = self._list_tree_files()
+        if not all_files:
+            return []
+
+        filename_lower = filename.lower()
+        suffix = "/" + filename_lower
+
+        matches = []
+        for line in all_files:
+            lower = line.lower()
+            if lower.endswith(suffix) or lower == filename_lower:
+                matches.append(line)
+
+        matches.sort(key=len)
+        return matches[:10]
+
+    @functools.lru_cache(maxsize=4)
+    def _list_tree_files(self) -> tuple[str, ...]:
+        """List all files in the repo tree (cached)."""
+        ref = self._temporal_bound or "HEAD"
+        result = self._run_git(["ls-tree", "-r", "--name-only", ref])
+        if not result:
+            return ()
+        return tuple(result.strip().splitlines())
+
     def commit_exists(self, commit_id: str) -> bool:
         """Check if a commit exists in the repository."""
         result = self._run_git(["cat-file", "-t", commit_id])
