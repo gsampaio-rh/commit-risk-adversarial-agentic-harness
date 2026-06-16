@@ -16,6 +16,8 @@ from typing import Any
 
 @dataclass
 class OutcomeRecord:
+    """Investigation outcome metrics (ADR §Q4 OutcomeRecord)."""
+
     suspect_count: int = 0
     top_confidence: float = 0.0
     degraded: bool = False
@@ -36,6 +38,8 @@ class OutcomeRecord:
 
 @dataclass
 class TurnRecord:
+    """Per-turn Stage 3 examination record (ADR §Q4 TurnRecord)."""
+
     turn: int
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     hypothesis_updates: list[str] = field(default_factory=list)
@@ -52,6 +56,8 @@ class TurnRecord:
 
 @dataclass
 class EvidenceRecord:
+    """Evidence quote with grounding status (ADR §Q4 EvidenceRecord)."""
+
     commit_id: str
     quote: str
     grounded: bool | None = None

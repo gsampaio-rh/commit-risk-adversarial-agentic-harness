@@ -611,3 +611,5 @@
 {"ts":"2026-06-16T23:13:55","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (2 files)"}
 {"ts":"2026-06-17T03:30:00Z","role":"builder","type":"build","feat":"v4-trace-and-eval","msg":"P8 trace writer + V4 runner: InvestigationTrace dataclass (ADR Q4 schema), TraceWriter (JSON per investigation), run_v4_investigation() wires input pipeline + harness + trace. 258 lines. 11 new tests, 368 total pass.","result":"pass"}
 {"ts":"2026-06-16T23:16:39","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (3 files)"}
+{"ts":"2026-06-17T03:50:00Z","role":"builder","type":"build","feat":"v4-harness-fixes","msg":"Fixed eval findings: confidence tracking from responses (regex+heuristic), per-turn trace population, validation errors passed to retry prompt, replan_limit/budget degraded modes, HypothesisRecord fields completed. 3 new tests. 371 total pass.","result":"pass"}
+{"ts":"2026-06-16T23:20:48","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (6 files)"}

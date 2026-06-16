@@ -224,7 +224,7 @@ class TestInvestigationHarness:
     def test_full_pipeline_with_valid_brief(self) -> None:
         """Happy path: planning → examination → attribution."""
         valid_brief = _make_valid_brief_json()
-        exam_response = "Evidence: commit aaa removed null check in configure()"
+        exam_response = "Evidence: commit aaa removed null check in configure(). confidence: 0.7"
         attribution = json.dumps({"suspects": [
             {"commit_id": "a" * 40, "confidence": 0.8, "mechanism": "null guard removed"},
         ]})
@@ -241,6 +241,7 @@ class TestInvestigationHarness:
         assert len(outcome.planning_responses) >= 1
         assert len(outcome.examination_responses) >= 1
         assert outcome.attribution_response is not None
+        assert len(outcome.examination_turns) > 0
 
     def test_invalid_brief_retries_then_uses_default(self) -> None:
         """Brief validation failure → retry → default brief."""
@@ -260,14 +261,14 @@ class TestInvestigationHarness:
         assert outcome.state.current_stage == 4
 
     def test_budget_exhausted_forces_degraded(self) -> None:
-        """Budget exceeded during planning → degraded mode."""
+        """Budget exceeded during planning → degraded mode with reason."""
 
         class BudgetExhaustingLLM:
             def generate(self, prompt, **kwargs):
                 return LLMResponse(
                     content="not json",
                     tokens_used=50000,
-                    cost=0.25,
+                    cost=0.30,
                 )
 
         harness = InvestigationHarness(
@@ -276,7 +277,8 @@ class TestInvestigationHarness:
             candidate_set=_make_candidate_set(),
         )
         outcome = harness.run()
-        assert outcome.degraded or outcome.state.budget_used.total_cost > 0
+        assert outcome.degraded is True
+        assert outcome.degraded_reason == "budget_exhausted"
 
     def test_stages_advance_correctly(self) -> None:
         """Verify stage transitions: 2 → 3 → 4."""
@@ -307,3 +309,91 @@ class TestInvestigationHarness:
         outcome = harness.run()
         assert len(outcome.evidence) > 0
         assert outcome.state.evidence_quotes_collected > 0
+
+    def test_confidence_extraction_from_response(self) -> None:
+        """Confidence is extracted from examination responses."""
+        valid_brief = _make_valid_brief_json()
+        exam_high = "This strongly suggests the root cause. confidence: 0.85"
+        attrib = json.dumps({"suspects": [{"confidence": 0.85}]})
+
+        llm = MockLLM([valid_brief, exam_high, exam_high, exam_high, attrib])
+        harness = InvestigationHarness(
+            llm=llm,
+            problem_statement=_make_problem(),
+            candidate_set=_make_candidate_set(),
+        )
+        outcome = harness.run()
+        assert outcome.top_confidence >= 0.65
+
+    def test_examination_turns_recorded(self) -> None:
+        """Per-turn records are populated for trace (ADR §Q4)."""
+        valid_brief = _make_valid_brief_json()
+        exam = "Evidence found: confirms the null check was removed"
+        attrib = json.dumps({"suspects": []})
+
+        llm = MockLLM([valid_brief, exam, exam, exam, attrib])
+        harness = InvestigationHarness(
+            llm=llm,
+            problem_statement=_make_problem(),
+            candidate_set=_make_candidate_set(),
+        )
+        outcome = harness.run()
+        assert len(outcome.examination_turns) >= 1
+        first_turn = outcome.examination_turns[0]
+        assert first_turn.turn == 1
+        assert "status" in first_turn.completion_check
+
+    def test_replan_limit_triggers_degraded(self) -> None:
+        """Replan limit (2) → degraded_reason='replan_limit' (ADR §Q6)."""
+        valid_brief = _make_valid_brief_json()
+        short_response = "x"  # too short for evidence (<= 20 chars)
+        attrib = json.dumps({"suspects": []})
+
+        responses = [valid_brief]
+        responses += [short_response] * 20
+        responses += [valid_brief, short_response] * 4
+        responses.append(attrib)
+
+        llm = MockLLM(responses)
+        harness = InvestigationHarness(
+            llm=llm,
+            problem_statement=_make_problem(),
+            candidate_set=_make_candidate_set(3),
+        )
+        outcome = harness.run()
+        assert outcome.degraded is True
+        assert outcome.degraded_reason in ("replan_limit", "budget_exhausted")
+
+    def test_validation_errors_passed_to_retry(self) -> None:
+        """Brief retry includes previous validation error details."""
+        brief_too_few = json.dumps(InvestigationBrief(
+            hypotheses=[Hypothesis(id="h1", statement="Bug because X")],
+            examination_plan=[ExaminationStep(look_for="test")],
+            strategy="Examine top candidates for null changes",
+            max_effort=18,
+        ).to_dict())
+        exam = "Evidence: change found"
+        attrib = json.dumps({"suspects": []})
+
+        call_prompts = []
+
+        class CapturingLLM:
+            def __init__(self):
+                self._calls = 0
+                self._responses = [brief_too_few, brief_too_few, exam, exam, exam, attrib]
+
+            def generate(self, prompt, **kwargs):
+                call_prompts.append(prompt)
+                idx = min(self._calls, len(self._responses) - 1)
+                self._calls += 1
+                return LLMResponse(content=self._responses[idx], tokens_used=50)
+
+        harness = InvestigationHarness(
+            llm=CapturingLLM(),
+            problem_statement=_make_problem(),
+            candidate_set=_make_candidate_set(),
+        )
+        harness.run()
+
+        assert len(call_prompts) >= 2
+        assert "Validation Errors" in call_prompts[1]

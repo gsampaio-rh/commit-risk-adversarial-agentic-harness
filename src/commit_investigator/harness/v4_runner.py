@@ -17,6 +17,7 @@ from commit_investigator.harness.trace_writer import (
     InvestigationTrace,
     OutcomeRecord,
     TraceWriter,
+    TurnRecord,
 )
 from commit_investigator.models.candidates import CandidateSet
 from commit_investigator.retrieval import compute_recall_at_k, prepare_investigation
@@ -107,7 +108,7 @@ def run_v4_investigation(
         },
         outcome=OutcomeRecord(
             suspect_count=len(outcome.suspects),
-            top_confidence=_extract_top_confidence(outcome.suspects),
+            top_confidence=outcome.top_confidence,
             degraded=outcome.degraded,
             degraded_reason=outcome.degraded_reason,
         ),
@@ -115,9 +116,34 @@ def run_v4_investigation(
 
     if outcome.brief:
         trace.hypotheses = [
-            {"id": h.id, "statement": h.statement, "status": "formed", "stage": 2}
+            {
+                "id": h.id,
+                "statement": h.statement,
+                "status": "formed",
+                "reason": "",
+                "stage": 2,
+                "turn": None,
+            }
             for h in outcome.brief.hypotheses
         ]
+
+    trace.examination_turns = [
+        TurnRecord(
+            turn=t.turn,
+            tool_calls=t.tool_calls,
+            completion_check=t.completion_check,
+        )
+        for t in outcome.examination_turns
+    ]
+
+    trace.evidence_collected = []
+    for i, ev_text in enumerate(outcome.evidence):
+        from commit_investigator.harness.trace_writer import EvidenceRecord
+        trace.evidence_collected.append(EvidenceRecord(
+            commit_id="",
+            quote=ev_text[:200],
+            turn=i + 1,
+        ))
 
     writer = TraceWriter(traces_dir)
     writer.write(trace)
