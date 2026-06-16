@@ -1,0 +1,139 @@
+{
+  "task_id": "state-checkpoints",
+  "prior_eval": "eval-state-replan.json",
+  "timestamp": "2026-06-16T20:59:46Z",
+  "overall": "PASS",
+  "computational_checks": {
+    "json_parse": "PASS \u2014 python3 json.load('.harness/state.json') succeeds",
+    "line_count": "PASS \u2014 242 lines (threshold < 260)",
+    "task_count_delta": "8 tasks (replan) \u2192 10 tasks (+2 checkpoints)"
+  },
+  "criteria": [
+    {
+      "criterion": "AC1",
+      "result": "PASS",
+      "evidence": "json.load('.harness/state.json') succeeds; schema_version=5"
+    },
+    {
+      "criterion": "AC2",
+      "result": "PASS",
+      "evidence": "wc -l \u2192 242 lines (threshold < 260)"
+    },
+    {
+      "criterion": "AC3",
+      "result": "PASS",
+      "evidence": "tasks length=10; all status='pending': True; ids=['v4-core-models', 'v4-governance-loaders', 'v4-retrieval-module', 'v4-prompt-assembler', 'v4-input-pipeline', 'v4-checkpoint-retrieval', 'v4-investigation-harness', 'v4-trace-and-eval-integration', 'v4-checkpoint-full-eval', 'spike-level2-extractor']"
+    },
+    {
+      "criterion": "AC4",
+      "result": "PASS",
+      "evidence": "priorities=[1, 2, 3, 4, 5, 6, 7, 7, 8, 9]; unique=[1, 2, 3, 4, 5, 6, 7, 8, 9] covers P1-P9 with no gaps; spike-level2-extractor priority=9; duplicate P7 for harness+trace-and-eval (10 tasks, 9 slots)"
+    },
+    {
+      "criterion": "AC5",
+      "result": "PASS",
+      "evidence": "checkpoint tasks: ['v4-checkpoint-full-eval', 'v4-checkpoint-retrieval']; types=['checkpoint', 'checkpoint']"
+    },
+    {
+      "criterion": "AC6",
+      "result": "PASS",
+      "evidence": "depends_on=['v4-input-pipeline']; gate={'Retrieval_Recall_at_100': 0.35}; target={'Retrieval_Recall_at_100': 0.45}"
+    },
+    {
+      "criterion": "AC7",
+      "result": "PASS",
+      "evidence": "depends_on=['v4-trace-and-eval-integration']; gate={'Hit@5': 0.4, 'MRR': 0.2}; target={'Hit@5': 0.5, 'MRR': 0.3}"
+    },
+    {
+      "criterion": "AC8",
+      "result": "PASS",
+      "evidence": "v4-investigation-harness depends_on=['v4-prompt-assembler', 'v4-input-pipeline', 'v4-checkpoint-retrieval']"
+    },
+    {
+      "criterion": "AC9",
+      "result": "PASS",
+      "evidence": "DFS cycle detection on task dependency graph: no cycles. Critical path: core-models \u2192 retrieval \u2192 input-pipeline \u2192 checkpoint-retrieval \u2192 harness \u2192 trace-and-eval \u2192 checkpoint-full-eval"
+    },
+    {
+      "criterion": "AC10",
+      "result": "PASS",
+      "evidence": "retrieval gate=0.35 (spike ADR >=0.35); full-eval Hit@5 gate=0.4 (acceptance_thresholds.target >=0.40); MRR gate=0.2"
+    },
+    {
+      "criterion": "AC11",
+      "result": "PASS",
+      "evidence": "8 feature tasks all have non-empty scope strings: ['v4-core-models', 'v4-governance-loaders', 'v4-retrieval-module', 'v4-prompt-assembler', 'v4-input-pipeline', 'v4-investigation-harness', 'v4-trace-and-eval-integration', 'spike-level2-extractor']"
+    },
+    {
+      "criterion": "AC12",
+      "result": "PASS",
+      "evidence": "completed_milestones len=22 (replan verified 22); cancelled_tasks len=3 exact match to eval-state-replan AC4; checkpoint addition (breadcrumb 22:50) modified tasks only \u2014 milestones/cancelled unchanged from replan eval at 22:50Z"
+    },
+    {
+      "criterion": "AC13",
+      "result": "PASS",
+      "evidence": "v4-checkpoint-full-eval priority=8"
+    },
+    {
+      "criterion": "AC14",
+      "result": "PASS",
+      "evidence": "v4-trace-and-eval-integration priority=7"
+    }
+  ],
+  "dependency_graph": {
+    "v4-core-models": [],
+    "v4-governance-loaders": [
+      "v4-core-models"
+    ],
+    "v4-retrieval-module": [
+      "v4-core-models"
+    ],
+    "v4-prompt-assembler": [
+      "v4-governance-loaders"
+    ],
+    "v4-input-pipeline": [
+      "v4-retrieval-module"
+    ],
+    "v4-checkpoint-retrieval": [
+      "v4-input-pipeline"
+    ],
+    "v4-investigation-harness": [
+      "v4-prompt-assembler",
+      "v4-input-pipeline",
+      "v4-checkpoint-retrieval"
+    ],
+    "v4-trace-and-eval-integration": [
+      "v4-investigation-harness"
+    ],
+    "v4-checkpoint-full-eval": [
+      "v4-trace-and-eval-integration"
+    ],
+    "spike-level2-extractor": [
+      "v4-retrieval-module"
+    ]
+  },
+  "edge_cases": [
+    {
+      "case": "E1: Duplicate priority P7 is expected with 10 tasks in P1-P9 range",
+      "result": "PASS",
+      "evidence": "harness (P7) and trace-and-eval (P7) share priority; spike at P9; checkpoint-full-eval at P8 per user request"
+    },
+    {
+      "case": "E2: Checkpoint tasks have scope field (not only feature tasks)",
+      "result": "PASS",
+      "evidence": "Both checkpoints have non-empty scope strings describing eval procedure and output paths"
+    },
+    {
+      "case": "E3: Retrieval gate field name uses Retrieval_Recall_at_100 not Retrieval_Recall",
+      "result": "PASS",
+      "evidence": "gate/target use Retrieval_Recall_at_100 key with numeric values 0.35/0.45 \u2014 semantically aligned with acceptance_thresholds.Retrieval_Recall"
+    },
+    {
+      "case": "E4: Milestones/cancelled stable across replan\u2192checkpoint delta",
+      "result": "PASS",
+      "evidence": "Only tasks[] and updated timestamp changed between replan (22:42Z) and checkpoint addition (22:50Z)"
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "All 14 acceptance criteria pass. state.json: 8\u219210 tasks with gated retrieval checkpoint before harness build. contract verified: true."
+}

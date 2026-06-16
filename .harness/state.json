@@ -2,11 +2,11 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v4-architecture-redesign",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-16T22:30:00Z",
+  "updated": "2026-06-16T22:42:00Z",
   "schema_version": 5,
   "_archive": "V2 state archived to .harness/state-v2-archive.json. V2 final: D1=0.72 D3=0.31 (n=50), JIRA injection brought D3=0.35 on n=20.",
   "vision": "Build a plan-driven bug attribution agent with internal governance. The system separates concerns into three pipelines: (1) Input Pipeline — deterministic extraction and candidate retrieval at zero LLM cost; (2) Agent Pipeline — LLM plans, examines, and attributes within an InvestigationBrief, governed by an investigation harness with rules and skills; (3) Evaluation Pipeline — oracle scores output. The agent receives a CandidateSet (not raw repo access), operates within completion criteria (not just budget), produces structured InvestigationTraces for learning, and improves over time via skills derived from traces. Evaluated via Hit@k, MRR, D3, D6, and Retrieval Recall against ApacheJIT ground truth.",
-  "direction": "ARCHITECTURE V4: Redesign from fully-agentic (LLM searches + reasons) to Retrieve-then-Reason (scripts retrieve, LLM reasons). V3 achieved Hit@5=0.50 but hits a ceiling because 25-30% of LLM budget is wasted on mechanical search. V4 introduces: (1) input pipeline with deterministic retrieval, (2) investigation harness governing the LLM, (3) InvestigationBrief as completion criteria, (4) structured traces for learning. ADRs: topology-debate + mechanism-design (both verified). Build tasks P13–P19 planned — core models and governance can start in parallel with retrieval-spike; retrieval module and downstream integration block on spike results.",
+  "direction": "ARCHITECTURE V4: Build the three-pipeline system. All research spikes and ADRs complete (topology-debate, mechanism-design, retrieval-spike). Build pipeline: P1 core models → P2/P3 governance+retrieval (parallel) → P4/P5 assembler+input (parallel) → P6 harness → P7 trace+eval. Optional P8: Level 2 extractor.",
   "invariants": {
     "temporal_bound": "Temporal bound (COMMIT_B~1) constrains the ENTIRE system — input pipeline retrieval and agent tools. In eval mode, bound comes from fix_hash. In production mode (future), from bug report date or HEAD.",
     "llm_reasons_scripts_retrieve": "Scripts own retrieval (candidate set assembly) and evidence verification. LLM owns planning, examination reasoning, and attribution. The LLM never searches from scratch — it receives a curated CandidateSet.",
@@ -63,90 +63,18 @@
       "D6_evidence": 0.60,
       "Retrieval_Recall": 0.40
     },
-    "note": "Recalibrated after Task Subagent breakthrough (n=20). Current best: Hit@5=0.35 (Task Subagent). Gate exceeded. Target within reach with prompt engineering."
+    "note": "Recalibrated after Task Subagent breakthrough (n=20). Current best: Hit@5=0.50 (prompt-v2). Gate exceeded. V4 pipeline targets same or better."
   },
   "baselines": {
     "v2_final": {
       "note": "V2 final scores (different problem, not directly comparable). Archived for reference.",
       "scores": { "D1": 0.72, "D3": 0.31, "D6": 0.78 }
     },
-    "v3_first_live_eval": {
+    "v3_best": {
       "date": "2026-06-16",
       "seed": 42,
       "n": 20,
-      "results": {
-        "git-blame-naive": { "Hit@1": 0.0, "Hit@3": 0.0, "Hit@5": 0.0, "MRR": 0.0 },
-        "file-history-recency": { "Hit@1": 0.0, "Hit@3": 0.0, "Hit@5": 0.0, "MRR": 0.0 },
-        "agent_ollama_qwen3_8b": {
-          "Hit@1": 0.05, "Hit@3": 0.05, "Hit@5": 0.05, "MRR": 0.05,
-          "D6_evidence": 0.275, "Retrieval_Recall": 0.05,
-          "cost_total_usd": 0.49, "avg_elapsed_s": 65.7, "total_elapsed_min": 22,
-          "avg_tool_calls": 2.95
-        },
-        "agent_cursor_sdk_sonnet": {
-          "Hit@1": 0.05, "Hit@3": 0.10, "Hit@5": 0.10, "MRR": 0.075,
-          "D6_evidence": 0.383, "Retrieval_Recall": 0.0,
-          "cost_total_usd": 0.044, "avg_elapsed_s": 312, "total_elapsed_min": 104,
-          "note": "CursorSDKInvestigator: native shell git tools via Agent.prompt(). 2 bridge crashes handled by retry+close_default_client()."
-        },
-        "agent_ollama_qwen3_8b_prompt_v3": {
-          "Hit@1": 0.00, "Hit@3": 0.00, "Hit@5": 0.00, "MRR": 0.00,
-          "D6_evidence": 0.51, "avg_tool_calls": 3.4,
-          "note": "Improved prompt: better grounding (0.28→0.51) but worse Hit@5 (0.05→0.00). Forced min 3 tool calls."
-        },
-        "agent_ollama_qwen3_32b": {
-          "Hit@1": 0.00, "Hit@3": 0.00, "Hit@5": 0.00, "MRR": 0.00,
-          "avg_elapsed_s": 343, "avg_tool_calls": 4.7,
-          "note": "Too slow on 32GB Mac (343s/case). Better tool usage but still 0 hits."
-        }
-      }
-    },
-    "task_subagent_eval": {
-      "date": "2026-06-16",
-      "seed": 42,
-      "n": 20,
-      "method": "Cursor IDE generalPurpose subagents with Shell/Read/Grep tools",
-      "model": "Claude Sonnet (via Cursor native infrastructure)",
-      "results": {
-        "Hit@1": 0.150,
-        "Hit@3": 0.350,
-        "Hit@5": 0.350,
-        "MRR": 0.242
-      },
-      "hit_cases": [
-        {"case": "CASSANDRA-7570", "rank": 2},
-        {"case": "SPARK-19033", "rank": 2},
-        {"case": "GROOVY-8298", "rank": 1},
-        {"case": "SPARK-27907", "rank": 2},
-        {"case": "AMQ-4338", "rank": 1},
-        {"case": "GROOVY-7014", "rank": 3},
-        {"case": "FLINK-3602", "rank": 1}
-      ],
-      "improvement_over_previous": {
-        "vs_ollama_8b": "7x (Hit@5: 0.05→0.35)",
-        "vs_cursor_sdk_local": "3.5x (Hit@5: 0.10→0.35)"
-      },
-      "advantages": [
-        "No SDK bridge instability — each subagent independent",
-        "Full Claude Sonnet reasoning capability",
-        "Native git tool access via Shell",
-        "Zero incremental cost (Cursor subscription)",
-        "Parallelizable (ran 5 cases concurrently)"
-      ],
-      "results_dir": "results/v3-subagent-eval"
-    },
-    "task_subagent_eval_v2": {
-      "date": "2026-06-16",
-      "seed": 42,
-      "n": 20,
-      "method": "Cursor IDE generalPurpose subagents with improved V2 prompt",
-      "model": "Claude Sonnet (via Cursor native infrastructure)",
-      "prompt_improvements": [
-        "Minimum 3 suspects enforced",
-        "Causal chain guidance (trace full commit chain)",
-        "2-phase search strategy (broad → deep)",
-        "Stronger evidence demands (causal mechanism required)"
-      ],
+      "method": "Task Subagent V2 prompt (fully-agentic LLM search+reason)",
       "results": {
         "Hit@1": 0.200,
         "Hit@3": 0.350,
@@ -155,42 +83,28 @@
         "Evidence_Grounding": 0.610
       },
       "hit_cases": [
-        {"case": "CASSANDRA-7570", "rank": 1, "v1_rank": 2, "change": "improved"},
-        {"case": "SPARK-19033", "rank": 4, "v1_rank": 2, "change": "lower rank"},
-        {"case": "GROOVY-8298", "rank": 1, "v1_rank": 1, "change": "same"},
-        {"case": "SPARK-27907", "rank": 1, "v1_rank": 2, "change": "improved"},
-        {"case": "SPARK-946", "rank": 4, "v1_rank": null, "change": "new hit"},
-        {"case": "AMQ-4338", "rank": 1, "v1_rank": 1, "change": "same"},
-        {"case": "HDFS-7734", "rank": 2, "v1_rank": null, "change": "new hit"},
-        {"case": "GROOVY-7014", "rank": 2, "v1_rank": 3, "change": "improved"},
-        {"case": "GROOVY-8416", "rank": 3, "v1_rank": null, "change": "new hit"},
-        {"case": "IGNITE-1787", "rank": 4, "v1_rank": null, "change": "new hit"}
+        {"case": "CASSANDRA-7570", "rank": 1},
+        {"case": "SPARK-19033", "rank": 4},
+        {"case": "GROOVY-8298", "rank": 1},
+        {"case": "SPARK-27907", "rank": 1},
+        {"case": "SPARK-946", "rank": 4},
+        {"case": "AMQ-4338", "rank": 1},
+        {"case": "HDFS-7734", "rank": 2},
+        {"case": "GROOVY-7014", "rank": 2},
+        {"case": "GROOVY-8416", "rank": 3},
+        {"case": "IGNITE-1787", "rank": 4}
       ],
-      "regressions": [
-        {"case": "FLINK-3602", "v1_rank": 1, "v2_rank": null, "reason": "Different commit selected in AvroTypeInfo chain"}
-      ],
-      "improvement_over_v1": {
-        "Hit@5": "+43% (0.35→0.50)",
-        "MRR": "+26% (0.242→0.304)",
-        "Hit@1": "+33% (0.15→0.20)",
-        "net_new_hits": 3
-      },
       "results_dir": "results/v3-subagent-eval-v2"
     },
-    "architecture_exploration": {
+    "retrieval_spike": {
       "date": "2026-06-16",
-      "tested": [
-        {"arch": "Cursor SDK Agent.prompt() agent mode", "verdict": "bridge crashes after 2-3 sessions"},
-        {"arch": "Cursor SDK Agent.create() agent mode", "verdict": "hangs indefinitely on complex prompts"},
-        {"arch": "Cursor SDK Agent.prompt() plan mode", "verdict": "hangs on large prompts (multi-turn history)"},
-        {"arch": "Cursor SDK Cloud REST API", "verdict": "requires GitHub-hosted repos, not local"},
-        {"arch": "Ollama qwen3:32b + orchestrator", "verdict": "too slow (343s/case) on 32GB Mac"},
-        {"arch": "Ollama qwen3:8b + improved prompt", "verdict": "better grounding but 0% Hit@5 — model too small"},
-        {"arch": "Ollama qwen3:8b + /no_think", "verdict": "fast (15s/case) but destroys reasoning — 0% Hit@5"},
-        {"arch": "Task Subagent Investigator (generalPurpose subagents)", "verdict": "WINNER — Hit@5=0.35, stable, parallel, zero extra cost"}
-      ],
-      "conclusion": "Task Subagent approach solves the architecture problem. Each investigation runs as independent Cursor subagent with Shell/Read/Grep tools. Claude Sonnet quality + git tool access + no bridge instability. BLOCKER RESOLVED.",
-      "blocker": "RESOLVED. Task Subagent approach bypasses SDK bridge entirely."
+      "combined_recall_at_100": 0.450,
+      "recommended_k": 100,
+      "level1_extraction": "regex-based (files, symbols, keywords)",
+      "best_individual_strategy": "blame (recall@100=0.35)",
+      "gate": 0.35,
+      "target": 0.60,
+      "adr": ".harness/docs/retrieval-spike-findings.md"
     }
   },
   "completed_milestones": [
@@ -201,668 +115,128 @@
     "v3-eval: Eval metrics (Hit@k, MRR, D3, D6) + eval runner",
     "v3-post-processing-a: In-pipeline evidence scoring — attach grounding metadata, no re-rank",
     "data-infra: 10 Apache repos cloned (7.8GB), JIRA cache warmed (108 entries), 20/20 eval cases runnable",
-    "arch-spec-rewrite: 7-stage Agentic Loop spec in system-specification.md + Stage-to-Metric Mapping in evaluation-framework.md + doc freshness pass (agent-loop.md, glossary.md, architecture.md, temporal-model.md, evaluation.md, README.md, AGENTS.md)",
-    "first-live-eval: n=20 seed=42 — baselines=0.0, Ollama-8B Hit@5=0.05, Cursor-SDK-sonnet Hit@5=0.10 MRR=0.075. CursorSDKInvestigator validated. Thresholds calibrated.",
-    "task-subagent-breakthrough: Hit@5=0.35 (7/20), MRR=0.242 via Cursor Task subagents. 7x over Ollama, 3.5x over SDK. Architecture blocker RESOLVED.",
-    "prompt-v2: Hit@5=0.50 (10/20), MRR=0.304 via improved prompt with min 3 suspects, causal chain guidance, 2-phase search. +43% Hit@5, +26% MRR over V1. Exceeds target threshold (0.40)."
+    "arch-spec-rewrite: 7-stage Agentic Loop spec in system-specification.md + Stage-to-Metric Mapping in evaluation-framework.md",
+    "first-live-eval: n=20 seed=42 — baselines=0.0, Ollama-8B Hit@5=0.05, Cursor-SDK-sonnet Hit@5=0.10. Thresholds calibrated.",
+    "task-subagent-breakthrough: Hit@5=0.35 (7/20), MRR=0.242 via Cursor Task subagents. Architecture blocker RESOLVED.",
+    "prompt-v2: Hit@5=0.50 (10/20), MRR=0.304. +43% Hit@5, +26% MRR over V1. Exceeds target (0.40).",
+    "v2-stub-cleanup: Dead V2 code (eval_harness, eval_judge, report) moved to _v2_archive",
+    "spike-early-exit: EARLY_EXIT_NUDGE_THRESHOLD=8 in orchestrator, configurable",
+    "spike-prompt-engineering: Prompt iteration with V3 agent — improved grounding but model-limited",
+    "random-baseline: random_commit baseline (pool=500, picks=5) wired into run_eval.py",
+    "d3-llm-judge: D3 Attribution LLM judge (0-4 rubric, top-3 suspects, any LLMProvider). 17 tests.",
+    "src-package-separation: Reorganized into extraction/, agent/, eval/, infra/ packages. 165 tests pass.",
+    "tech-debt-cleanup-post-reorg: Deleted dead Python/tests, fixed stale paths in docs/scripts, pruned unused deps",
+    "gt-noise-analysis: SZZ noise rate 35% (4 noise + 6 questionable / 20). Adjusted Hit@5 on clean data: 0.70",
+    "topology-debate: ADR at .harness/docs/topology-debate.md — three pipelines, agent boundary, InvestigationBrief, fallback paths",
+    "mechanism-design: ADR at .harness/docs/mechanism-design.md — hybrid rules YAML, hybrid skills MD, prompt assembly, trace schema JSON, completion thresholds, brief validation, artifact ownership. Seed governance files.",
+    "retrieval-spike: Combined recall@100=0.45 (9/20), blame strongest at 0.35. K=100 recommended. Gate>=0.35, target>=0.60. Level 2 needed. ADR at .harness/docs/retrieval-spike-findings.md"
+  ],
+  "cancelled_tasks": [
+    "v3-post-processing-b (P12): V3 re-ranking — superseded by V4 investigation harness",
+    "eval-n50 (P10): Scale V3 eval to n=50 — defer to V4 pipeline",
+    "ci-pipeline (P11): Automated eval CI — premature, no V4 pipeline yet"
   ],
   "tasks": [
-    {
-      "id": "arch-spec-rewrite",
-      "name": "Agentic Loop specification: 7-stage pipeline in system-specification.md and evaluation-framework.md",
-      "type": "docs",
-      "status": "verified",
-      "priority": 1,
-      "depends_on": ["v3-post-processing-a"],
-      "subtasks": [
-        "rewrite-agentic-loop: Merge Agent Loop + Evidence Scoring into single Agentic Loop section (7 stages)",
-        "update-pipeline-overview: Stage 2 table references 7-stage agentic loop",
-        "stage-metric-mapping: Add Stage-to-Metric Mapping section to evaluation-framework.md",
-        "doc-freshness: Updated agent-loop.md (full rewrite), glossary.md (post-loop→stage 6, three-stage→agentic loop), architecture.md (pipeline table + mermaid), temporal-model.md, evaluation.md, README.md, AGENTS.md — all cross-references aligned"
-      ]
-    },
-    {
-      "id": "data-infra",
-      "name": "Data infrastructure: clone Apache repos, prepare ApacheJIT zip, warm JIRA cache",
-      "type": "infra",
-      "status": "verified",
-      "priority": 1,
-      "subtasks": [
-        "clone-repos: 10 repos cloned (camel,hadoop,hbase,spark,groovy,ignite,hive,flink,cassandra,activemq) + 3 symlinks (hdfs,mapreduce,amq). 7.8GB total.",
-        "prepare-zip: ApacheJIT replication zip at data/apachejit/apachejit_dataset_replication.zip (83MB). 3 split CSVs extracted.",
-        "warm-jira: 108 JIRA tickets cached in data/jira_cache/. All 20 seed=42 eval cases have cached JIRA with descriptions.",
-        "smoke-test-data: All 4 checks pass — ground truth (58K bugs, 14 projects, 100% coverage), repos, JIRA cache, 20/20 runnable."
-      ],
-      "scripts_added": [
-        "scripts/warm_jira_cache.py",
-        "scripts/smoke_test_data.py"
-      ]
-    },
-    {
-      "id": "first-live-eval",
-      "name": "First live n=20 eval: run baselines + agent against real data, establish floor",
-      "type": "experiment",
-      "status": "verified",
-      "priority": 2,
-      "depends_on": ["data-infra"],
-      "subtasks": [
-        "run-baselines-n20: DONE — both 0.0 Hit@5",
-        "run-agent-n20-ollama: DONE — qwen3:8b Hit@5=0.05, MRR=0.05, cost=$0.49",
-        "run-agent-n20-cursor: DONE — claude-sonnet-4-6 Hit@5=0.10, MRR=0.075, cost=$0.04",
-        "calibrate-thresholds: DONE — gate Hit@5=0.20, target Hit@5=0.40",
-        "cost-audit: DONE — both within budget. Cursor SDK 10x cheaper, 5x slower."
-      ],
-      "results_dir": "results/v3-eval-n20-cursor-sdk",
-      "key_findings": [
-        "Baselines (deterministic) score 0.0 — hint extraction needs file paths not class names",
-        "Ollama 8B too weak for complex reasoning (1/20 hits, borderline tool-use compliance)",
-        "Cursor SDK sonnet 2/20 hits with evidence grounding 0.38 — real signal above noise",
-        "CursorSDKInvestigator arch works: Agent.prompt() + native shell git commands",
-        "Bridge stability requires close_default_client() between cases"
-      ]
-    },
-    {
-      "id": "v3-post-processing-a",
-      "name": "Phase A: in-pipeline evidence scoring — attach grounding scores to report metadata, no re-rank",
-      "type": "feature",
-      "status": "verified",
-      "priority": 3,
-      "depends_on": [],
-      "subtasks": [
-        "update-docs: Evidence Scorer as in-pipeline stage in agent-loop.md and architecture.md",
-        "wire-orchestrator: score_suspect_evidence() after agent loop in investigate()",
-        "eval-reuse: evaluate_attribution() reuses metadata evidence_scores",
-        "tests: orchestrator attach + eval score reuse coverage"
-      ],
-      "note": "Closes doc/code invariant gap. Does not change Hit@k — metadata attach only."
-    },
-    {
-      "id": "v3-post-processing-b",
-      "name": "Phase B: re-ranking + quality gate (conditional, after first-live-eval forensics)",
-      "type": "feature",
-      "status": "pending",
-      "priority": 12,
-      "depends_on": ["first-live-eval", "spike-prompt-engineering"],
-      "note": "Deferred. Requires offline rerank simulation on n=20 JSON. Feature flag POST_PROCESS_MODE. No loop re-entry until forensics justify it."
-    },
-    {
-      "id": "v2-stub-cleanup",
-      "name": "Remove V2 stubs: eval_harness.py inline Route enum, dead forensics imports",
-      "type": "cleanup",
-      "status": "verified",
-      "priority": 4,
-      "depends_on": ["first-live-eval"],
-      "note": "Done: eval_harness, eval_judge, report, eval_common moved to _v2_archive. MockLLMProvider+complete_multi_turn cleaned."
-    },
-    {
-      "id": "spike-prompt-engineering",
-      "name": "Spike: prompt engineering for better search strategy and suspect quality",
-      "type": "spike",
-      "status": "verified",
-      "priority": 5,
-      "depends_on": ["first-live-eval"],
-      "subtasks": [
-        "analyze-failures: DONE — 4 failure patterns identified (causal chain, low suspects, SZZ noise, large codebases)",
-        "prompt-v2: DONE — min 3 suspects, causal chain guidance, 2-phase search, stronger evidence demands",
-        "rerun-n20: DONE — Hit@5=0.50 (+43%), MRR=0.304 (+26%), 4 new hits, 1 regression"
-      ],
-      "results": {
-        "Hit@5": "0.50 (was 0.35, +43%)",
-        "MRR": "0.304 (was 0.242, +26%)",
-        "Evidence_Grounding": "0.610",
-        "new_hits": ["SPARK-946", "HDFS-7734", "GROOVY-8416", "IGNITE-1787"],
-        "regression": ["FLINK-3602 (different commit in chain selected)"]
-      },
-      "modules_created": [
-        "src/commit_investigator/agent/task_subagent_investigator.py",
-        "scripts/prepare_subagent_eval.py",
-        "scripts/collect_subagent_results.py"
-      ]
-    },
-    {
-      "id": "spike-early-exit",
-      "name": "Spike: early exit when high-confidence suspect found in <10 tool calls",
-      "type": "spike",
-      "status": "verified",
-      "priority": 6,
-      "depends_on": ["first-live-eval"],
-      "note": "Done: EARLY_EXIT_NUDGE_THRESHOLD=8 in orchestrator. After threshold+examine calls, nudges agent to conclude NOW. Configurable via early_exit_threshold param. 2 new tests, 165 total pass."
-    },
-    {
-      "id": "random-baseline",
-      "name": "Add Baseline 0 — random commit selection — as absolute floor reference",
-      "type": "feature",
-      "status": "verified",
-      "priority": 6,
-      "depends_on": ["data-infra"],
-      "note": "Done: random_commit baseline added to baselines.py and wired into run_eval.py. Pool of 500 commits, 5 random picks."
-    },
-    {
-      "id": "d3-llm-judge",
-      "name": "D3 Attribution LLM judge: does the mechanism explain how the suspect caused the problem?",
-      "type": "feature",
-      "status": "verified",
-      "priority": 7,
-      "depends_on": ["first-live-eval"],
-      "subtasks": [
-        "design-rubric: DONE — 0-4 rubric prompt in d3_judge.py, score/rationale JSON output",
-        "implement-judge: DONE — score_suspect_d3() + judge_attribution_d3() with diff truncation, parse fallbacks",
-        "integrate-eval: DONE — d3_avg_score/d3_top_score/d3_details in AttributionEvalResult + AggregateEvalReport"
-      ],
-      "modules_created": ["src/commit_investigator/eval/d3_judge.py", "tests/test_d3_judge.py"],
-      "note": "17 tests pass. Accepts any LLMProvider. Scores top-3 suspects by default. Optional via d3_llm param in evaluate_attribution()."
-    },
-    {
-      "id": "src-package-separation",
-      "name": "Reorganize src/ into 3 clear packages: extraction, agent, evaluation",
-      "type": "refactor",
-      "status": "verified",
-      "priority": 7,
-      "depends_on": [],
-      "subtasks": [
-        "package-1-extraction: Issue/problem extraction (ProblemExtractor, JIRA client, ground truth loading)",
-        "package-2-agent: Investigation agent (orchestrator, tools, hypothesis, evidence tagging)",
-        "package-3-eval: Evaluation and judging (metrics, D3 judge, baselines, run_eval)"
-      ],
-      "note": "Done: extraction/, agent/, eval/, infra/ packages. Old dirs (context/, pipeline/, runners/, analysis/, hypothesis/) removed. 165 tests pass except test_panel_smart_diff (V2 orphan)."
-    },
-    {
-      "id": "tech-debt-cleanup-post-reorg",
-      "name": "Post-reorg tech debt cleanup: dead code, stale docs, broken tests",
-      "type": "cleanup",
-      "status": "verified",
-      "priority": 7,
-      "depends_on": ["src-package-separation"],
-      "scope": "Delete or fix only broken/dead/misleading artifacts. No refactors of working code.",
-      "audit_summary": {
-        "dead_python": [
-          "calibrate_confidence.py — V2 D1 calibration; imports commit_investigator.analysis.signal_extractor (ModuleNotFoundError)",
-          "src/eval/forensics.py — orphan top-level package (not commit_investigator/eval/); imports analysis.archetype + context.context_builder (both deleted)",
-          "src/eval/__init__.py — empty stub for orphan src/eval/ package; delete with forensics.py"
-        ],
-        "broken_tests": [
-          "tests/test_panel_smart_diff.py — imports runners.eval_judge + analysis.report (V2 archived); blocks pytest collection; depends on missing output/runs/2026-06-10 panel data"
-        ],
-        "not_broken": [
-          "tests/test_smart_diff.py — already imports commit_investigator.infra.smart_diff (correct post-reorg); no fix needed"
-        ],
-        "stale_docs": [
-          "README.md — V2 package layout, runners.run_eval commands, D1-D6 thresholds, 'V2 pipeline active' status",
-          "docs/system-specification.md — 7 module paths still use runners/, context/, pipeline/, infra/ground_truth.py",
-          "docs/evaluation-framework.md — D3 judge and random baseline marked 'not yet implemented' (both verified done)",
-          ".cursor/rules/project_domain.mdc — stale module paths + 'D3 not yet implemented'"
-        ],
-        "stale_scripts": [
-          "scripts/run-smoke-eval.sh — 3x commit_investigator.runners.run_eval (should be eval.run_eval)",
-          "scripts/check-docs.sh — references docs/temporal-model.md, docs/architecture.md, docs/evaluation.md (none exist); fails if run"
-        ],
-        "unused_deps": [
-          "pyproject.toml — xgboost, scikit-learn declared but zero imports in src/ or scripts/"
-        ],
-        "stale_harness_artifacts": [
-          ".harness/audits/audit-repo-cleanup-2026-06-12.json — pre-reorg audit referencing deleted V2 modules (run_multiturn_ab, report_builder, historical_rag); misleading if read today"
-        ],
-        "intentionally_preserved": [
-          ".harness/.archive/ — 66 files from prior ITSM incarnation; historical reference, do not delete without explicit approval",
-          ".harness/evals/ — harness eval JSON history; not imported by code",
-          "tests/test_evidence_scorer_v3.py + tests/test_evidence_tagger.py — overlapping but both pass; rename/consolidate optional, not blocking"
-        ]
-      },
-      "subtasks": [
-        {
-          "id": "delete-dead-python",
-          "action": "delete",
-          "files": ["calibrate_confidence.py", "src/eval/forensics.py", "src/eval/__init__.py"],
-          "verify": "python -c import attempts on deleted paths fail; src/eval/ directory gone"
-        },
-        {
-          "id": "delete-v2-panel-test",
-          "action": "delete",
-          "files": ["tests/test_panel_smart_diff.py"],
-          "verify": "pytest tests/ --collect-only exits 0 with zero import errors"
-        },
-        {
-          "id": "fix-stale-docs",
-          "action": "update",
-          "files": [
-            "README.md",
-            "docs/system-specification.md",
-            "docs/evaluation-framework.md",
-            ".cursor/rules/project_domain.mdc"
-          ],
-          "path_mapping": {
-            "runners/run_eval.py": "eval/run_eval.py",
-            "runners/eval_metrics.py": "eval/eval_metrics.py",
-            "runners/baselines.py": "eval/baselines.py",
-            "context/problem_extractor.py": "extraction/problem_extractor.py",
-            "context/git_context.py": "infra/git_context.py",
-            "infra/ground_truth.py": "eval/ground_truth.py",
-            "pipeline/orchestrator.py": "agent/orchestrator.py",
-            "analysis/evidence_tagger.py": "agent/evidence_tagger.py",
-            "python -m commit_investigator.runners.run_eval": "python -m commit_investigator.eval.run_eval"
-          },
-          "verify": "rg 'runners/|context/problem|pipeline/orchestrator|infra/ground_truth' docs/ README.md .cursor/rules/project_domain.mdc returns zero matches"
-        },
-        {
-          "id": "fix-stale-scripts",
-          "action": "update",
-          "files": ["scripts/run-smoke-eval.sh"],
-          "optional": ["scripts/check-docs.sh — rewrite for current doc set or delete if obsolete"],
-          "verify": "rg 'commit_investigator\\.runners' scripts/ returns zero matches"
-        },
-        {
-          "id": "prune-unused-deps",
-          "action": "update",
-          "files": ["pyproject.toml"],
-          "remove": ["xgboost", "scikit-learn"],
-          "verify": "pip install -e . succeeds; pytest tests/ passes"
-        },
-        {
-          "id": "archive-stale-audit",
-          "action": "move or delete",
-          "files": [".harness/audits/audit-repo-cleanup-2026-06-12.json"],
-          "note": "Move to .harness/.archive/audits/ or delete — references modules that no longer exist",
-          "verify": "No active .harness/audits/ file references runners/, pipeline/, hypothesis/"
-        },
-        {
-          "id": "verify-clean",
-          "action": "verify",
-          "checks": [
-            "pytest tests/ — all pass, zero collection errors",
-            "rg 'commit_investigator\\.(runners|pipeline|context|analysis)' --glob '!*.jsonl' --glob '!.harness/.archive/**' — zero matches in src/, tests/, scripts/, docs/, README.md, AGENTS.md, .cursor/rules/",
-            "python -m commit_investigator.eval.run_eval --help exits 0"
-          ]
-        }
-      ],
-      "note": "165/165 tests pass when test_panel_smart_diff excluded. All commit_investigator/* modules import cleanly. Blocks full CI pytest until test_panel_smart_diff deleted."
-    },
-    {
-      "id": "spike-level2-extractor",
-      "name": "Spike: Level 2 ProblemExtractor — LLM-synthesized structured problem statement",
-      "type": "spike",
-      "status": "pending",
-      "priority": 8,
-      "depends_on": ["first-live-eval", "tech-debt-cleanup-post-reorg"],
-      "note": "Plan says: build Level 1 only first, add Level 2 only if Level 1 has clear gaps. Decision depends on first-live-eval results."
-    },
-    {
-      "id": "gt-noise-analysis",
-      "name": "Ground truth quality: SZZ noise analysis on eval cases",
-      "type": "experiment",
-      "status": "verified",
-      "priority": 9,
-      "depends_on": ["first-live-eval"],
-      "results": {
-        "noise_rate": "35% estimated (4 noise + 6 questionable out of 20)",
-        "noise_cases": ["IGNITE-2158", "GROOVY-8298", "GROOVY-5775", "FLINK-3602"],
-        "adjusted_hit_at_5_excl_noise": "0.562 (9/16)",
-        "adjusted_hit_at_5_plausible_only": "0.70 (7/10)",
-        "implication": "Agent achieves 70% Hit@5 on clean data. Hit@1 is unreliable due to SZZ noise."
-      },
-      "note": "Done: scripts/gt_noise_analysis.py analyzes file overlap between bug/fix commits. 4 noise cases (zero file overlap), 6 questionable (low overlap). Results in results/gt-noise-analysis.json."
-    },
-    {
-      "id": "eval-n50",
-      "name": "Scale eval to n=50: broader evaluation with refined prompt + judge",
-      "type": "experiment",
-      "status": "pending",
-      "priority": 10,
-      "depends_on": ["spike-prompt-engineering", "d3-llm-judge"],
-      "note": "Only after prompt improvements and D3 judge are in place. Estimated cost: $10-15."
-    },
-    {
-      "id": "ci-pipeline",
-      "name": "CI: automated eval pipeline — run n=20 on commit, compare against baselines",
-      "type": "infra",
-      "status": "pending",
-      "priority": 11,
-      "depends_on": ["eval-n50"],
-      "note": "Regression guard. Runs baselines (free) + agent (budget-capped) on every significant change."
-    },
-    {
-      "id": "topology-debate",
-      "name": "Architecture V4: topology debate — resolve agent boundary, pipeline views, naming, governance model",
-      "type": "debate",
-      "status": "verified",
-      "priority": 1,
-      "depends_on": [],
-      "note": "ADR at .harness/docs/topology-debate.md. Resolves: three pipelines (input/agent/eval), agent boundary at Stage 2, InvestigationBrief naming, temporal model expansion, fallback paths. Unlocks all V4 doc rewrites and implementation.",
-      "deliverables": [
-        ".harness/docs/topology-debate.md (ADR)",
-        "docs/system-specification.md (rewrite)",
-        "docs/agent-loop.md (rewrite)",
-        "docs/evaluation-framework.md (update)",
-        "AGENTS.md (update)",
-        "docs/glossary.md (update)"
-      ]
-    },
-    {
-      "id": "mechanism-design",
-      "name": "Architecture V4: mechanism design — rule format, skill mechanism, trace schema, prompt assembly, completion thresholds",
-      "type": "debate",
-      "status": "verified",
-      "priority": 2,
-      "depends_on": ["topology-debate"],
-      "note": "ADR at .harness/docs/mechanism-design.md. Resolves: (Q1) hybrid rules — hard gates + soft prompt guidance in YAML, (Q2) hybrid skills — keyword retrieval + manual curation in Markdown, (Q3) ordered section prompt assembly via PromptAssembler, (Q4) JSON trace per investigation with per-turn Stage 3, (Q5) thresholds: evidence=3, hypothesis_coverage=2, confidence_gate=0.60, max_effort=18, (Q6) min 2 hypotheses, 1 retry, default brief fallback, (Q7) filesystem artifact ownership, no approval gates. Seed governance files in data/governance/.",
-      "deliverables": [
-        ".harness/docs/mechanism-design.md (ADR)",
-        "docs/system-specification.md (TBD markers replaced)",
-        "docs/agent-loop.md (TBD markers replaced)",
-        "docs/glossary.md (rules/skills/plan quality entries)",
-        "docs/evaluation-framework.md (Plan Quality metric)",
-        "data/governance/rules/ (3 seed rules)",
-        "data/governance/skills/ (2 seed skills)"
-      ]
-    },
-    {
-      "id": "retrieval-spike",
-      "name": "Architecture V4: retrieval spike — empirically test retrieval strategies for recall@100",
-      "type": "spike",
-      "status": "verified",
-      "priority": 2,
-      "depends_on": ["topology-debate", "mechanism-design"],
-      "note": "Empirical research spike — NOT production retrieval module (that is v4-retrieval-module P16). Spike code lives under eval/retrieval_spike/ and scripts/run_retrieval_spike.py. Uses frozen manifest results/v3-subagent-eval-v2/manifest.json (n=20, seed=42). Resolves mechanism-design deferred CandidateSet ranking + evaluation-framework Retrieval Recall@100 TBDs.",
-      "results": {
-        "combined_recall_at_100": 0.450,
-        "combined_recall_at_200": 0.500,
-        "blame_recall_at_100": 0.350,
-        "file_log_recall_at_100": 0.200,
-        "keyword_grep_recall_at_100": 0.200,
-        "pickaxe_recall_at_100": 0.200,
-        "recency_recall_at_100": 0.050,
-        "time_window_recall_at_100": 0.050,
-        "recommended_k": 100,
-        "gate": 0.35,
-        "target": 0.60,
-        "level2_needed": true
-      },
-      "research_questions": [
-        "Q1: Which git retrieval strategies achieve best recall@100 on n=20?",
-        "Q2: Optimal candidate set size — 50 vs 100 vs 200?",
-        "Q3: Does Level 2 extraction improve retrieval over Level 1?",
-        "Q4: Does time-window bounding help or hurt recall@100?"
-      ],
-      "constraints": [
-        "Temporal bound fix_hash~1 on every strategy (GitContextProvider._enforce_bound or equivalent pre-filter)",
-        "No embeddings, vector stores, or external retrieval services (mechanism-design ADR pragmatic constraints)",
-        "Deterministic git CLI only — reuse GitContextProvider; extend minimally for pickaxe and time-window",
-        "Spike scope only — findings inform P16 v4-retrieval-module, not wired into agent pipeline"
-      ],
-      "deliverables": [
-        "results/retrieval-spike/ (per-strategy JSON + summary.json — frozen research output)",
-        ".harness/docs/retrieval-spike-findings.md (Accepted ADR)",
-        "docs/evaluation-framework.md (Retrieval Recall@100 gate/target from findings)",
-        "src/commit_investigator/infra/git_context.py (pickaxe, date-bounded log, resolve_file_path — permanent infrastructure)",
-        "src/commit_investigator/extraction/problem_extractor.py (extracted_keywords field — permanent data model)"
-      ],
-      "spike_code_deleted": "Spike code (eval/retrieval_spike/, scripts/run_retrieval_spike.py, tests/test_retrieval_spike.py) intentionally deleted after research completion. Results frozen in results/retrieval-spike/.",
-      "acceptance_criteria": [
-        "AC1: scripts/run_retrieval_spike.py exists, --help documents --manifest, --strategy, --k, --output-dir",
-        "AC2: src/commit_investigator/eval/retrieval_spike/ with recall_at_k() (12-char prefix match per evaluation-framework.md) and RetrievalStrategy protocol",
-        "AC3: Harness loads results/v3-subagent-eval-v2/manifest.json and runs all 20 cases without manual case list",
-        "AC4: Every strategy enforces temporal bound; spot-check asserts zero candidate commits are descendants of fix_hash",
-        "AC5: Level 1 extraction populates extracted_files, extracted_symbols, extracted_keywords on ProblemStatement; results/retrieval-spike/hint_coverage.json reports per-case signal counts",
-        "AC6: Individual strategy JSON artifacts for file_log, keyword_grep, pickaxe, blame, recency_fallback, time_window — each with per-case recall@100 and aggregate mean",
-        "AC7: Combined strategy (union of top individual strategies) JSON with recall@50, recall@100, recall@200",
-        "AC8: Set-size analysis table in findings ADR comparing 50 vs 100 vs 200 for recommended combined strategy",
-        "AC9: Conditional Level 2 — if best Level 1 combined recall@100 >= 0.70, findings doc documents skip with rationale; else Level 1 vs Level 2 comparison table on same combined strategy",
-        "AC10: .harness/docs/retrieval-spike-findings.md Status Accepted — answers Q1–Q4, recommends strategy + set size + ranking heuristic for P16, proposes gate/target recall@100 values",
-        "AC11: docs/evaluation-framework.md Retrieval Recall@100 gate/target TBDs replaced, referencing retrieval-spike-findings ADR",
-        "AC12: No embedding/vector-store imports or calls (rg verification); git subprocess only",
-        "AC13: pytest coverage for recall_at_k metric and at least one strategy; full suite still passes",
-        "AC14: results/retrieval-spike/summary.json committed or generated by script with reproducible command documented in findings ADR"
-      ],
-      "subtasks": [
-        {
-          "id": "rs-scaffold",
-          "name": "Spike evaluation harness — manifest loader, recall@K metric, strategy protocol, CLI",
-          "status": "pending",
-          "deliverables": [
-            "scripts/run_retrieval_spike.py",
-            "src/commit_investigator/eval/retrieval_spike/__init__.py",
-            "src/commit_investigator/eval/retrieval_spike/metrics.py (recall_at_k, aggregate_recall)",
-            "src/commit_investigator/eval/retrieval_spike/harness.py (load manifest, run case, write JSON)"
-          ],
-          "verify": [
-            "python scripts/run_retrieval_spike.py --help exits 0",
-            "Dry-run on 1 manifest case with stub strategy returns JSON with bug_hash, recall@100, candidate_count"
-          ],
-          "answers": "Infrastructure for all subsequent subtasks"
-        },
-        {
-          "id": "rs-git-extensions",
-          "name": "Minimal GitContextProvider extensions — pickaxe (-S) and date-bounded log",
-          "status": "pending",
-          "depends_on": ["rs-scaffold"],
-          "deliverables": [
-            "GitContextProvider.search_commits_by_pickaxe(symbol, max_results)",
-            "GitContextProvider.list_commits_since(date_iso, max_results) or --until/--after log variant bounded by temporal_bound"
-          ],
-          "verify": [
-            "Unit test on known repo path: pickaxe returns commits; date filter excludes post-bound commits",
-            "Existing git_context tests still pass"
-          ],
-          "answers": "Enables pickaxe and time-window strategies without P16 production module"
-        },
-        {
-          "id": "rs-level1-extraction",
-          "name": "Level 1 hint extraction — regex files, symbols, keywords from JIRA text",
-          "status": "pending",
-          "depends_on": ["rs-scaffold"],
-          "deliverables": [
-            "src/commit_investigator/eval/retrieval_spike/level1_extractor.py (refactor baselines _extract_file_hints, _extract_class_names; add keyword/error-token extraction)",
-            "ProblemStatement.extracted_keywords field (or spike-local RetrievalHints dataclass if ProblemStatement change too broad)",
-            "results/retrieval-spike/hint_coverage.json after first run"
-          ],
-          "verify": [
-            "≥15/20 cases have ≥1 extracted signal (file, symbol, or keyword)",
-            "Zero-signal cases listed for combined-strategy fallback testing"
-          ],
-          "answers": "Q3 baseline — Level 1 retrieval input quality"
-        },
-        {
-          "id": "rs-strategy-file-log",
-          "name": "Strategy: file log — git log -- <extracted_files> → recall@100",
-          "status": "pending",
-          "depends_on": ["rs-level1-extraction", "rs-git-extensions"],
-          "deliverables": ["results/retrieval-spike/file_log.json"],
-          "verify": ["Aggregate recall@100 printed; per-case rank of bug_hash when hit"],
-          "answers": "Q1 — file-log baseline recall"
-        },
-        {
-          "id": "rs-strategy-keyword-grep",
-          "name": "Strategy: keyword grep — git log --grep for extracted keywords/symbols → recall@100",
-          "status": "pending",
-          "depends_on": ["rs-level1-extraction"],
-          "deliverables": ["results/retrieval-spike/keyword_grep.json"],
-          "verify": ["Uses search_commits_by_keyword; max 10 keywords per case, union commits"],
-          "answers": "Q1 — message-search recall"
-        },
-        {
-          "id": "rs-strategy-pickaxe",
-          "name": "Strategy: pickaxe — git log -S for extracted symbols → recall@100",
-          "status": "pending",
-          "depends_on": ["rs-level1-extraction", "rs-git-extensions"],
-          "deliverables": ["results/retrieval-spike/pickaxe.json"],
-          "verify": ["Top 5 symbols per case; union commits capped at 200 before truncate to K"],
-          "answers": "Q1 — code-level search recall"
-        },
-        {
-          "id": "rs-strategy-blame",
-          "name": "Strategy: blame — git blame on resolved file paths at temporal bound → recall@100",
-          "status": "pending",
-          "depends_on": ["rs-level1-extraction"],
-          "deliverables": ["results/retrieval-spike/blame.json"],
-          "verify": ["File path resolution heuristic documented (CamelCase → src/... path guess optional); frequency-ranked commits"],
-          "answers": "Q1 — blame recall (extends git-blame-naive to K=100)"
-        },
-        {
-          "id": "rs-strategy-recency",
-          "name": "Strategy: recency fallback — list_recent_commits(n=200) when signals sparse",
-          "status": "pending",
-          "depends_on": ["rs-scaffold"],
-          "deliverables": ["results/retrieval-spike/recency_fallback.json"],
-          "verify": ["Always returns candidates; measures recall@100 as absolute floor for bounded history"],
-          "answers": "Q1 — fallback recall ceiling; input for combined strategy weighting"
-        },
-        {
-          "id": "rs-strategy-time-window",
-          "name": "Strategy: time-window — commits within N days of bug_date before temporal bound",
-          "status": "pending",
-          "depends_on": ["rs-git-extensions", "rs-level1-extraction"],
-          "deliverables": [
-            "results/retrieval-spike/time_window_90d.json",
-            "results/retrieval-spike/time_window_365d.json",
-            "results/retrieval-spike/time_window_unbounded.json"
-          ],
-          "verify": [
-            "bug_date loaded from ApacheJIT commit_links CSV (not JIRA cache — created field absent)",
-            "Compare recall@100 across 90d, 365d, unbounded windows"
-          ],
-          "answers": "Q4 — time-window effect on recall (precision impact noted qualitatively via candidate_count)"
-        },
-        {
-          "id": "rs-strategy-combined",
-          "name": "Combined strategy — union top-N strategies with signal-count + recency rank",
-          "status": "pending",
-          "depends_on": [
-            "rs-strategy-file-log",
-            "rs-strategy-keyword-grep",
-            "rs-strategy-pickaxe",
-            "rs-strategy-blame",
-            "rs-strategy-recency"
-          ],
-          "deliverables": [
-            "src/commit_investigator/eval/retrieval_spike/combined.py",
-            "results/retrieval-spike/combined.json"
-          ],
-          "verify": [
-            "Combined recall@100 ≥ best individual strategy recall@100",
-            "Ranking: (1) number of strategies retrieving commit, (2) earliest strategy rank, (3) commit date desc"
-          ],
-          "answers": "Q1 — recommended retrieval recipe for P16"
-        },
-        {
-          "id": "rs-set-size-analysis",
-          "name": "Set size analysis — recall@50 vs @100 vs @200 on combined strategy",
-          "status": "pending",
-          "depends_on": ["rs-strategy-combined"],
-          "deliverables": ["results/retrieval-spike/set_size_analysis.json"],
-          "verify": [
-            "Table: K=50,100,200 × recall, median candidate_count, GT rank when hit",
-            "Recommendation: smallest K where recall@K ≥ 0.80 OR highest recall if none reach 0.80"
-          ],
-          "answers": "Q2 — default CandidateSet size for V4"
-        },
-        {
-          "id": "rs-level2-conditional",
-          "name": "Level 2 extraction comparison (conditional) — LLM-synthesized hints vs Level 1",
-          "status": "pending",
-          "depends_on": ["rs-strategy-combined"],
-          "gate": "Skip if combined Level 1 recall@100 >= 0.70; else run",
-          "deliverables": [
-            "src/commit_investigator/eval/retrieval_spike/level2_extractor.py (one-shot LLM prompt, structured JSON output)",
-            "results/retrieval-spike/level2_comparison.json"
-          ],
-          "verify": [
-            "Same combined strategy; compare recall@100 Level 1 vs Level 2",
-            "Document LLM model used and cost estimate",
-            "Does NOT merge into ProblemExtractor product — spike-only"
-          ],
-          "answers": "Q3 — whether P16 should depend on spike-level2-extractor task"
-        },
-        {
-          "id": "rs-findings-doc",
-          "name": "Spike findings ADR — strategy selection, thresholds, P16 handoff",
-          "status": "pending",
-          "depends_on": [
-            "rs-set-size-analysis",
-            "rs-strategy-time-window",
-            "rs-level2-conditional"
-          ],
-          "deliverables": [
-            ".harness/docs/retrieval-spike-findings.md",
-            "docs/evaluation-framework.md (gate/target update)",
-            "results/retrieval-spike/summary.json"
-          ],
-          "verify": [
-            "ADR Status: Accepted",
-            "Sections: Executive summary, Q1–Q4 answers, per-strategy table, set-size recommendation, ranking heuristic, gate/target values, P16 implementation notes, reproducibility command",
-            "Explicitly states what P16 must implement vs what was spike-only"
-          ],
-          "answers": "Unblocks v4-retrieval-module (P16) and v4-trace-and-eval-integration Retrieval Recall metric calibration"
-        }
-      ]
-    },
     {
       "id": "v4-core-models",
       "name": "V4 build: core data structures — CandidateSet, InvestigationBrief, InvestigationState, InvestigationTrace",
       "type": "feature",
       "status": "pending",
-      "priority": 13,
-      "depends_on": ["mechanism-design"],
-      "scope": "New package commit_investigator/models/ (or harness/) with dataclasses from system-specification.md: CandidateSet, CandidateCommit, InvestigationBrief (Hypothesis, ExaminationStep), InvestigationState, CompletionCriteria, InvestigationTrace and nested records from mechanism-design ADR §Q4. JSON serialization helpers. Extend BugAttributionReport with optional investigation_trace. Unit tests for construction, defaults (max_effort=18, thresholds), and round-trip JSON. Does NOT wire into orchestrator yet.",
-      "note": "Foundational types shared by retrieval, harness, and eval. Can start immediately — no retrieval-spike dependency."
+      "priority": 1,
+      "depends_on": [],
+      "scope": "New package commit_investigator/models/ with dataclasses from system-specification.md: CandidateSet, CandidateCommit, InvestigationBrief (Hypothesis, ExaminationStep), InvestigationState, CompletionCriteria, InvestigationTrace and nested records from mechanism-design ADR §Q4. JSON serialization helpers. Unit tests for construction, defaults (max_effort=18, thresholds), and round-trip JSON."
     },
     {
       "id": "v4-governance-loaders",
       "name": "V4 build: governance loaders — YAML rule loader + Markdown skill retriever",
       "type": "feature",
       "status": "pending",
-      "priority": 14,
-      "depends_on": ["v4-core-models", "mechanism-design"],
-      "scope": "New commit_investigator/governance/ package: load_rules(stage) splitting hard/soft from data/governance/rules/; retrieve_skills(problem_statement, top_k=3) with keyword overlap and project scope from data/governance/skills/. Hard-rule check registry stubs for harness. Tests against seed governance files (3 rules, 2 skills). Does NOT assemble prompts yet.",
-      "note": "Implements mechanism-design ADR §Q1–Q2. Parallel with retrieval-spike."
-    },
-    {
-      "id": "v4-prompt-assembler",
-      "name": "V4 build: PromptAssembler — 10-section ordered template with truncation policy",
-      "type": "feature",
-      "status": "pending",
-      "priority": 15,
-      "depends_on": ["v4-governance-loaders"],
-      "scope": "commit_investigator/governance/prompt_assembler.py: assemble(stage, problem_statement, candidate_set, investigation_state, brief, evidence) producing ordered sections per mechanism-design ADR §Q3. Truncation at 80% token budget (evidence → candidates → skills). Stage-specific candidate formatting (top 20 for Stage 2; examined + next 5 for Stage 3). Tests with fixture data verifying section order, empty-section omission, and truncation behavior.",
-      "note": "Parallel with retrieval-spike. Consumes governance loaders + core models."
+      "priority": 2,
+      "depends_on": ["v4-core-models"],
+      "scope": "New commit_investigator/governance/ package: load_rules(stage) splitting hard/soft from data/governance/rules/; retrieve_skills(problem_statement, top_k=3) with keyword overlap and project scope from data/governance/skills/. Hard-rule check registry stubs for harness. Tests against seed governance files (3 rules, 2 skills).",
+      "note": "Implements mechanism-design ADR §Q1–Q2. Can parallel with v4-retrieval-module after P1."
     },
     {
       "id": "v4-retrieval-module",
       "name": "V4 build: deterministic retrieval module — CandidateSet from git signals",
       "type": "feature",
       "status": "pending",
-      "priority": 16,
-      "depends_on": ["retrieval-spike", "v4-core-models"],
-      "scope": "New commit_investigator/retrieval/ package implementing strategy chosen by retrieval-spike (file log, grep, pickaxe, blame, time-window — combined per spike findings). Input: ProblemStatement + repo + temporal_bound. Output: CandidateSet with retrieval_metadata. Fallback paths: zero signals → broad heuristics; <10 candidates → widen parameters. recall@100 diagnostic helper for eval. Tests on fixture repos + n=20 eval cases measuring recall@100 against ground truth.",
-      "note": "BLOCKED on retrieval-spike strategy selection. First runnable input-pipeline increment."
+      "priority": 3,
+      "depends_on": ["v4-core-models"],
+      "scope": "New commit_investigator/retrieval/ package implementing combined strategy from retrieval-spike (file_log + keyword_grep + pickaxe + blame). Input: ProblemStatement + repo + temporal_bound. Output: CandidateSet with retrieval_metadata. Fallback paths: zero signals → broad heuristics; <10 candidates → widen parameters. recall@100 diagnostic helper for eval. Tests on fixture repos + n=20 eval cases measuring recall@100 against ground truth.",
+      "note": "Retrieval-spike findings available. Can parallel with v4-governance-loaders after P1."
+    },
+    {
+      "id": "v4-prompt-assembler",
+      "name": "V4 build: PromptAssembler — 10-section ordered template with truncation policy",
+      "type": "feature",
+      "status": "pending",
+      "priority": 4,
+      "depends_on": ["v4-governance-loaders"],
+      "scope": "commit_investigator/governance/prompt_assembler.py: assemble(stage, problem_statement, candidate_set, investigation_state, brief, evidence) producing ordered sections per mechanism-design ADR §Q3. Truncation at 80% token budget (evidence → candidates → skills). Stage-specific candidate formatting (top 20 for Stage 2; examined + next 5 for Stage 3). Tests with fixture data verifying section order, empty-section omission, and truncation behavior."
     },
     {
       "id": "v4-input-pipeline",
       "name": "V4 build: input pipeline entry — Stage 0 extraction + Stage 1 retrieval wired",
       "type": "feature",
       "status": "pending",
-      "priority": 17,
+      "priority": 5,
       "depends_on": ["v4-retrieval-module"],
-      "scope": "commit_investigator/retrieval/pipeline.py (or input_pipeline.py): prepare_investigation(problem, repo, temporal_bound) → (ProblemStatement, CandidateSet). Reuses existing ProblemExtractor for Stage 0. Brief-validation retry path: re-run Stage 1 with widened retrieval (mechanism-design ADR §Q6). CLI smoke script or pytest proving end-to-end input for one eval case. Does NOT invoke LLM.",
-      "note": "Testable increment: given JIRA + repo + bound, get CandidateSet with metadata. Zero LLM cost."
+      "scope": "commit_investigator/retrieval/pipeline.py: prepare_investigation(problem, repo, temporal_bound) → (ProblemStatement, CandidateSet). Reuses existing ProblemExtractor for Stage 0. Brief-validation retry path: re-run Stage 1 with widened retrieval (mechanism-design ADR §Q6). CLI smoke script or pytest proving end-to-end input for one eval case. Zero LLM cost."
+    },
+    {
+      "id": "v4-checkpoint-retrieval",
+      "name": "V4 checkpoint: Retrieval Recall@100 on n=20 eval cases",
+      "type": "checkpoint",
+      "status": "pending",
+      "priority": 6,
+      "depends_on": ["v4-input-pipeline"],
+      "scope": "Run production retrieval (input pipeline) on all 20 seed=42 eval cases. Measure Retrieval Recall@100 per case and aggregate. Compare to spike baseline (0.45). Report per-strategy contribution breakdown. Write results to results/v4-checkpoints/retrieval-recall.json.",
+      "gate": {"Retrieval_Recall_at_100": 0.35},
+      "target": {"Retrieval_Recall_at_100": 0.45},
+      "note": "Early kill switch. If production retrieval underperforms the spike, diagnose before building harness on top. Gate=0.35 (spike ADR), target=0.45 (spike combined result)."
     },
     {
       "id": "v4-investigation-harness",
       "name": "V4 build: investigation harness — state machine, brief validator, completion criteria, scoped tools",
       "type": "feature",
       "status": "pending",
-      "priority": 18,
-      "depends_on": ["v4-prompt-assembler", "v4-input-pipeline"],
-      "scope": "New commit_investigator/harness/ package: InvestigationHarness orchestrating Stages 2→3→4. BriefValidator (min 2 hypotheses, 1 retry, default brief fallback per ADR §Q6). CompletionCriteria evaluator after each Stage 3 turn (evidence=3, hypotheses=2, confidence=0.60, max_effort=18). Re-plan loop max 2. Hard-rule enforcement at transitions. Stage 3 tools scoped to CandidateSet (get_commit_diff, get_commit_message, get_file_at_commit, get_blame — no repo-wide search). Refactor or wrap existing orchestrator LLM calls behind harness interface. Tests with MockLLMProvider for stage transitions, validation failures, degraded mode.",
-      "note": "Core agent pipeline. Replaces V3 self-governed loop. Can use mock retrieval output until eval integration."
+      "priority": 7,
+      "depends_on": ["v4-prompt-assembler", "v4-input-pipeline", "v4-checkpoint-retrieval"],
+      "scope": "New commit_investigator/harness/ package: InvestigationHarness orchestrating Stages 2→3→4. BriefValidator (min 2 hypotheses, 1 retry, default brief fallback per ADR §Q6). CompletionCriteria evaluator after each Stage 3 turn (evidence=3, hypotheses=2, confidence=0.60, max_effort=18). Re-plan loop max 2. Hard-rule enforcement at transitions. Stage 3 tools scoped to CandidateSet. Refactor or wrap existing orchestrator LLM calls behind harness interface. Tests with MockLLMProvider for stage transitions, validation failures, degraded mode.",
+      "note": "Core agent pipeline. Replaces V3 self-governed loop."
     },
     {
       "id": "v4-trace-and-eval-integration",
       "name": "V4 build: trace writer + run_eval integration — V4 path with Retrieval Recall metric",
       "type": "feature",
       "status": "pending",
-      "priority": 19,
+      "priority": 7,
       "depends_on": ["v4-investigation-harness"],
-      "scope": "TraceWriter: JSON InvestigationTrace per investigation at results/traces/{issue_key}/{run_id}.json with per-turn Stage 3 granularity (ADR §Q4). Wire V4 harness into eval/run_eval.py behind --agent-version v4 (or env flag); V3 path preserved for baseline comparison. Attach investigation_trace to BugAttributionReport. Compute Retrieval Recall (ground truth in top 100). Smoke eval on 1–3 cases then n=20 comparison vs V3 baselines. Evidence scoring (existing evidence_tagger) runs post-attribution unchanged.",
+      "scope": "TraceWriter: JSON InvestigationTrace per investigation at results/traces/{issue_key}/{run_id}.json with per-turn Stage 3 granularity (ADR §Q4). Wire V4 harness into eval/run_eval.py behind --agent-version v4 (or env flag); V3 path preserved for baseline comparison. Attach investigation_trace to BugAttributionReport. Compute Retrieval Recall (ground truth in top 100). Smoke eval on 1–3 cases then n=20 comparison vs V3 baselines.",
       "note": "Final integration increment. Enables first V4 live eval against V3 Hit@5=0.50 baseline."
+    },
+    {
+      "id": "v4-checkpoint-full-eval",
+      "name": "V4 checkpoint: full n=20 eval — Hit@5, MRR, D6 vs V3 baselines",
+      "type": "checkpoint",
+      "status": "pending",
+      "priority": 8,
+      "depends_on": ["v4-trace-and-eval-integration"],
+      "scope": "Run full V4 pipeline on n=20 seed=42 eval cases using run_eval.py --agent-version v4. Measure Hit@1, Hit@3, Hit@5, MRR, D6 Evidence Grounding, Retrieval Recall@100. Compare to V3 best (Hit@5=0.50, MRR=0.304, D6=0.610). Report regressions and improvements per case. Write results to results/v4-checkpoints/full-eval-n20.json.",
+      "gate": {"Hit@5": 0.40, "MRR": 0.20},
+      "target": {"Hit@5": 0.50, "MRR": 0.30},
+      "note": "The V4 verdict. Did the retrieve-then-reason redesign match or beat fully-agentic V3? Gate is V3 target threshold; target is V3 actual best. If gate fails, architectural rethink needed."
+    },
+    {
+      "id": "spike-level2-extractor",
+      "name": "Level 2 LLM-assisted hint extraction for retrieval",
+      "type": "feature",
+      "status": "pending",
+      "priority": 9,
+      "depends_on": ["v4-retrieval-module"],
+      "scope": "LLM-synthesized extraction hints (files, symbols, keywords) to complement Level 1 regex extraction. Expected to lift recall@100 from 0.45 toward 0.60 target. Deferred from retrieval-spike — see .harness/docs/retrieval-spike-findings.md §Level2.",
+      "note": "Optional enhancement. Level 1 meets gate (0.35) but not target (0.60)."
     }
   ]
 }
