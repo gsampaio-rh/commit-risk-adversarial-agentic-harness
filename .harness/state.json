@@ -141,7 +141,7 @@
       "id": "v4-core-models",
       "name": "V4 build: core data structures — CandidateSet, InvestigationBrief, InvestigationState, InvestigationTrace",
       "type": "feature",
-      "status": "pending",
+      "status": "verified",
       "priority": 1,
       "depends_on": [],
       "scope": "New package commit_investigator/models/ with dataclasses from system-specification.md: CandidateSet, CandidateCommit, InvestigationBrief (Hypothesis, ExaminationStep), InvestigationState, CompletionCriteria, InvestigationTrace and nested records from mechanism-design ADR §Q4. JSON serialization helpers. Unit tests for construction, defaults (max_effort=18, thresholds), and round-trip JSON."
