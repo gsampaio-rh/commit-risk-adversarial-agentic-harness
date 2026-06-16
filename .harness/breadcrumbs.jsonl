@@ -603,3 +603,5 @@
 {"ts":"2026-06-16T22:58:50","role":"builder","type":"checkpoint","feat":"v4-audit-fixes","msg":"Commit:  (12 files)"}
 {"ts":"2026-06-17T02:05:00Z","role":"builder","type":"build","feat":"v4-input-pipeline","msg":"P5 implemented: pipeline.py with prepare_investigation() entry point. Wires extraction+retrieval, brief-validation retry (2x widened), degraded mode. 124 lines. 10 new tests, 340 total pass.","result":"pass"}
 {"ts":"2026-06-16T23:01:26","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (4 files)"}
+{"ts":"2026-06-17T02:45:00Z","role":"builder","type":"checkpoint","feat":"v4-checkpoint-retrieval","msg":"P6 Retrieval Recall@100 = 0.400 (8/20). GATE PASSED (>=0.35). Target 0.45 missed by 1 case. All 4 strategies contribute: blame(4), keyword_grep(4), file_log(3), pickaxe(3). Results: results/v4-checkpoints/retrieval-recall.json","result":"pass"}
+{"ts":"2026-06-16T23:09:22","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (2 files)"}

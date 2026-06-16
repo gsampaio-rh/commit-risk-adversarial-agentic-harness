@@ -1,0 +1,245 @@
+{
+  "checkpoint": "retrieval-recall-at-100",
+  "date": "2026-06-16T23:08:55Z",
+  "n_total": 20,
+  "n_tested": 20,
+  "n_skipped": 0,
+  "n_hits": 8,
+  "recall_at_100": 0.4,
+  "gate": 0.35,
+  "gate_passed": true,
+  "target": 0.45,
+  "target_passed": false,
+  "elapsed_seconds": 400.9,
+  "strategy_contributions": {
+    "file_log": 3,
+    "keyword_grep": 4,
+    "pickaxe": 3,
+    "blame": 4
+  },
+  "spike_baseline": 0.45,
+  "cases": [
+    {
+      "issue_key": "CASSANDRA-7570",
+      "project": "CASSANDRA",
+      "status": "found",
+      "rank": 29,
+      "total_candidates": 55,
+      "strategies_that_found": [
+        "file_log"
+      ],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "SPARK-2583",
+      "project": "SPARK",
+      "status": "found",
+      "rank": 5,
+      "total_candidates": 100,
+      "strategies_that_found": [
+        "keyword_grep",
+        "pickaxe"
+      ],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "IGNITE-6748",
+      "project": "IGNITE",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 100,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "SPARK-20123",
+      "project": "SPARK",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 100,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "HIVE-4113",
+      "project": "HIVE",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 100,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "SPARK-19033",
+      "project": "SPARK",
+      "status": "found",
+      "rank": 55,
+      "total_candidates": 100,
+      "strategies_that_found": [
+        "keyword_grep"
+      ],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "IGNITE-2158",
+      "project": "IGNITE",
+      "status": "found",
+      "rank": 40,
+      "total_candidates": 43,
+      "strategies_that_found": [
+        "blame"
+      ],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "HBASE-4577",
+      "project": "HBASE",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 51,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "GROOVY-8298",
+      "project": "GROOVY",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 100,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "GROOVY-5003",
+      "project": "GROOVY",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 100,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "SPARK-27907",
+      "project": "SPARK",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 100,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "GROOVY-5775",
+      "project": "GROOVY",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 100,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "SPARK-946",
+      "project": "SPARK",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 48,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "AMQ-4338",
+      "project": "AMQ",
+      "status": "found",
+      "rank": 1,
+      "total_candidates": 100,
+      "strategies_that_found": [
+        "blame",
+        "file_log",
+        "keyword_grep",
+        "pickaxe"
+      ],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "HDFS-7734",
+      "project": "HDFS",
+      "status": "found",
+      "rank": 14,
+      "total_candidates": 100,
+      "strategies_that_found": [
+        "blame",
+        "file_log"
+      ],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "GROOVY-7014",
+      "project": "GROOVY",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 100,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "FLINK-3602",
+      "project": "FLINK",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 100,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "GROOVY-8416",
+      "project": "GROOVY",
+      "status": "found",
+      "rank": 5,
+      "total_candidates": 100,
+      "strategies_that_found": [
+        "keyword_grep",
+        "pickaxe"
+      ],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "IGNITE-1787",
+      "project": "IGNITE",
+      "status": "found",
+      "rank": 47,
+      "total_candidates": 100,
+      "strategies_that_found": [
+        "blame"
+      ],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    },
+    {
+      "issue_key": "SPARK-23059",
+      "project": "SPARK",
+      "status": "not_found",
+      "rank": null,
+      "total_candidates": 100,
+      "strategies_that_found": [],
+      "retry_triggered": false,
+      "fallback_triggered": false
+    }
+  ]
+}
