@@ -160,7 +160,7 @@
       "id": "v4-retrieval-module",
       "name": "V4 build: deterministic retrieval module — CandidateSet from git signals",
       "type": "feature",
-      "status": "verified",
+      "status": "committed",
       "priority": 3,
       "depends_on": ["v4-core-models"],
       "scope": "New commit_investigator/retrieval/ package implementing combined strategy from retrieval-spike (file_log + keyword_grep + pickaxe + blame). Input: ProblemStatement + repo + temporal_bound. Output: CandidateSet with retrieval_metadata. Fallback paths: zero signals → broad heuristics; <10 candidates → widen parameters. recall@100 diagnostic helper for eval. Tests on fixture repos + n=20 eval cases measuring recall@100 against ground truth.",
@@ -170,7 +170,7 @@
       "id": "v4-prompt-assembler",
       "name": "V4 build: PromptAssembler — 10-section ordered template with truncation policy",
       "type": "feature",
-      "status": "pending",
+      "status": "verified",
       "priority": 4,
       "depends_on": ["v4-governance-loaders"],
       "scope": "commit_investigator/governance/prompt_assembler.py: assemble(stage, problem_statement, candidate_set, investigation_state, brief, evidence) producing ordered sections per mechanism-design ADR §Q3. Truncation at 80% token budget (evidence → candidates → skills). Stage-specific candidate formatting (top 20 for Stage 2; examined + next 5 for Stage 3). Tests with fixture data verifying section order, empty-section omission, and truncation behavior."

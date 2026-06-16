@@ -1,0 +1,170 @@
+{
+  "task_id": "v4-prompt-assembler",
+  "timestamp": "2026-06-16T23:45:00Z",
+  "overall": "PASS",
+  "tests_run": 291,
+  "tests_passed": 291,
+  "computational_checks": {
+    "lint": "PASS — ReadLints on governance/prompt_assembler.py and __init__.py: zero diagnostics",
+    "types": "NOT_RUN — no mypy in verification_method",
+    "tests": "PASS — pytest tests/test_prompt_assembler.py: 31/31; pytest tests/ --ignore=tests/_v2_archive -q: 291/291 (260 prior + 31 new)",
+    "build": "PASS — from commit_investigator.governance import assemble_prompt, PromptConfig succeeds with PYTHONPATH=src"
+  },
+  "criteria": [
+    {
+      "criterion": "AC1: module + exports assemble_prompt, PromptConfig",
+      "result": "PASS",
+      "evidence": "src/commit_investigator/governance/prompt_assembler.py exists. __init__.py __all__ includes assemble_prompt and PromptConfig. Live import succeeds."
+    },
+    {
+      "criterion": "AC2: PromptConfig fields, defaults, validation > 0",
+      "result": "PASS",
+      "evidence": "Defaults match contract (100_000, 0.80, 20, 5, 3). test_prompt_config_zero_raises passes. Adversarial spot-check: token_budget=0, truncation_threshold=0, candidate_limit_stage2=-1, max_skills=0 all raise ValueError."
+    },
+    {
+      "criterion": "AC3: assemble_prompt signature, invalid stage, blank-line sections",
+      "result": "PASS",
+      "evidence": "Function signature matches contract. test_invalid_stage_raises matches 'invalid'. test_planning_returns_non_empty_sections asserts '\\n\\n' in output."
+    },
+    {
+      "criterion": "AC4: exact section headers in strict order",
+      "result": "PASS",
+      "evidence": "test_all_sections_present_in_order asserts exact header list including Hard Rules (Attribution) and Candidate Summary (top 2 of 5). Implementation uses STAGE_TITLES for stage suffix."
+    },
+    {
+      "criterion": "AC5: empty sections omitted; conditional 8–10",
+      "result": "PASS",
+      "evidence": "Tests: planning omits 8–10; examination state=None omits progress; brief=None omits brief; attribution evidence=[] omits Evidence Collected. Source: _build_prompt guards on non-None/non-empty."
+    },
+    {
+      "criterion": "AC6: stage-specific system role text",
+      "result": "PASS",
+      "evidence": "test_system_role_per_stage: Planning/Examination/Attribution stage phrases + 'bug attribution investigator' in all three."
+    },
+    {
+      "criterion": "AC7: load_rules hard bullets, soft prompt_text verbatim",
+      "result": "PASS",
+      "evidence": "test_rules_and_skills_rendering + test_empty_hard_rules_omits_hard_section. Adversarial: multiline soft prompt_text 'line1\\nline2' preserved verbatim in output."
+    },
+    {
+      "criterion": "AC8: retrieve_skills order, ### headers, body",
+      "result": "PASS",
+      "evidence": "test_rules_and_skills_rendering: alpha before beta matching mock score order; ### headers with body text."
+    },
+    {
+      "criterion": "AC9: stage instruction required substrings",
+      "result": "PASS",
+      "evidence": "test_stage_instruction_substrings: InvestigationBrief+JSON (planning), examine+evidence (examination), rank+confidence (attribution); pairwise distinct."
+    },
+    {
+      "criterion": "AC10: candidate format, selection, header annotation",
+      "result": "PASS",
+      "evidence": "Tests: 20/30 planning, 10 lines examination (5+5), 3 attribution. Adversarial line format: '7. {sha12} — \"My fix\" — a.py, b.py' exact match."
+    },
+    {
+      "criterion": "AC11: truncation cascade FIFO evidence → candidates 10 → skills 1",
+      "result": "PASS",
+      "evidence": "test_truncation_cascade + test_truncation_without_evidence pass. Adversarial: EVID-0 removed before EVID-14 retained under tight budget; Title line and stage instructions intact; hard rule bullet preserved."
+    },
+    {
+      "criterion": "AC12: Investigation Progress exact format",
+      "result": "PASS",
+      "evidence": "test_investigation_progress_format matches 'Stage: 3, Examined: 4/10, Hypotheses tested: 2, confirmed: 1, Evidence quotes: 3'."
+    },
+    {
+      "criterion": "AC13: Investigation Brief json.dumps indent=2",
+      "result": "PASS",
+      "evidence": "test_brief_json_section contains hypothesis ids. Adversarial: json.dumps(brief.to_dict(), indent=2) substring present in output."
+    },
+    {
+      "criterion": "AC14: Evidence Collected numbered list",
+      "result": "PASS",
+      "evidence": "test_evidence_numbered_list: '1. quote1' and '2. quote2' under section header."
+    },
+    {
+      "criterion": "AC15: package isolation",
+      "result": "PASS",
+      "evidence": "grep prompt_assembler.py for commit_investigator.(agent|eval|infra): zero matches. Imports: extraction, governance.rules/skills, models only."
+    },
+    {
+      "criterion": "AC16: ≤300 lines, __all__ exports",
+      "result": "PASS",
+      "evidence": "wc -l prompt_assembler.py: 294. __all__ includes assemble_prompt and PromptConfig."
+    },
+    {
+      "criterion": "AC17: ≥22 tests, full suite pass",
+      "result": "PASS",
+      "evidence": "31 test methods in test_prompt_assembler.py. Full suite 291 passed, zero regressions."
+    },
+    {
+      "criterion": "AC18: Problem Statement ADR format, no ## Bug Report",
+      "result": "PASS",
+      "evidence": "test_problem_statement_format + test_empty_problem_omits_section."
+    },
+    {
+      "criterion": "AC19: seed integration load_rules wiring",
+      "result": "PASS",
+      "evidence": "test_examination_uses_seed_rules passes. Adversarial without mocks: examination prompt contains continue_below_confidence bullet and parent_chain_examine prompt_text; SPARK keywords yield ### spark_serde_blame skill section."
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "E1: empty CandidateSet",
+      "result": "PASS",
+      "evidence": "test_empty_candidate_set_omits_summary"
+    },
+    {
+      "case": "E2: planning no rules",
+      "result": "PASS",
+      "evidence": "test_planning_seed_has_no_rule_sections + live load_rules('planning') returns ([],[]); assemble without mock has no Hard/Soft headers."
+    },
+    {
+      "case": "E3: no skill match",
+      "result": "PASS",
+      "evidence": "test_no_skill_match_omits_skills"
+    },
+    {
+      "case": "E4: examined count capped",
+      "result": "PASS",
+      "evidence": "test_examined_count_capped_to_available: 10 examined, 3 commits → 3 lines"
+    },
+    {
+      "case": "E5: full truncation cascade",
+      "result": "PASS",
+      "evidence": "test_truncation_cascade: ≤1 skill, ≤10 candidates, evidence cleared, Title present"
+    },
+    {
+      "case": "E6: invalid stage ValueError",
+      "result": "PASS",
+      "evidence": "test_invalid_stage_raises matches 'invalid'"
+    },
+    {
+      "case": "E7: state=None omits progress",
+      "result": "PASS",
+      "evidence": "test_examination_state_none_omits_progress"
+    },
+    {
+      "case": "E8: brief=None omitted",
+      "result": "PASS",
+      "evidence": "test_brief_none_omits_brief_section"
+    },
+    {
+      "case": "E9: attribution zero examined",
+      "result": "PASS",
+      "evidence": "test_attribution_zero_examined_omits_summary"
+    },
+    {
+      "case": "E10: truncation skips empty evidence",
+      "result": "PASS",
+      "evidence": "test_truncation_without_evidence: planning 25 candidates truncated to ≤10 without error"
+    }
+  ],
+  "adversarial_findings": [
+    "test_planning_seed_has_no_rule_sections mocks load_rules during assemble_prompt (returns empty) while separately asserting seed load_rules — E2 behavior verified live but unit test does not exercise real wiring in assemble call.",
+    "test_examination_uses_seed_rules mocks retrieve_skills only; AC19 description mentions both loaders without mocks — retrieve_skills wiring verified via adversarial live call with SPARK keywords.",
+    "test_truncation_cascade assertion 'InvestigationBrief not in prompt or Stage Instructions in prompt' is tautological (Stage Instructions always present) — test weakness, not implementation defect.",
+    "AC2 unit test only covers token_budget=0; other field validations spot-checked live."
+  ],
+  "recommendation": "proceed",
+  "notes": "19/19 AC + 10/10 edge cases pass. 31 new tests, 291 total suite. prompt_assembler.py 294 lines. ADR §Q3 section order, headers, truncation cascade, and Problem Statement format verified by tests and live spot-checks."
+}

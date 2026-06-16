@@ -1,141 +1,175 @@
 {
-  "feature": "v4-retrieval-module",
-  "description": "Deterministic retrieval module — combined git-signal strategy producing CandidateSet from ProblemStatement + repo + temporal_bound",
-  "adr_ref": ".harness/docs/retrieval-spike-findings.md",
-  "phase": "complete",
+  "feature": "v4-prompt-assembler",
+  "description": "PromptAssembler — 10-section ordered template with stage-specific formatting and truncation policy",
+  "adr_ref": ".harness/docs/mechanism-design.md §Q3",
+  "phase": "evaluating",
   "verified": true,
   "negotiation_round": 1,
+  "negotiation_notes": [
+    "AC4/AC6/AC18: exact ADR §Q3 section header strings including stage suffix on Hard/Soft Rules and (top N of M) on Candidate Summary",
+    "AC18 (new): Problem Statement body matches ADR example (Title/Description/Extracted files/keywords), not nested to_prompt_text() header",
+    "AC10: explicit examined/unexamined selection by rank order; files_changed comma-space joined",
+    "AC9: required stage-instruction substrings from ADR examples (testable without LLM)",
+    "AC11: FIFO evidence removal; truncation cascade targets match ADR (evidence → candidates top-10 → skills top-1); protected sections explicit",
+    "AC19 (new): seed-data integration test without mocks for load_rules/retrieve_skills wiring",
+    "AC15: corrected import paths (relative .rules/.skills or models/extraction, not self-import governance)",
+    "Edge cases E7–E10 added for None state/brief, zero examined attribution, empty problem statement"
+  ],
   "acceptance_criteria": [
     {
       "id": "AC1",
-      "description": "New package src/commit_investigator/retrieval/ with __init__.py, strategies.py, retriever.py. __init__.py exports: retrieve_candidates, RetrievalConfig, RecallDiagnostic, compute_recall_at_k.",
-      "verification": "Import test: from commit_investigator.retrieval import retrieve_candidates, RetrievalConfig, RecallDiagnostic, compute_recall_at_k"
+      "description": "New module src/commit_investigator/governance/prompt_assembler.py. governance/__init__.py additionally exports: assemble_prompt, PromptConfig.",
+      "verification": "Import test: from commit_investigator.governance import assemble_prompt, PromptConfig"
     },
     {
       "id": "AC2",
-      "description": "RetrievalConfig dataclass with fields: max_candidates (int, default=100), strategies (list[str], default=['file_log','keyword_grep','pickaxe','blame']), fallback_recency_threshold (int, default=10), file_log_per_file (int, default=50), keyword_grep_per_kw (int, default=30), pickaxe_per_symbol (int, default=50), blame_per_file (int, default=100). Invalid strategy names ignored or rejected at retrieve time (test asserts unknown names do not invoke git).",
-      "verification": "Unit test: default construction has expected values; override max_candidates=50 works; config.strategies=['blame'] results in only blame git calls"
+      "description": "PromptConfig dataclass with fields: token_budget (int, default=100_000), truncation_threshold (float, default=0.80), candidate_limit_stage2 (int, default=20), candidate_limit_stage3_unexamined (int, default=5), max_skills (int, default=3). All numeric fields must be > 0; otherwise ValueError on construction.",
+      "verification": "Unit test: default construction has expected values; override token_budget=50_000 works; token_budget=0 raises ValueError"
     },
     {
       "id": "AC3",
-      "description": "retrieve_candidates(problem: ProblemStatement, git: GitContextProvider, config: RetrievalConfig | None = None) → CandidateSet. Runs enabled strategies from config.strategies in combined mode. Returns CandidateSet with commits ranked by signal_count desc, best_rank asc. Temporal bound comes from git.temporal_bound (not a separate parameter).",
-      "verification": "Integration test with unittest.mock MagicMock GitContextProvider (or project-root git fixture): controlled per-strategy returns produce deterministic rank order matching AC8 rules"
+      "description": "assemble_prompt(stage: Literal['planning','examination','attribution'], problem_statement: ProblemStatement, candidate_set: CandidateSet, investigation_state: InvestigationState | None = None, brief: InvestigationBrief | None = None, evidence: list[str] | None = None, config: PromptConfig | None = None) → str. Invalid stage raises ValueError. Returns ordered multi-section prompt string with sections separated by a blank line.",
+      "verification": "Unit test: call with stage='planning', minimal ProblemStatement and CandidateSet; returns non-empty string; split on double-newline blocks; stage='invalid' raises ValueError"
     },
     {
       "id": "AC4",
-      "description": "File-log strategy: for each unique extracted_file in ProblemStatement, resolve via git.resolve_file_path(), then for each returned path call git.search_commits_by_file(path, max_results=config.file_log_per_file). Skip files with empty resolve_file_path(). Deduplicate commits by commit_id across files and paths.",
-      "verification": "Unit test: mock resolve_file_path returning 2 paths for one file; assert search_commits_by_file called twice with max_results=file_log_per_file; merged commits deduped by SHA"
+      "description": "Up to 10 sections in strict order when populated. Exact headers: (1) `## System Role`, (2) `## Hard Rules ({Stage})` where Stage is Planning|Examination|Attribution (title-cased from stage param), (3) `## Soft Rules ({Stage})`, (4) `## Relevant Skills`, (5) `## Stage Instructions`, (6) `## Problem Statement`, (7) `## Candidate Summary` or `## Candidate Summary (top N of M)` when N<M commits shown, (8) `## Investigation Progress`, (9) `## Investigation Brief`, (10) `## Evidence Collected`. Regex extraction of `^## .+` lines preserves this order among present sections.",
+      "verification": "Unit test: assemble with all sections populated; extract section headers via regex; verify exact strings and order match spec including Hard Rules (Examination) and Candidate Summary (top N of M)"
     },
     {
       "id": "AC5",
-      "description": "Keyword-grep strategy: for each unique extracted_keyword (case-sensitive match, deduped preserving first occurrence), git.search_commits_by_keyword(keyword, max_results=config.keyword_grep_per_kw). Deduplicates by commit_id across keywords.",
-      "verification": "Unit test: mock with duplicate keywords in ProblemStatement; assert search_commits_by_keyword called once per unique keyword with max_results=keyword_grep_per_kw"
+      "description": "Empty sections omitted entirely — no header, no blank placeholder. Sections 8–9 only for stages examination/attribution AND only when investigation_state (§8) or brief (§9) is not None respectively. Section 10 only for attribution when evidence is non-empty list.",
+      "verification": "Unit test: stage='planning' → no sections 8–10; stage='examination' with state=None → no section 8; brief=None → no section 9; stage='attribution' with evidence=[] → no section 10"
     },
     {
       "id": "AC6",
-      "description": "Pickaxe strategy: for each unique extracted_symbol (deduped preserving first occurrence), git.search_commits_by_pickaxe(symbol, max_results=config.pickaxe_per_symbol). Deduplicates by commit_id across symbols.",
-      "verification": "Unit test: mock GitContextProvider with known symbols; pickaxe returns expected commits; duplicate symbols invoke pickaxe once"
+      "description": "System Role section (1) contains stage-specific role text including substring 'Planning stage'|'Examination stage'|'Attribution stage' matching stage param, and includes 'bug attribution investigator' (case-insensitive).",
+      "verification": "Unit test: each stage produces distinct system_role text containing the stage name phrase and 'bug attribution investigator'"
     },
     {
       "id": "AC7",
-      "description": "Blame strategy: for each resolved file path (same resolve_file_path loop as file_log), git.get_blame(path, line_start=1, line_end=config.blame_per_file), parse blame output, extract unique commit SHAs. Skip boundary commits prefixed with '^'. Abbreviated SHAs normalized to full 40-char hex via a public GitContextProvider API (add resolve_ref(ref)->str|None wrapper if needed; retrieval/ must not call private _resolve_ref).",
-      "verification": "Unit test: mock blame output with abbreviated SHAs and ^prefixed SHAs; assert output commit_ids are 40-char hex, no ^ commits; grep retrieval/ for _resolve_ref returns zero matches"
+      "description": "Hard Rules section (2) calls load_rules(stage) and renders each hard rule as bullet `- {rule.description}` (one per line). Soft Rules section (3) renders each soft rule's prompt_text verbatim (preserving internal newlines). Either section omitted when corresponding rule list empty.",
+      "verification": "Unit test with mocked load_rules returning 1 hard + 1 soft rule: hard description appears as `- {description}`; soft prompt_text appears verbatim; empty hard list omits section 2"
     },
     {
       "id": "AC8",
-      "description": "Signal-count ranking: each commit scored by number of distinct enabled strategies that found it (1-4). best_rank = minimum 1-based position within that strategy's ordered result list before merge. Ties broken by best_rank ascending. Final ordering: signal_count desc, best_rank asc, commit_id asc (stable final tie-break).",
-      "verification": "Unit test: commit found by 3 strategies ranks above commit found by 1; equal signal_count broken by lower best_rank; equal best_rank broken by commit_id lexicographic order"
+      "description": "Skills section (4) calls retrieve_skills(problem_statement, top_k=config.max_skills). Each skill rendered as `### {skill.id}` followed by skill.body on subsequent lines. Skills appear in retrieve_skills return order (score descending). Section omitted when retrieve_skills returns empty.",
+      "verification": "Unit test with mocked retrieve_skills returning 2 skills in score order: both appear under ### headers with body text in same order"
     },
     {
       "id": "AC9",
-      "description": "Recency fallback: when unique signal-driven commit count (post cross-strategy dedup, pre max_candidates trim) is strictly less than config.fallback_recency_threshold, augment with git.list_recent_commits(max_results=config.max_candidates). Fallback commits have retrieval_signal='recency_fallback', are deduped against existing signal commits, and fill only until max_candidates total.",
-      "verification": "Unit test: zero-signal ProblemStatement triggers fallback_triggered=True; mock list_recent_commits returns SHAs overlapping signal set — overlap excluded from final commits"
+      "description": "Stage Instructions section (5) contains stage-specific task instructions. Planning MUST include 'InvestigationBrief' and 'JSON'. Examination MUST include 'examine' and 'evidence' (case-insensitive). Attribution MUST include 'rank' and 'confidence' (case-insensitive). Text differs across the three stages.",
+      "verification": "Unit test: each stage output contains required substrings; pairwise stage instruction bodies are not identical"
     },
     {
       "id": "AC10",
-      "description": "CandidateSet.retrieval_metadata dict with keys: strategies_used (list[str] — enabled strategies from config actually executed), total_raw_candidates (int — unique commits after merge/dedup, before max_candidates trim), signal_counts (dict[int,int] mapping signal_count→num_commits on pre-trim set), fallback_triggered (bool), temporal_bound (str — git.temporal_bound or '' if None).",
-      "verification": "Unit test: metadata present with all required keys and correct types; total_raw_candidates equals len(pre-trim unique set); signal_counts sum equals total_raw_candidates"
+      "description": "Candidate Summary section (7) formats commits sorted by rank ascending as numbered lines: `{rank}. {commit_id[:12]} — \"{summary}\" — {files_changed joined with ', '}'`. Selection: planning — first config.candidate_limit_stage2 by rank; examination — examined commits (first min(candidates_examined, len(commits)) by rank) plus next config.candidate_limit_stage3_unexamined unexamined by rank; attribution — examined commits only (same first-N-by-rank rule). Header uses `(top N of M)` when N<M total commits in candidate_set.",
+      "verification": "Unit test: planning with 30 candidates → 20 lines + header `(top 20 of 30)`; examination with candidates_examined=5 and 15 commits → 5 examined + 5 unexamined lines; attribution with candidates_examined=3 → exactly 3 lines"
     },
     {
       "id": "AC11",
-      "description": "Each CandidateCommit in the result has: commit_id (full 40-char SHA), rank (1-based contiguous after trim), retrieval_signal (comma-separated enabled strategy names that found it, sorted alphabetically; 'recency_fallback' for fallback-only commits), summary (commit message first line from FileHistoryEntry.message or get_commit_message first line), files_changed (list from git.get_touched_files(commit_id) or [] when None), date (author date from FileHistoryEntry.date when available).",
-      "verification": "Unit test: CandidateCommit fields populated; retrieval_signal='blame,file_log' when both found commit; get_touched_files invoked for output commits"
+      "description": "Truncation policy per ADR §Q3: estimate tokens as len(full_text)//4. When estimated > config.token_budget * config.truncation_threshold, apply cascade until under threshold or exhausted: (1) evidence — remove entries from index 0 (oldest) one at a time; (2) candidate_summary — keep top 10 by rank; (3) skills — keep top 1. Never truncate content in sections 1–6 (system_role, hard_rules, soft_rules, stage_instructions, problem_statement). Re-estimate after each cascade step.",
+      "verification": "Unit test: token_budget=400, threshold=0.80, large evidence + 30 candidates + 3 skills → evidence removed first (FIFO), then candidates capped to 10, then skills to 1; problem_statement Title line always present; hard_rules and stage_instructions unchanged"
     },
     {
       "id": "AC12",
-      "description": "Output capped at config.max_candidates commits. When more raw candidates exist, lowest-ranked commits (by AC8 ordering) are trimmed; ranks renumbered 1..N contiguously.",
-      "verification": "Unit test: set max_candidates=5 with 8 raw unique commits; result has exactly 5 commits with ranks 1-5; trimmed commits are the 3 lowest by AC8 order"
+      "description": "Investigation Progress section (8) when investigation_state is not None and stage is examination or attribution: single line `Stage: {current_stage}, Examined: {candidates_examined}/{candidates_total}, Hypotheses tested: {hypotheses_tested}, confirmed: {hypotheses_confirmed}, Evidence quotes: {evidence_quotes_collected}`.",
+      "verification": "Unit test: InvestigationState with known field values on examination stage → progress line matches exact format"
     },
     {
       "id": "AC13",
-      "description": "RecallDiagnostic dataclass with fields: ground_truth_sha (str), found (bool), rank (int | None), total_candidates (int), strategies_that_found (list[str]). compute_recall_at_k(candidate_set, ground_truth_sha, k=100) → RecallDiagnostic; rank is 1-based position in candidate_set.commits or None when not found within k.",
-      "verification": "Unit test: ground truth at rank 3 with k=100 → found=True rank=3 strategies_that_found non-empty; ground truth absent → found=False rank=None; ground truth at rank 150 with k=100 → found=False"
+      "description": "Investigation Brief section (9) renders json.dumps(brief.to_dict(), indent=2) inside section when brief is not None and stage is examination or attribution.",
+      "verification": "Unit test: brief with 2 hypotheses on examination stage → JSON block contains hypothesis ids/statements"
     },
     {
       "id": "AC14",
-      "description": "Package isolation: retrieval/ imports only from commit_investigator.extraction (ProblemStatement), commit_investigator.models (CandidateSet, CandidateCommit), commit_investigator.infra (GitContextProvider, FileHistoryEntry). Zero imports from agent/, eval/, governance/.",
-      "verification": "grep: no 'from commit_investigator.(agent|eval|governance)' in src/commit_investigator/retrieval/"
+      "description": "Evidence Collected section (10) on attribution when evidence non-empty: numbered list `{i}. {quote}` starting at 1, preserving evidence list order.",
+      "verification": "Unit test: stage='attribution', evidence=['quote1','quote2'] → lines `1. quote1` and `2. quote2` under section header"
     },
     {
       "id": "AC15",
-      "description": "Each module file under src/commit_investigator/retrieval/ ≤ 300 lines.",
-      "verification": "wc -l on all .py files in retrieval package"
+      "description": "Package isolation: prompt_assembler.py imports only from commit_investigator.governance.rules, commit_investigator.governance.skills (or relative .rules/.skills), commit_investigator.extraction (ProblemStatement), commit_investigator.models (CandidateSet, CandidateCommit, InvestigationState, InvestigationBrief), and stdlib. Zero imports from agent/, eval/, infra/.",
+      "verification": "grep: no 'from commit_investigator.(agent|eval|infra)' in prompt_assembler.py"
     },
     {
       "id": "AC16",
-      "description": "tests/test_retrieval.py with ≥20 tests covering all ACs and edge cases. pytest tests/ passes with zero regressions (232+ existing tests).",
-      "verification": "pytest tests/ --ignore=tests/_v2_archive exits 0; test_retrieval.py exists with ≥20 tests"
+      "description": "prompt_assembler.py ≤ 300 lines. governance/__init__.py updated to export assemble_prompt and PromptConfig in __all__.",
+      "verification": "wc -l on prompt_assembler.py ≤ 300; __all__ includes assemble_prompt and PromptConfig"
+    },
+    {
+      "id": "AC17",
+      "description": "tests/test_prompt_assembler.py with ≥22 tests covering all ACs and edge cases. pytest tests/ passes with zero regressions (260+ existing tests).",
+      "verification": "pytest tests/ --ignore=tests/_v2_archive exits 0; test_prompt_assembler.py exists with ≥22 tests"
+    },
+    {
+      "id": "AC18",
+      "description": "Problem Statement section (6) body format per ADR §Q3 example: `Title: {title}`, `Description: {description}` on separate lines; when extracted_files non-empty append `Extracted files: {comma-space joined}`; when extracted_keywords non-empty append `Extracted keywords: {comma-space joined}`. Must NOT embed `## Bug Report` nested header from ProblemStatement.to_prompt_text(). Section omitted when problem_statement.is_empty is True.",
+      "verification": "Unit test: ProblemStatement with title, description, files, keywords → section contains all four label lines without `## Bug Report`; is_empty True → no `## Problem Statement` header"
+    },
+    {
+      "id": "AC19",
+      "description": "Integration wiring without mocks: assemble_prompt(stage='examination', ProblemStatement with any keywords, CandidateSet with ≥1 commit) invokes real load_rules/retrieve_skills against seed data/governance/. Output includes `## Hard Rules (Examination)` with `- {continue_below_confidence.description}` and `## Soft Rules (Examination)` containing substring from parent_chain_examine.prompt_text in seed YAML.",
+      "verification": "Integration test against DEFAULT_RULES_DIR seed files (skip if seed missing): examination prompt contains both rule sections with seed rule content"
     }
   ],
   "edge_cases": [
     {
       "id": "E1",
-      "description": "ProblemStatement with empty extracted_files, extracted_symbols, extracted_keywords → recency fallback triggers, returns non-empty CandidateSet (when repo has commits)",
-      "verification": "Unit test: empty signals → fallback_triggered=True in metadata; len(commits)>0 when list_recent_commits returns entries"
+      "description": "Empty CandidateSet (commits=[]) → Candidate Summary section omitted",
+      "verification": "Unit test: CandidateSet with commits=[] → no `## Candidate Summary` in output"
     },
     {
       "id": "E2",
-      "description": "ProblemStatement with files that don't resolve to any repo path → those files skipped, other strategies still run",
-      "verification": "Unit test: resolve_file_path returns [] for one file + valid keyword → keyword results returned; file_log/blame not called for unresolvable file"
+      "description": "No rules for stage (planning with seed data) → Hard Rules and Soft Rules sections omitted",
+      "verification": "Unit test: stage='planning' with seed load_rules → no `## Hard Rules` or `## Soft Rules` headers"
     },
     {
       "id": "E3",
-      "description": "All enabled strategies return the same commit → appears once at rank 1 with signal_count equal to len(enabled strategies)",
-      "verification": "Unit test: mock all four strategies returning same SHA; result has 1 commit at rank 1 with signal_count=4 and retrieval_signal listing all four strategies alphabetically"
+      "description": "No skills match problem_statement → Skills section omitted",
+      "verification": "Unit test: keywords with no trigger overlap → no `## Relevant Skills` header"
     },
     {
       "id": "E4",
-      "description": "Blame output contains boundary commits (^sha) → skipped (initial commits before the blame range)",
-      "verification": "Unit test: blame output with ^-prefixed SHAs; those SHAs not in result"
+      "description": "candidates_examined > len(candidate_set.commits) → examined selection capped to len(commits); no index errors",
+      "verification": "Unit test: state.candidates_examined=10 with 3 commits on examination → Candidate Summary shows 3 examined + up to 5 unexamined (0 remaining)"
     },
     {
       "id": "E5",
-      "description": "GitContextProvider methods returning None/empty on failure (GitContextProvider failure mode) → that strategy contributes zero commits; other strategies still succeed",
-      "verification": "Unit test: mock search_commits_by_keyword returning [] while pickaxe returns commits → result contains pickaxe commits only"
+      "description": "Truncation cascade: evidence removed entirely still over budget → candidates reduced to ≤10 → skills reduced to ≤1; protected sections intact",
+      "verification": "Unit test: artificially small budget triggers full cascade; final output has ≤1 skill header, ≤10 candidate lines, no Evidence Collected section content, problem_statement present"
     },
     {
       "id": "E6",
-      "description": "Duplicate keywords/symbols in ProblemStatement don't cause duplicate strategy invocations or inflated signal counts",
-      "verification": "Unit test: duplicate keywords → search_commits_by_keyword call_count equals unique keyword count; signal_count not inflated"
+      "description": "Invalid stage raises ValueError with message referencing invalid stage value",
+      "verification": "Unit test: assemble_prompt(stage='invalid', ...) raises ValueError matching 'invalid' or 'stage'"
     },
     {
       "id": "E7",
-      "description": "max_candidates=0 returns empty CandidateSet with metadata (total_raw_candidates may be >0)",
-      "verification": "Unit test: config max_candidates=0 → commits=[], metadata keys still present including total_raw_candidates"
+      "description": "examination/attribution with investigation_state=None → Investigation Progress section omitted even though stage allows it",
+      "verification": "Unit test: stage='examination', investigation_state=None → no `## Investigation Progress`"
     },
     {
       "id": "E8",
-      "description": "CandidateSet.temporal_bound populated from GitContextProvider.temporal_bound (empty string when provider temporal_bound is None)",
-      "verification": "Unit test: provider with temporal_bound='abc123~1' → CandidateSet.temporal_bound='abc123~1'; unbounded provider → temporal_bound=''"
+      "description": "examination/attribution with brief=None → Investigation Brief section omitted",
+      "verification": "Unit test: stage='examination', brief=None → no `## Investigation Brief`"
+    },
+    {
+      "id": "E9",
+      "description": "attribution with candidates_examined=0 → Candidate Summary omitted (no examined commits)",
+      "verification": "Unit test: stage='attribution', candidates_examined=0, non-empty candidate_set → no `## Candidate Summary`"
+    },
+    {
+      "id": "E10",
+      "description": "Truncation with empty evidence list skips evidence step and proceeds directly to candidate/skill reduction when over budget",
+      "verification": "Unit test: over budget with evidence=[] or None → candidate/skill truncation still applied; no error"
     }
   ],
   "out_of_scope": [
-    "Level 2 LLM-assisted extraction (spike-level2-extractor task P8)",
-    "Time-window filtering (no empirical benefit per retrieval-spike ADR)",
-    "Embedding/vector retrieval (mechanism-design ADR constraint)",
-    "End-to-end integration with input pipeline (v4-input-pipeline P5)",
-    "Live eval against n=20 cases (v4-checkpoint-retrieval P6)",
-    "Per-strategy rank exposure beyond best_rank tie-breaker (CandidateCommit.retrieval_signal remains strategy names only; no model schema change)"
+    "Actual LLM invocation — assembler only builds the prompt string",
+    "Brief validation logic (v4-investigation-harness P7)",
+    "Hard rule enforcement at stage transitions (v4-investigation-harness P7)",
+    "Token counting via tiktoken or similar (len//4 approximation is sufficient for V4)",
+    "PromptAssembler class wrapper — assemble_prompt function satisfies ADR §Q3 assembly algorithm"
   ],
-  "verification_method": "pytest tests/test_retrieval.py tests/ + grep import isolation + grep retrieval/ for _resolve_ref + wc -l file sizing + ReadLints on src/commit_investigator/retrieval/"
+  "verification_method": "pytest tests/test_prompt_assembler.py + full pytest tests/ --ignore=tests/_v2_archive + grep import isolation on prompt_assembler.py + wc -l file sizing + ReadLints on src/commit_investigator/governance/"
 }
