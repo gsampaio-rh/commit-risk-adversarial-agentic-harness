@@ -14,7 +14,9 @@ from commit_investigator.analysis.evidence_tagger import (
     score_suspect_evidence,
 )
 from commit_investigator.context.git_context import GitContextProvider
+from commit_investigator.infra.llm import LLMProvider
 from commit_investigator.pipeline.orchestrator import BugAttributionReport
+from commit_investigator.runners.d3_judge import D3JudgeResult, judge_attribution_d3
 
 
 @dataclass
@@ -37,9 +39,12 @@ class AttributionEvalResult:
     elapsed_ms: float
     model: str = ""
     suspect_details: list[dict[str, Any]] = field(default_factory=list)
+    d3_avg_score: float | None = None
+    d3_top_score: int | None = None
+    d3_details: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "bug_hash": self.bug_hash,
             "project": self.project,
             "issue_key": self.issue_key,
@@ -57,6 +62,11 @@ class AttributionEvalResult:
             "model": self.model,
             "suspect_details": self.suspect_details,
         }
+        if self.d3_avg_score is not None:
+            d["d3_avg_score"] = self.d3_avg_score
+            d["d3_top_score"] = self.d3_top_score
+            d["d3_details"] = self.d3_details
+        return d
 
 
 @dataclass
@@ -74,10 +84,11 @@ class AggregateEvalReport:
     avg_tool_calls: float
     avg_tokens: float
     avg_elapsed_ms: float
+    d3_avg_score: float | None = None
     results: list[AttributionEvalResult] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "total": self.total,
             "hit_at_1": self.hit_at_1,
             "hit_at_3": self.hit_at_3,
@@ -91,6 +102,9 @@ class AggregateEvalReport:
             "avg_elapsed_ms": self.avg_elapsed_ms,
             "results": [r.to_dict() for r in self.results],
         }
+        if self.d3_avg_score is not None:
+            d["d3_avg_score"] = self.d3_avg_score
+        return d
 
 
 def _normalize_hash(h: str) -> str:
@@ -142,6 +156,7 @@ def evaluate_attribution(
     project: str,
     issue_key: str,
     git_provider: GitContextProvider | None = None,
+    d3_llm: LLMProvider | None = None,
 ) -> AttributionEvalResult:
     """Evaluate a single BugAttributionReport against ground truth.
 
@@ -151,6 +166,8 @@ def evaluate_attribution(
         project: Project name.
         issue_key: JIRA issue key.
         git_provider: For fetching suspect diffs (evidence grounding).
+        d3_llm: LLM provider for D3 attribution quality judging.
+                 Pass None to skip D3 scoring.
 
     Returns:
         AttributionEvalResult with all metrics.
@@ -204,6 +221,19 @@ def evaluate_attribution(
 
     avg_grounding = sum(grounding_rates) / len(grounding_rates) if grounding_rates else 0.0
 
+    d3_result: D3JudgeResult | None = None
+    if d3_llm is not None and report.suspects:
+        try:
+            d3_result = judge_attribution_d3(
+                suspects=report.suspects,
+                title=report.problem_title,
+                description=report.problem_description,
+                git_provider=git_provider,
+                llm=d3_llm,
+            )
+        except Exception:
+            logger.warning("D3 judge failed for %s", issue_key, exc_info=True)
+
     return AttributionEvalResult(
         bug_hash=bug_hash,
         project=project,
@@ -221,6 +251,9 @@ def evaluate_attribution(
         elapsed_ms=report.metadata.get("elapsed_ms", 0.0),
         model=report.metadata.get("model", ""),
         suspect_details=suspect_details,
+        d3_avg_score=d3_result.avg_score if d3_result else None,
+        d3_top_score=d3_result.top_suspect_score if d3_result else None,
+        d3_details=[s.to_dict() for s in d3_result.scores] if d3_result else [],
     )
 
 
@@ -234,6 +267,9 @@ def aggregate_results(results: list[AttributionEvalResult]) -> AggregateEvalRepo
             total_cost_usd=0, avg_tool_calls=0, avg_tokens=0, avg_elapsed_ms=0,
         )
 
+    d3_scores = [r.d3_avg_score for r in results if r.d3_avg_score is not None]
+    d3_avg = sum(d3_scores) / len(d3_scores) if d3_scores else None
+
     return AggregateEvalReport(
         total=n,
         hit_at_1=sum(r.hit_at_1 for r in results) / n,
@@ -246,5 +282,6 @@ def aggregate_results(results: list[AttributionEvalResult]) -> AggregateEvalRepo
         avg_tool_calls=sum(r.tool_calls for r in results) / n,
         avg_tokens=sum(r.tokens_used for r in results) / n,
         avg_elapsed_ms=sum(r.elapsed_ms for r in results) / n,
+        d3_avg_score=d3_avg,
         results=results,
     )

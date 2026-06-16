@@ -61,7 +61,7 @@ class LLMProvider(ABC):
 class MockLLMProvider(LLMProvider):
     """Mock provider for testing without an API key.
 
-    Produces deterministic responses based on the context provided.
+    Returns empty V3-compatible responses (no tool calls, no suspects).
     """
 
     @property
@@ -75,39 +75,10 @@ class MockLLMProvider(LLMProvider):
         temperature: float = 0.0,
         max_tokens: int = 4096,
     ) -> LLMResponse:
-        """Generate a mock investigation response."""
         context = messages[-1].content if messages else ""
-        touched_files = _extract_touched_files(context)
-        primary_file = touched_files[0] if touched_files else "unknown"
-
-        hypotheses = [
-            {
-                "mechanism": f"If the change in {primary_file} introduces an unhandled edge case then NPE at {primary_file}:10",
-                "evidence_quote": "",
-                "file": primary_file,
-                "lines": [1, 10],
-            }
-        ]
-        if len(touched_files) > 1:
-            hypotheses.append({
-                "mechanism": f"If {touched_files[1]} interaction changes unexpectedly then silent data corruption",
-                "evidence_quote": "",
-                "file": touched_files[1],
-                "lines": [1, 5],
-            })
-
-        response_content = json.dumps({
-            "summary": (
-                f"Mock investigation of {primary_file}: "
-                f"reviewed diff ({len(context.split())} context tokens)."
-            ),
-            "hypotheses": hypotheses,
-        })
-
-        token_estimate = len(context.split()) + len(response_content.split())
-
+        token_estimate = len(context.split()) + 50
         return LLMResponse(
-            content=response_content,
+            content="No investigation performed (mock provider).",
             tool_calls=[],
             tokens_used=token_estimate,
             estimated_cost=token_estimate * 0.000003,
@@ -116,29 +87,10 @@ class MockLLMProvider(LLMProvider):
         )
 
 
-def _extract_touched_files(context: str) -> list[str]:
-    """Parse touched file paths from orchestrator context markdown."""
-    files: list[str] = []
-    in_section = False
-    for line in context.splitlines():
-        if line.strip() == "## Touched Files":
-            in_section = True
-            continue
-        if in_section:
-            if line.startswith("## "):
-                break
-            if line.startswith("- "):
-                files.append(line[2:].strip())
-    return files
-
-
 class CursorSDKProvider(LLMProvider):
     """LLM provider using the Cursor SDK (cursor-sdk).
 
-    complete()           — one-shot via Agent.prompt(). Use for single-turn calls.
-    complete_multi_turn() — multi-turn via Agent.create()+agent.send(). Use for
-                           T3 evaluator loops where the follow-up challenge must
-                           land as a real conversation message, not embedded text.
+    complete() — one-shot via Agent.prompt(). Use for single-turn calls.
     """
 
     def __init__(
@@ -184,15 +136,7 @@ class CursorSDKProvider(LLMProvider):
         except CursorAgentError as exc:
             logger.error("Cursor SDK call failed: %s (retryable=%s)", exc.message, exc.is_retryable)
             return LLMResponse(
-                content=json.dumps({
-                    "risk_level": "LOW",
-                    "confidence": 0.0,
-                    "reasoning": f"LLM call failed: {exc.message}",
-                    "findings": ["Investigation failed due to LLM error — not a risk assessment"],
-                    "follow_up_needed": False,
-                    "localization": [],
-                    "recommendations": [],
-                }),
+                content=f"Investigation failed: {exc.message}",
                 model=self.model_name,
                 finish_reason="error",
             )
@@ -219,68 +163,6 @@ class CursorSDKProvider(LLMProvider):
             model=f"cursor-sdk/{actual_model}",
             finish_reason="stop" if result.status == "finished" else str(result.status),
         )
-
-    def complete_multi_turn(
-        self,
-        turns: list[list[LLMMessage]],
-    ) -> list[LLMResponse]:
-        """Execute a multi-turn conversation via Agent.create() + agent.send().
-
-        Each element in `turns` is a list of LLMMessages for that turn. The first
-        turn carries system+user context; subsequent turns carry only the follow-up
-        user challenge. Conversation context is preserved across turns by the SDK.
-
-        Returns one LLMResponse per turn (same ordering as `turns`).
-        """
-        from cursor_sdk import Agent, LocalAgentOptions
-        from cursor_sdk.errors import CursorAgentError
-
-        responses: list[LLMResponse] = []
-
-        try:
-            with Agent.create(
-                model=self._model,
-                api_key=self._api_key,
-                local=LocalAgentOptions(cwd=os.getcwd()),
-            ) as agent:
-                for turn_idx, messages in enumerate(turns):
-                    prompt_text = self._format_messages(messages)
-                    word_count = len(prompt_text.split())
-
-                    run = agent.send(prompt_text)
-                    result = run.wait()
-
-                    if result.status != "finished":
-                        logger.warning(
-                            "Cursor SDK multi-turn run %s status: %s (turn %d)",
-                            result.id, result.status, turn_idx,
-                        )
-
-                    response_text = result.result or ""
-                    token_estimate = word_count + len(response_text.split())
-                    responses.append(LLMResponse(
-                        content=response_text,
-                        tool_calls=[],
-                        tokens_used=token_estimate,
-                        estimated_cost=token_estimate * 0.000003,
-                        model=self.model_name,
-                        finish_reason="stop" if result.status == "finished" else str(result.status),
-                    ))
-
-        except CursorAgentError as exc:
-            logger.error(
-                "Cursor SDK multi-turn call failed at turn %d: %s (retryable=%s)",
-                len(responses), exc.message, exc.is_retryable,
-            )
-            empty = LLMResponse(
-                content="",
-                model=self.model_name,
-                finish_reason="error",
-            )
-            while len(responses) < len(turns):
-                responses.append(empty)
-
-        return responses
 
     @staticmethod
     def _format_messages(messages: list[LLMMessage]) -> str:
@@ -346,7 +228,7 @@ class OpenAIProvider(LLMProvider):
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
 
-        with httpx.Client(timeout=60.0) as client:
+        with httpx.Client(timeout=300.0) as client:
             response = client.post(
                 f"{self._base_url}/chat/completions",
                 headers=headers,

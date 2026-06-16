@@ -77,6 +77,11 @@ class GitContextProvider:
         return cls(repo_path, temporal_bound=temporal_bound)
 
     @property
+    def repo_path(self) -> Path:
+        """Path to the git repository."""
+        return self._repo_path
+
+    @property
     def temporal_bound(self) -> str | None:
         """The temporal bound ref, if set."""
         return self._temporal_bound

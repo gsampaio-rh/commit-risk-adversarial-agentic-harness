@@ -8,10 +8,13 @@ Baselines:
       frequently appearing non-merge commits.
   file-history-recency: Most recent commits touching files
       mentioned in the problem description.
+  random-commit: Pick 5 random commits from the repo history
+      (absolute floor — expected Hit@5 ~ 5/N ≈ 0.01%).
 """
 
 from __future__ import annotations
 
+import random
 import re
 from dataclasses import dataclass
 
@@ -142,6 +145,61 @@ def file_history_recency(
             reasoning_summary=f"Recency baseline on {len(file_hints)} file hints",
             tool_trace=[],
             metadata={"baseline": "file-history-recency", "file_hints": file_hints[:5]},
+        ),
+    )
+
+
+def random_commit(
+    problem: ProblemStatement,
+    git_provider: GitContextProvider,
+    n: int = 5,
+    seed: int | None = None,
+) -> BaselineResult:
+    """Random commit baseline: absolute floor reference.
+
+    Picks n random commits from the repo history before the temporal bound.
+    Expected Hit@5 ≈ 5/total_commits (typically <0.01%).
+    """
+    all_commits = git_provider.search_commits_by_keyword("", max_results=500)
+    if not all_commits:
+        return BaselineResult(
+            name="random-commit",
+            report=BugAttributionReport(
+                problem_title=problem.title,
+                problem_description=problem.description,
+                suspects=[],
+                reasoning_summary="Random baseline: no commits found in repository",
+                tool_trace=[],
+                metadata={"baseline": "random-commit"},
+            ),
+        )
+
+    rng = random.Random(seed)
+    sample = rng.sample(all_commits, min(n, len(all_commits)))
+
+    suspects = [
+        SuspectCommit(
+            commit_id=entry.commit_id,
+            rank=i + 1,
+            confidence=1.0 / n,
+            mechanism=f"Random selection (commit {i + 1} of {n})",
+        )
+        for i, entry in enumerate(sample)
+    ]
+
+    return BaselineResult(
+        name="random-commit",
+        report=BugAttributionReport(
+            problem_title=problem.title,
+            problem_description=problem.description,
+            suspects=suspects,
+            reasoning_summary=f"Random baseline: {n} commits from pool of {len(all_commits)}",
+            tool_trace=[],
+            metadata={
+                "baseline": "random-commit",
+                "pool_size": len(all_commits),
+                "seed": seed,
+            },
         ),
     )
 

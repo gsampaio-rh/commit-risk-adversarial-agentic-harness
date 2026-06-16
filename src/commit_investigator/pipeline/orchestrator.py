@@ -32,6 +32,7 @@ __all__ = [
     "AgentOrchestrator",
     "BudgetState",
     "BugAttributionReport",
+    "EARLY_EXIT_NUDGE_THRESHOLD",
     "SuspectCommit",
 ]
 
@@ -39,43 +40,64 @@ _SYSTEM_PROMPT_TEMPLATE = (
     "You are a bug attribution agent. Given a bug report, your task is to "
     "search a git repository to find the commit that most likely INTRODUCED the bug.\n\n"
     "## Available Tools\n\n"
-    "You have these git tools. To use a tool, output a JSON block:\n"
+    "You have NO direct repo access. Use these git tools to search. "
+    "To use a tool, output a JSON block:\n"
     "```tool\n"
     '{{"tool": "<name>", "args": {{<arguments>}}}}\n'
     "```\n\n"
     "{tool_descriptions}\n\n"
     "## Strategy\n\n"
-    "1. **Understand**: Read the bug report carefully. Identify file names, class names, "
-    "error messages, component names.\n"
-    "2. **Search**: Use search tools to find commits touching relevant files or mentioning "
-    "relevant keywords.\n"
-    "3. **Examine**: Read diffs of candidate commits. Look for changes that could have "
+    "1. **Search**: Use search tools to find commits touching relevant files or mentioning "
+    "relevant keywords. Try multiple search terms.\n"
+    "2. **Examine**: Read diffs of candidate commits. Look for changes that could have "
     "introduced the bug.\n"
-    "4. **Refine**: Narrow down suspects. Follow blame chains. Compare adjacent commits.\n"
-    "5. **Conclude**: When you have enough evidence, output your final answer.\n\n"
+    "3. **Conclude**: When you have examined diffs and have evidence, output your final answer.\n\n"
     "## Output Format\n\n"
     "When ready to conclude, output:\n"
     "```suspects\n"
     "[\n"
-    '  {{"commit_id": "<full SHA>", "confidence": 0.8, '
+    '  {{"commit_id": "<full SHA from tool results>", "confidence": 0.8, '
     '"mechanism": "If <change> then <consequence>", '
     '"evidence_quotes": ["<exact text from diff>"]}}\n'
     "]\n"
     "```\n\n"
     "## Rules\n"
     "- Search broadly first, then narrow down.\n"
+    "- ONLY use commit SHAs that appeared in tool results.\n"
     "- Always examine the diff of a suspect before ranking it.\n"
-    "- Provide specific evidence quotes from actual diffs.\n"
+    "- Provide evidence quotes from actual diffs you examined.\n"
     "- You cannot see commits after the temporal boundary.\n"
     "- If a tool returns an error about temporal bounds, that commit is inaccessible.\n"
 )
 
-TURN_PROMPT = """Continue your investigation. You have used {tool_calls_used}/{max_tool_calls} tool calls and {tokens_used:,} tokens.
+TURN_PROMPT = """Tool results ({tool_calls_used}/{max_tool_calls} calls used, {tokens_used:,} tokens):
 
-Tool results from your last request:
 {tool_results}
 
-What would you like to do next? Use more tools to investigate, or conclude with your suspects list."""
+{conclusion_guidance}"""
+
+_KEEP_SEARCHING = (
+    "Keep investigating. Search for more keywords, examine diffs of promising commits. "
+    "Output a ```tool block."
+)
+_MAY_CONCLUDE = (
+    "You may now conclude with ```suspects if you have examined enough evidence, "
+    "or continue searching with ```tool."
+)
+
+_NUDGE_TOOL = (
+    "You must use tools to search. Output a ```tool block with one of the available tools. "
+    "Do not guess commit IDs."
+)
+
+_EARLY_CONCLUDE = (
+    "You have used {tool_calls}/{max_tool_calls} tool calls and examined diffs. "
+    "If you have strong evidence for your suspects, conclude NOW with ```suspects. "
+    "You don't need to use all your budget — save resources by concluding early when confident."
+)
+
+MIN_TOOL_CALLS_BEFORE_CONCLUDE = 3
+EARLY_EXIT_NUDGE_THRESHOLD = 8
 
 
 @dataclass
@@ -270,10 +292,12 @@ class AgentOrchestrator:
         max_tool_calls: int = 30,
         max_turns: int = 15,
         checkpoint_dir: str | Path | None = None,
+        early_exit_threshold: int = EARLY_EXIT_NUDGE_THRESHOLD,
     ) -> None:
         self._llm = llm_provider or get_provider()
         self._max_turns = max_turns
         self._checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
+        self._early_exit_threshold = early_exit_threshold
         self._default_budget = {
             "max_tokens": max_tokens,
             "max_cost": max_cost,
@@ -322,13 +346,25 @@ class AgentOrchestrator:
 
             parsed_suspects = _parse_suspects(response.content)
             if parsed_suspects:
-                suspects = parsed_suspects
-                break
+                if budget.total_tool_calls >= MIN_TOOL_CALLS_BEFORE_CONCLUDE:
+                    suspects = parsed_suspects
+                    break
+                else:
+                    messages.append(LLMMessage(role="assistant", content=response.content))
+                    messages.append(LLMMessage(
+                        role="user",
+                        content=f"Too early to conclude ({budget.total_tool_calls} tool calls). "
+                                f"Search more before submitting suspects. Output a ```tool block.",
+                    ))
+                    continue
 
             tool_calls = _parse_tool_calls(response.content)
             if not tool_calls:
-                suspects = parsed_suspects
-                break
+                if budget.total_tool_calls >= MIN_TOOL_CALLS_BEFORE_CONCLUDE * 2:
+                    break
+                messages.append(LLMMessage(role="assistant", content=response.content))
+                messages.append(LLMMessage(role="user", content=_NUDGE_TOOL))
+                continue
 
             tool_results_parts = []
             for call in tool_calls:
@@ -356,6 +392,22 @@ class AgentOrchestrator:
                 tool_trace.append(record)
                 tool_results_parts.append(f"**{call['tool']}**:\n{result}")
 
+            has_examined = any(
+                r.tool in ("get_commit_diff", "get_commit_message", "get_file_at_commit")
+                for r in tool_trace
+            )
+            if (
+                budget.total_tool_calls >= self._early_exit_threshold
+                and has_examined
+            ):
+                guidance = _EARLY_CONCLUDE.format(
+                    tool_calls=budget.total_tool_calls,
+                    max_tool_calls=budget.max_tool_calls,
+                )
+            elif budget.total_tool_calls >= MIN_TOOL_CALLS_BEFORE_CONCLUDE:
+                guidance = _MAY_CONCLUDE
+            else:
+                guidance = _KEEP_SEARCHING
             messages.append(LLMMessage(role="assistant", content=response.content))
             messages.append(LLMMessage(
                 role="user",
@@ -364,6 +416,7 @@ class AgentOrchestrator:
                     max_tool_calls=budget.max_tool_calls,
                     tokens_used=budget.total_tokens,
                     tool_results="\n\n".join(tool_results_parts),
+                    conclusion_guidance=guidance,
                 ),
             ))
 
@@ -388,6 +441,7 @@ class AgentOrchestrator:
                 "model": self._llm.model_name,
                 "budget_exceeded": budget.budget_exceeded,
                 "evidence_scores": evidence_scores,
+                "early_exit_threshold": self._early_exit_threshold,
                 "evidence_scoring_applied": True,
                 "post_processing_applied": False,
             },

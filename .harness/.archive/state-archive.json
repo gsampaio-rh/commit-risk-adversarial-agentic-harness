@@ -1,712 +1,811 @@
 {
-  "_archived_at": "2026-06-11T12:22:43.774736Z",
-  "_source": "state.json v3 → v4 slim migration",
-  "iter3_vision": "Deliver a verifiable commit investigation system where every quality claim is backed by deterministic infrastructure — not LLM policy. The iter-2 win (D1=0.75, D3=0.292 on n=12 panel) confirms the method works; the iter-3 redesign makes it trustworthy at scale. Script controls risk policy and quality gates; LLM generates hypotheses; Pydantic enforces schema; adversarial eval with a separate judge measures output honesty.",
-  "iter3_direction": "iter-3 is the main track. Sequence: (1) extract archetype + risk_policy + quality_gate stub; (2) evidence_tagger feasibility spike; (3) wire deterministic gates; (4) fix context bundle [parallel: smart-diff]; (5) decompose monolith into HypothesisEngine; (6) THEN fix eval scoring infra (FIX-JUDGE-INFRA ∥ EXP-JUDGE-SWAP); (7) validate + n=20. Judge scoring infra is not a blocker for any refactor step — only needed before iter-3-validate D3/D5.",
-  "architecture_decisions": {
-    "pipeline": [
-      "STAGE 0  — Script: CommitContextBuilder (smart-diff, file_histories + author_stats injected)",
-      "STAGE 0b — Script: archetype.detect() + has_production_defect_signals()",
-      "STAGE 1  — LLM Call 1: HypothesisEngine → HypothesisArtifact{summary, hypotheses[{mechanism, evidence_quote}]}",
-      "STAGE 2  — Script-first: evidence_tagger.tag() → TaggedHypothesis[SUPPORTED|SPECULATIVE|REFUTED|UNVERIFIABLE]",
-      "STAGE 3  — Script: risk_policy.evaluate_risk() → PolicyVerdict{risk_level, cap_applied, cap_reason, applied_rules[]}",
-      "GATE     — Script: quality_gate.evaluate_gate() → deterministic follow_up_needed (NOT LLM self-report)",
-      "ASSEMBLY — Script: CommitInvestigationReport with PolicyVerdict + per_stage metadata"
-    ],
-    "llm_calls_default": 1,
-    "removed": [
-      "INVESTIGATION_SYSTEM_PROMPT monolith (rubric + discrimination + examples in one prompt)",
-      "_apply_clean_commit_risk_cap() post-hoc regex override",
-      "follow_up_needed field as LLM-controlled gate",
-      "Risk rubric HIGH/MEDIUM/LOW tiers inside the LLM prompt"
-    ],
-    "multi_turn": {
-      "status": "frozen — max_turns=1 in production eval (run_eval.py)",
-      "reactivation": "ALL: (1) quality_gate wired + tested ✓; (2) v2-multiturn-spike ΔD3≥0.25 on ≥3 hard commits; (3) cost/commit ≤2× baseline",
-      "v2_note": "iter-3f-multiturn-ab (pre-iter-3e) showed ΔD3=0.0 — stale. turn2_context.py exists; V2 re-spike required before any activation."
+  "_note": "Completed tasks archived from state.json. Commit 1096aad (experiment/v2-d3-contrastive, 2026-06-11).",
+  "committed": [
+    {
+      "id": "v2-d3-h1h4-t3",
+      "name": "D3 Layer 1 — Symptom-first + line-level forcing + evaluator loop",
+      "type": "experiment",
+      "status": "committed",
+      "commit": "1096aad",
+      "verified_at": "2026-06-11T12:42:36Z",
+      "result": "D3 improved on hard panel. Layer 1 baseline established for Layer 2."
     },
-    "risk_policy_interface": {
-      "function": "risk_policy.evaluate_risk(archetype, hypotheses: list[TaggedHypothesis], router_prior, production_defect_signals, context: RiskPolicyContext) → PolicyVerdict",
-      "verdict_fields": [
-        "risk_level",
-        "cap_applied",
-        "cap_reason",
-        "applied_rules[]",
-        "supported_count"
-      ],
-      "rules": {
-        "CRITICAL": [
-          "credential_exposure",
-          "injection_vulnerability",
-          "data_loss",
-          "outage_in_normal_paths"
+    {
+      "id": "v2-d3-contrastive-hypothesis",
+      "name": "D3 Layer 2 — Contrastive hypothesis generation + primary mechanism selection",
+      "type": "experiment",
+      "status": "committed",
+      "commit": "1096aad",
+      "verified_at": "2026-06-11T14:42:00Z",
+      "result": {
+        "run": "output/runs/2026-06-11_14-34-34_real_n11",
+        "D3_hard_panel": 0.159,
+        "D3_baseline": 0.091,
+        "D3_delta": 0.068,
+        "flips": 3,
+        "threshold_met": true,
+        "threshold_criterion": "flip (3 >= 2)",
+        "D3_above_035": false,
+        "commits_flipped": [
+          "55dcbe801e76 (D3=1.0)",
+          "eba3689dd12a (D3=0.5)",
+          "2213f71944ae (D3=0.25)"
         ],
-        "HIGH": [
-          "supported_count >= 1 AND NOT capped",
-          "production_defect_signals AND signature_or_guard_change",
-          "router_prior >= 0.70 AND NOT capped",
-          "security_change AND NOT validation_added",
-          "new_production_lines > 200 AND NOT tests_added"
-        ],
-        "cap_to_MEDIUM": [
-          "clean_archetype AND NOT production_defect_signals",
-          "supported_count == 0 AND speculative_count > 0 AND NOT defect_signals"
-        ]
-      },
-      "constraint": "Single source of risk_level. Zero logic in LLM prompt. Zero post-hoc override.",
-      "v2_proposed": "Add HIGH threshold: supported_count >= 2 OR (supported_count >= 1 AND production_defect_signals) when clean_archetype detected. Expand defensive-refactor/UI archetypes."
-    },
-    "quality_gate_interface": {
-      "function": "quality_gate.evaluate_gate(artifact: HypothesisArtifact, context) → GateResult{follow_up_needed, signals[], reason}",
-      "triggers": [
-        "supported_count == 0 AND production_defect_signals == True",
-        "localization == [] AND diff_truncated AND archetype == AMBIGUOUS",
-        "HypothesisArtifact Pydantic validation fails",
-        "findings == ['Investigation completed'] (masked empty output)"
-      ],
-      "deferred": "confidence < 0.6 — requires structured confidence in HypothesisArtifact, not LLM self-report; activate post-iter-3e",
-      "v2_proposed": "Optional T5: diff_truncated AND D3-hard commit heuristic (large file count + defect file in truncated_files[]) — only if v2-multiturn-spike passes"
-    },
-    "judge_policy": {
-      "constraint": "judge_model != investigator_model for D3/D5 scoring",
-      "sequencing": "EXP-JUDGE-SWAP runs parallel with FIX-JUDGE-INFRA, after iter-3e. Decision applied before iter-3-validate + iter-3-n20. iter-3a–3e regression panels may use same-model judge.",
-      "v2_status": "same-model-acceptable per EXP-JUDGE-SWAP Δ=+0.075 — unchanged for V2 evals"
-    },
-    "divergences_resolved": [
-      {
-        "id": "D1-multi-turn",
-        "resolution": "max_turns=1 frozen everywhere; v2-multiturn-spike conditional with 3-AND threshold (replaces iter-3f stale result)"
-      },
-      {
-        "id": "D2-pipeline-stages",
-        "resolution": "1 LLM call default; Script tiers archetype + evidence + risk; evidence_tagger feasibility spike before shipping"
-      },
-      {
-        "id": "D3-refactor-velocity",
-        "resolution": "strangler-fig: extract → feasibility spike → wire gates (D1 gate HERE) → bundle → decompose prompt"
-      },
-      {
-        "id": "D4-risk-policy-interface",
-        "resolution": "pure function + frozen dataclasses; no OOP RiskPolicy class"
-      }
-    ]
-  },
-  "risks": [
-    {
-      "risk": "iter-3 refactor regresses behavior",
-      "mitigation": "327+ tests as regression contract. Regression panel after each step. Property-based test for risk_policy.",
-      "severity": "high",
-      "status": "resolved-v1"
-    },
-    {
-      "risk": "risk_policy edge case on ambiguous diff",
-      "mitigation": "Property-based tests: archetype=None, empty hypotheses, router_prior=0.5. Panel covers 3 archetype types.",
-      "severity": "high"
-    },
-    {
-      "risk": "D1 regression when tightening HIGH threshold",
-      "mitigation": "v2-fp-risk-tightening AC-3: panel recall ≥0.80 gate before n=20.",
-      "severity": "high",
-      "v2": true
-    },
-    {
-      "risk": "Contrastive prompt increases token cost / latency",
-      "mitigation": "Keep prompt ≤70 lines; measure cost on hard panel before n=20.",
-      "severity": "medium",
-      "v2": true
-    },
-    {
-      "risk": "D3 wrong-mechanism irreducible at Sonnet tier",
-      "mitigation": "v2-d3-contrastive → EXP-BUNDLE-EXPAND → v2-multiturn-spike → EXP-HARD-SUBSET-MODEL escalation ladder.",
-      "severity": "high",
-      "v2": true
-    },
-    {
-      "risk": "572f3cee35fe remains D3=0 after smart-diff",
-      "mitigation": "EXP-BUNDLE-EXPAND + smart-diff semantic-ranking spike if bundle expand fails.",
-      "severity": "medium",
-      "v2": true
-    },
-    {
-      "risk": "Multi-turn reactivation fails again",
-      "mitigation": "Accept single-turn ceiling; do not activate v2-multiturn-gate. Document in v2-multiturn-spike report.",
-      "severity": "medium",
-      "v2": true
-    },
-    {
-      "risk": "D2 SUPPORTED-only localization drops recall on partial diagnoses",
-      "mitigation": "Cap at top-3 ranked files; re-score script-only before shipping.",
-      "severity": "low",
-      "v2": true
-    },
-    {
-      "risk": "n=50 natural variance masks V2 gains",
-      "mitigation": "Hard panel reruns on fixed commit set before/after each change; n=50 only after n=20 iteration gate.",
-      "severity": "medium",
-      "v2": true
-    }
-  ],
-  "cut_tasks": [
-    {
-      "id": "EXP-MULTITURN-AB",
-      "reason": "Zero forensic evidence. Replaced by iter-3f-multiturn-ab with deterministic gate prerequisite + 3-AND threshold."
-    },
-    {
-      "id": "EXP-COST-MODEL-MATRIX",
-      "reason": "Premature — optimizing cost of a pipeline under redesign. Defer to post-V2 if tiered routing activates."
-    },
-    {
-      "id": "iter-2c-smart-diff-conditional",
-      "reason": "Absorbed into iter-3d-smart-diff as unconditional. 572f3cee structural problem, not edge case."
-    },
-    {
-      "id": "INVESTIGATION_SYSTEM_PROMPT",
-      "reason": "Technical debt removed in iter-3e. Monolithic prompts anti-pattern caused iter-2b round-1 fail (D1=0.25)."
-    },
-    {
-      "id": "_apply_clean_commit_risk_cap",
-      "reason": "Technical debt removed in iter-3a. Migrated to risk_policy.evaluate_risk() as single source."
-    }
-  ],
-  "session_handoff": {
-    "status": "V2 PLANNING COMPLETE — ready for v2-forensics-n50",
-    "previous": "V1 DELIVERY GATE PASSED (commit ce394c4). All iter-3 tasks committed.",
-    "next": "Start v2-forensics-n50 (priority 1) — formalize n=50 taxonomy, then parallel D1/D2/D3 tracks.",
-    "v1_delivered": {
-      "n50_run": "output/runs/2026-06-11_06-13-50_real_n50",
-      "scores": {
-        "D1": 0.7,
-        "D2": 0.19,
-        "D3": 0.23,
-        "D4": 0.894,
-        "D5": 0.413,
-        "D6": 0.77
-      },
-      "all_gates": true,
-      "targets_met": {
-        "D4": true,
-        "D5": true,
-        "D6": true,
-        "D1": false,
-        "D2": false,
-        "D3": false
-      },
-      "clean_fp_rate": 0.32,
-      "buggy_recall": 0.72,
-      "cost": "$0.2933 for n=50"
-    },
-    "v2_targets": {
-      "primary": "D3 ≥0.35 (from 0.230)",
-      "secondary": "D1 ≥0.80 + FP≤25% (from 0.700/32%), D2 ≥0.25 (from 0.190)",
-      "maintain": "D5 ≥0.40, D6 ≥0.70, D4 ≥0.75, all V1 gates"
-    },
-    "conditional_tasks_carried": [
-      "EXP-BUNDLE-EXPAND (TRIGGERED)",
-      "EXP-HARD-SUBSET-MODEL",
-      "iter-2-n20 (optional)"
-    ],
-    "uncommitted": [],
-    "preserved": [
-      "All V1 code",
-      "data/apachejit/ + data/repos/",
-      "output/runs/",
-      ".harness/evals/",
-      ".harness/archive/"
-    ]
-  },
-  "completed_tasks": [
-    {
-      "id": "spike-0",
-      "commit": null,
-      "summary": "Architecture + harness design. Agent loop, eval framework defined."
-    },
-    {
-      "id": "iter-1",
-      "commit": null,
-      "summary": "Rubric + staged CoT + router prior. D1=0.60, D3=0.20, D6=0.85 (n=20).",
-      "run": "output/runs/2026-06-10_17-12-55_real_n20"
-    },
-    {
-      "id": "EXP-FORENSICS-TAG",
-      "commit": null,
-      "summary": "D3 failure taxonomy: 50% missing-context, 37.5% wrong-mechanism, 12.5% judge-infra. 60% clean-FP rate.",
-      "report": ".harness/evals/exp-forensics-tag.json"
-    },
-    {
-      "id": "iter-2a",
-      "commit": "ed5bfe6",
-      "summary": "Diff limit 4K→16K. D3 truncation commits 0.083→0.333. fbf0ff D3=0.75."
-    },
-    {
-      "id": "iter-2b",
-      "commit": "ed5bfe6",
-      "summary": "Dual-path rubric: SUPPORTED→HIGH + CLEAN-COMMIT DISCRIMINATION + _apply_clean_commit_risk_cap(). Panel: D1=0.75, buggy 5/6, clean FP 2/6."
-    },
-    {
-      "id": "iter-2-validate",
-      "commit": "ed5bfe6",
-      "summary": "12-commit panel 12/12 AC PASS. D1=0.75, D3_buggy=0.292, D6=0.833.",
-      "run": "output/runs/2026-06-10_21-07-21_real_n12",
-      "report": ".harness/evals/eval-iter-2-validate.json"
-    },
-    {
-      "id": "arch-debate",
-      "commit": null,
-      "summary": "Builder+evaluator 2-round debate on 6 anti-patterns. Agreed iter-3 redesign. state.json v3 + docs rewritten (agent-loop, harness, architecture) and evaluator-verified."
-    },
-    {
-      "id": "iter-3a-extract",
-      "commit": "0395e83",
-      "summary": "Extract archetype.py, risk_policy.py, quality_gate.py, response_parser.py, prompts.py from orchestrator. orchestrator=352L. 157 tests pass (was 103). 12/12 panel regression. 1000x determinism. Evaluator PASS 7/7 AC 2/2 EC.",
-      "report": ".harness/evals/eval-iter-3a-extract.json"
-    },
-    {
-      "id": "iter-3a-spike",
-      "commit": "f9d3d06",
-      "summary": "Evidence tier tagging feasibility spike. 36-fixture corpus (12 commits). tag_hypothesis(): 100% strict agreement (hand), 86.1% (auto). Decision: HYBRID — LLM tier + Script quote⊆diff verification. 28 tests. Evaluator PASS 4/4 AC 2/2 EC.",
-      "report": ".harness/evals/eval-iter-3a-spike.json"
-    },
-    {
-      "id": "iter-3b-wire-gates",
-      "commit": "6387ea9",
-      "summary": "evidence_tagger.py (hybrid), 4-trigger quality_gate (HypothesisArtifact), metadata cap_applied/cap_reason/applied_rules, follow_up_needed deprecated. D1=0.75, buggy_recall=0.833. 226 tests. Evaluator PASS 8/8 AC 2/2 EC.",
-      "report": ".harness/evals/eval-iter-3b-wire-gates.json"
-    },
-    {
-      "id": "iter-3c-bundle-inject",
-      "commit": "0acfde4",
-      "summary": "file_histories + author_stats injected into LLM context. per_stage metadata in report. D6=0.75 on 12-commit panel. 236 tests. Evaluator PASS 5/5 AC 2/2 EC.",
-      "report": ".harness/evals/eval-iter-3c-bundle-inject.json"
-    },
-    {
-      "id": "iter-3d-smart-diff",
-      "commit": "b5efd3f",
-      "summary": "smart_diff.py: per-file ranking (defect_signal>production>test>build/config) + hunk guarantees. truncation_metadata in InvestigationContext + report. 261 tests. Evaluator PASS 7/7 AC 3/3 EC.",
-      "report": ".harness/evals/eval-iter-3d-smart-diff.json"
-    },
-    {
-      "id": "iter-3-validate",
-      "commit": "2c377f1",
-      "summary": "12-commit regression panel. D1=0.667, buggy_recall=0.833, D6=0.75. All 7 ACs PASS. iter-3 pipeline stable.",
-      "run": "output/runs/2026-06-11_01-19-34_real_n12",
-      "report": ".harness/evals/eval-iter-3-validate.json"
-    },
-    {
-      "id": "EXP-JUDGE-SWAP",
-      "commit": "2e93ca8",
-      "summary": "Cross-model judge validation (claude-sonnet-4-6 vs claude-haiku-4-5). n=10 buggy. mean_same=0.200, mean_cross=0.275, Δ=+0.075. 1 gate flip (fbf0ffad627b). Decision: same-model-acceptable.",
-      "report": ".harness/evals/exp-judge-swap.json"
-    },
-    {
-      "id": "FIX-JUDGE-INFRA",
-      "commit": "a97134c",
-      "summary": "D3 fix-diff fallback oracle. eval_judge.py: D3_FIX_DIFF_FALLBACK_RUBRIC + score_d3_root_cause_fix_diff_fallback(). eval_harness: judge_oracle tag (jira|fix-diff-fallback|unavailable). 300 tests. Evaluator PASS 6/6 AC 3/3 EC.",
-      "report": ".harness/evals/eval-FIX-JUDGE-INFRA.json"
-    },
-    {
-      "id": "iter-3e-decompose-prompt",
-      "commit": "5d39411",
-      "summary": "hypothesis_engine.py (HypothesisSpec/HypothesisResponse + HYPOTHESIS_SYSTEM_PROMPT ≤60L + complete_with_parse_retry), report_builder.py (tag_hypotheses+build_report), orchestrator.py→242L. 294 tests. Evaluator PASS 8/8 AC 3/3 EC.",
-      "report": ".harness/evals/eval-iter-3e-decompose-prompt.json"
-    },
-    {
-      "id": "iter-3-n20",
-      "commit": null,
-      "summary": "n=20 stratified gate ALL PASS. D1=0.900 D2=0.209 D3=0.325 D4=0.901 D5=0.600 D6=0.762.",
-      "run": "output/runs/2026-06-11_05-43-56_real_n20"
-    },
-    {
-      "id": "iter-3f-multiturn-ab",
-      "commit": null,
-      "summary": "Multi-turn A/B pre-iter-3e: ΔD3=0.0, single-turn-maintained. Stale — V2 re-spike required.",
-      "run": "output/runs/2026-06-11_02-35-02_multiturn_ab",
-      "results": {
-        "delta_d3": 0.0,
-        "decision": "single-turn-maintained"
+        "H4_compliance": "6/11 = 54.5%",
+        "note": "D3=0.159 < 0.35 target. Flip criterion met. v2-d3-h3a-rag activated."
       }
     },
     {
-      "id": "iter-3-n20-d2-filter",
-      "commit": null,
-      "summary": "D2 test/doc filter in eval_harness. D2: 0.127→0.209 on n=20.",
-      "report": ".harness/evals/eval-iter-3-n20-d2-filter.json"
+      "id": "fix-contrastive-selector",
+      "name": "Expand select_primary_by_evidence beyond n_candidates=3",
+      "type": "feature",
+      "status": "committed",
+      "commit": "1096aad",
+      "verified_at": "2026-06-11T17:35:00Z",
+      "result": "n_candidates param removed; all hypotheses scored. eba3689 regression test added."
     },
     {
-      "id": "iter-2d-wrong-mechanism",
-      "commit": null,
-      "summary": "COVERAGE REQUIREMENT + message-only archetype cap. 409664 ΔD3=+0.25. decision=anti-anchoring-partial.",
-      "report": ".harness/evals/eval-iter-2d-wrong-mechanism.json"
+      "id": "module-reorg-shim-removal",
+      "name": "Module reorganization into 7 subpackages + compat shim removal",
+      "type": "refactor",
+      "status": "committed",
+      "commit": "1096aad",
+      "verified_at": "2026-06-11T19:00:00Z",
+      "result": "27 files into analysis/context/hypothesis/infra/pipeline/routing/runners. 27 shims deleted. All imports migrated. 395 tests pass."
     },
     {
-      "id": "iter-n50-delivery",
-      "commit": "ce394c4",
-      "summary": "V1 DELIVERY GATE PASSED. D1=0.700 D2=0.190 D3=0.230 D4=0.894 D5=0.413 D6=0.770. FP=32% recall=72%. Cost=$0.29.",
-      "run": "output/runs/2026-06-11_06-13-50_real_n50",
-      "report": ".harness/evals/eval-iter-n50-delivery.json"
-    }
-  ],
-  "archived_active_tasks": [
+      "id": "refactor-risk-policy-tests",
+      "name": "Code quality: add tests for evaluate_risk_from_hypotheses",
+      "type": "refactor",
+      "status": "committed",
+      "commit": "1096aad",
+      "result": "+14 tests (TestEvaluateRiskFromHypotheses). All branches covered."
+    },
     {
-      "id": "v2-spike-wrong-mechanism",
-      "name": "Wrong-mechanism root cause — research, hypotheses, experiment design",
+      "id": "refactor-eval-common",
+      "name": "Code quality: extract eval_common.py + fix 3-way _normalize_project",
+      "type": "refactor",
+      "status": "committed",
+      "commit": "1096aad",
+      "result": "eval_common.py created. _load_dotenv/_git_rev/_normalize_project unified."
+    },
+    {
+      "id": "refactor-hypothesis-prompts",
+      "name": "Code quality: split hypothesis_prompts.py from hypothesis_engine.py",
+      "type": "refactor",
+      "status": "committed",
+      "commit": "1096aad",
+      "result": "hypothesis_prompts.py created (191 lines). hypothesis_engine.py 555→368 lines."
+    },
+    {
+      "id": "refactor-has-changed-line-public",
+      "name": "Code quality: make has_changed_line_citation public + consolidate JSON parsing",
+      "type": "refactor",
+      "status": "committed",
+      "commit": "1096aad",
+      "result": "_has_changed_line_citation→public. parse_hypothesis_response routes through extract_json."
+    },
+    {
+      "id": "refactor-eval-runner",
+      "name": "Code quality: extract EvalRunner class from run_eval.main()",
+      "type": "refactor",
+      "status": "committed",
+      "commit": "1096aad",
+      "result": "EvalRunner class (5 methods). main() 246→40 non-empty lines."
+    },
+    {
+      "id": "v2-d3-selector-forensics",
+      "name": "D3: forensics on contrastive selector tier-2 regressions",
       "type": "spike",
-      "status": "verified",
-      "priority": 1.5,
+      "status": "committed",
+      "priority": 0,
+      "cost": "$0",
+      "depends_on": [
+        "v2-n20-gate"
+      ],
+      "scope": "Analyze n20 run (output/runs/2026-06-11_17-52-22_real_n20) for 4 regression commits: 294c169f6d66, fbf0ffad627b, fe57a498f6a5, 409664582f53. For each: dump all contrastive hypotheses, has_changed_line_citation per candidate, pre/post select_primary_by_evidence order, primary mechanism vs JIRA oracle, judge D3 rationale. Compare vs pre-contrastive investigation JSON from iter-3/v1 runs where available. Also verify 2213f719/55dcbe801e76 flip mechanism (positive control).",
+      "investigation_hypotheses": [
+        "H-SEL-1: contrastive alternative wins on +/- citation while H1 is context-only but partially correct (right-area-wrong-mechanism)",
+        "H-SEL-2: wrong candidate cites irrelevant changed line (e.g. test file, cosmetic hunk) — citation without semantic relevance",
+        "H-SEL-3: all candidates ungrounded → contrastive prompt shifts mechanism set entirely (not just reorder)",
+        "H-SEL-4: T3 mechanism evaluator grounded=✗ bias — 19/20 commits ungrounded may correlate with wrong contrastive picks"
+      ],
+      "expected_findings": "Confirm which hypothesis explains ≥3/4 regressions; produce selector fix spec",
+      "acceptance_criteria": [
+        "AC-1: Forensics report at .harness/evals/v2-d3-selector-forensics.json with per-commit hypothesis table",
+        "AC-2: For each regression commit: primary mechanism before/after select, citation status per candidate",
+        "AC-3: Root cause tagged for ≥3/4 regressions with evidence quotes",
+        "AC-4: Fix spec written: scoring dimensions to add (not just disable contrastive)",
+        "AC-5: Positive controls documented (2213f719, 55dcbe801e76) — why selection helped"
+      ],
+      "report": ".harness/evals/v2-d3-selector-forensics.json"
+    },
+    {
+      "id": "v2-d3-selector-fix",
+      "name": "D3: fix select_primary_by_evidence for partial-evidence tier-2 commits",
+      "type": "feature",
+      "status": "committed",
+      "priority": 0.5,
+      "cost": "$0",
+      "depends_on": [
+        "v2-d3-selector-forensics"
+      ],
+      "scope": "hypothesis/hypothesis_engine.py select_primary_by_evidence(): replace binary has_changed_line_citation sort with multi-factor scoring informed by forensics. Candidate improvements (builder chooses based on forensics): (a) H1 anchor — never demote position-0 if it has citation unless challenger scores strictly higher on composite; (b) composite score: citation + quote length in diff + production-file path in hyp.file; (c) post-select guard: if all candidates ungrounded, preserve original H1 order; (d) optional lightweight fuzzy-match pre-score before evidence_tagger. Must preserve eba3689/2213f719/55dcbe801e76 positive flips.",
+      "expected_delta": {
+        "D3": "+0.08 to +0.10 on n=20 buggy stratum (recover 4 tier-2 regressions)"
+      },
+      "acceptance_criteria": [
+        "AC-1: Unit tests for each regression commit fixture (294c169/fbf0ff/fe57a4/409664) — correct hypothesis promoted",
+        "AC-2: Existing select_primary_by_evidence tests pass + eba3689_position5 regression retained",
+        "AC-3: Positive control tests: 2213f719/55dcbe801e76 promotion behavior unchanged or improved",
+        "AC-4: No new LLM calls — deterministic scoring only",
+        "AC-5: 395+ tests pass"
+      ]
+    },
+    {
+      "id": "v2-d3-selector-retest",
+      "name": "D3: retest selector fix on regression panel",
+      "type": "gate",
+      "status": "conditional_pass",
+      "result": "conditional_pass",
+      "note": "3/4 regressions D3>=0.25 (fbf0ff/fe57a498/409664). 294c169 still 0.0 — prompt ceiling reached, needs EXP-BUNDLE-EXPAND. 55dcbe improved 0.5→0.75.",
+      "priority": 1,
+      "cost": "~$0.05 (6 commits: 4 regressions + 2 positive controls)",
+      "depends_on": [
+        "v2-d3-selector-fix"
+      ],
+      "scope": "Re-run investigation on 6-commit panel: 294c169, fbf0ff, fe57a498, 409664 (regressions) + 2213f719, 55dcbe801e76 (positive controls). Score D3 with existing judge. Script-only re-score NOT sufficient — need fresh investigations with fixed selector.",
+      "success_threshold": "≥3/4 regressions recover D3≥0.25 AND both positive controls maintain D3≥0.50",
+      "decision_rule": "PASS → proceed EXP-BUNDLE-EXPAND + mini n=20. FAIL → iterate selector fix (max 1 retry) before any RAG.",
+      "acceptance_criteria": [
+        "AC-1: 6-commit eval completes without errors",
+        "AC-2: ≥3/4 tier-2 regressions D3≥0.25 (was 0.0)",
+        "AC-3: 2213f719 and 55dcbe801e76 D3≥0.50 (no flip regression)",
+        "AC-4: Mean D3 on 6-commit panel ≥0.40",
+        "AC-5: Forensics report updated with before/after per commit"
+      ],
+      "report": ".harness/evals/v2-d3-selector-retest.json"
+    },
+    {
+      "id": "v2-d2-localization-precision",
+      "name": "D2: SUPPORTED-only localization with defect-signal ranking",
+      "type": "feature",
+      "status": "committed",
+      "commit": "188229f",
+      "priority": 2,
+      "cost": "~$0",
       "depends_on": [
         "v2-forensics-n50"
       ],
-      "cost": "~$0 (doc only, no LLM calls)",
-      "scope": "Research + hypothesis space for D3 wrong-mechanism failure (91% of D3=0). No pipeline changes. Produces docs/spike-wrong-mechanism.md and defines experiment sequence.",
-      "doc": "docs/spike-wrong-mechanism.md",
-      "hypotheses": {
-        "H1": "Symptom-first reasoning — ask observable failure before mechanism. Zero cost. Breaks abstraction-bias pattern shortcut.",
-        "H2": "Cross-model mechanism verification — second model detects self-consistent errors. ~$0.004/commit on uncertain path.",
-        "H3": "Historical bug RAG — TEMPORAL CONSTRAINT: corpus = closed pairs where fix_commit.date < T_investigated. Fix commit content excluded (oracle contamination). Injected label = coarse defect category derived from buggy diff only.",
-        "H4": "Line-level evidence forcing — require +/- changed line citation for primary mechanism. Zero additional LLM cost.",
-        "H5": "Reasoning model escalation — extended thinking on irreducible tier-1 commits. 5-10x cost on hard subset only.",
-        "H6": "Fix-conditioned reverse analysis — show fix diff unlabeled, reverse-engineer mechanism. Eval/training insight only.",
-        "H8": "JIT-SDP model as defect signature anchor — CodeT5+/UniXCoder fine-tuned on ApacheJIT (temporal cutoff baked into training). Produces defect_category distribution injected before HypothesisEngine. Cleaner than H3.",
-        "H9": "Code-specific cross-model verifier — DeepSeek-Coder or Qwen2.5-Coder as verifier in H2. Architecture-independent biases ensure genuine disagreement detection.",
-        "H10": "Code model as specialist worker in T2 Map-Reduce — Qwen2.5-Coder-7B at ~10x lower cost than Sonnet for narrow specialist lanes."
+      "parallel_with": [
+        "EXP-BUNDLE-EXPAND"
+      ],
+      "changes": "pipeline/report_builder.py + tests/test_report_builder.py + scripts/v2_d2_localization_rescore.py",
+      "expected_delta": {
+        "D2": "+0.05 to +0.08 (closes -0.049 gap to 0.25 target)"
       },
-      "literature": [
-        "Bernstein et al. NDSS 2026 — Abstraction Bias / Familiar Pattern Attack (universal across OpenAI/Anthropic/Google)",
-        "Tan et al. EMNLP 2025 — Self-Consistent Errors (voting falls below random; cross-model probe required)",
-        "Cloud RCA arxiv 2601 — RF-13 Anchoring Bias (45% lower correct prediction rate)",
-        "Anchoring study arxiv 2505 — Reasoning models: 22-35% anchoring vs 45-61% standard",
-        "REFLECT arxiv 2606 — Fix-inject-replay contrastive evidence",
-        "Linux kernel paper arxiv 2505 — Mail-augmented RAG improves fault localization",
-        "Claude Code #61932 — Completion bias, recognition-without-arrest",
-        "CodeFlowLM arxiv 2512.00231 — CodeT5+/UniXCoder JIT-SDP fine-tuning (H8 precedent)",
-        "Cloud RCA arxiv 2602.09937 — Gemini 2.5 Pro: 12.5% perfect RCA across model families (ceiling context)",
-        "Qwen2.5-Coder arxiv 2409.12186 — Sonnet/GPT-4o still lead on general benchmarks; code models as verifiers"
-      ],
-      "proposed_experiment_sequence": [
-        "v2-d3-h1h4-symptom-first: H1+H4 on hard panel n=18 (~$0.04)",
-        "v2-d3-h3-bug-rag: Historical bug RAG if H1+H4 insufficient",
-        "v2-d3-h2-cross-model: Cross-model verification if systematic errors persist",
-        "v2-d3-h5-reasoning: Escalation for irreducible tier-1 commits",
-        "v2-d3-n20-validate: Full n=20 with best combination"
-      ],
-      "open_questions": [
-        "Are wrong-mechanism commits self-consistent? (same mechanism both runs?) — determines if H2 is mandatory",
-        "Does H3 RAG help or hurt? (risk of retrieval poisoning from wrong historical match) — test on hard panel n=18 first",
-        "Can extended thinking break FPA? (FPA paper: persists through explicit warning)",
-        "Is mechanism ceiling at Sonnet? (H5 + H3 attack from different angles)",
-        "Does T3 (evaluator-optimizer) converge or produce verbose re-statements of same wrong mechanism?",
-        "Does T1 (debate) require model diversity (H9) to avoid correlated-bias convergence?",
-        "What defect taxonomy for H8? (too coarse = low discriminative power; too fine = data sparsity per category)",
-        "H3 corpus quality: are ApacheJIT buggy-diff defect categories consistent enough to classify without fix info?"
-      ],
       "acceptance_criteria": [
-        "AC-1: docs/spike-wrong-mechanism.md exists with problem definition, 10+ references, hypotheses H1-H10 + T1-T4 with mechanisms and costs",
-        "AC-2: Experiment sequence defined with clear dependency DAG",
-        "AC-3: Open questions listed with decision criteria",
-        "AC-4: H7 (multi-sample voting) explicitly rejected with literature justification",
-        "AC-5: H3 temporal correctness documented with valid/invalid corpus scope table"
+        "AC-1: Unit test: SPECULATIVE-only hypotheses produce empty or reduced localization",
+        "AC-2: Unit test: multi-hypothesis commit ranks defect_signal file first",
+        "AC-3: Re-score n=50 eval reports (script-only, no LLM): D2 ≥0.24",
+        "AC-4: D6 ≥0.70 on n=5 smoke (no grounding regression)",
+        "AC-5: 405+ tests pass"
       ],
-      "topology_hypotheses": {
-        "T1": "Debate pattern — two agents argue opposing mechanisms, judge decides. Requires H9 or T4 to avoid correlated biases.",
-        "T2": "Map-Reduce specialization — parallel specialist agents per defect category, reducer synthesizes. H10 for cost optimization.",
-        "T3": "Evaluator-optimizer on mechanism — internal loop critiques mechanism against H4 criteria and forces improvement.",
-        "T4": "Parallel hypothesis diversity — HypothesisEngine runs N times with diversity constraints."
+      "implementation_steps": [
+        "Step 1: Extract _build_localization(hypotheses, tagged, raw_diff) helper in report_builder.py",
+        "Step 2: Filter zip(hypotheses, tagged) where tag.tier==SUPPORTED and h.file non-empty",
+        "Step 3: Rank by defect_signal file match via parse_file_diffs + _file_rank==0",
+        "Step 4: Unit tests in tests/test_report_builder.py",
+        "Step 5: scripts/v2_d2_localization_rescore.py on v1_n50 run dir",
+        "Step 6: contract.json for evaluator negotiation"
+      ],
+      "deferred_reason": null
+    },
+    {
+      "id": "EXP-BUNDLE-EXPAND",
+      "name": "Context expansion on missing-context commits (294c169 + 572f3cee + 520f7eb)",
+      "type": "experiment",
+      "status": "committed",
+      "commit": "6fbcd22",
+      "priority": 3,
+      "cost": "~$0.03",
+      "depends_on": [
+        "v2-d3-selector-retest"
+      ],
+      "trigger": "TRIGGERED: 572f3cee35fe/520f7eb892f5 D3=0 (missing-context) + 294c169f6d66 D3=0 post-selector-retest (prompt ceiling)",
+      "activation_met": true,
+      "scope": "Phase 1: 294c169f6d66, 572f3cee35fe, 520f7eb892f5 only. context/context_builder.py: include_test_adjacency + include_blame_snippets. Expand to ≥5 hard-panel commits only if AC-3 met.",
+      "changes": "context/context_builder.py + run_eval.py wiring + scripts/exp_bundle_expand_eval.py",
+      "expected_delta": {
+        "D3": "+0.04 to +0.08 on 3-commit subset",
+        "D6": "maintain ≥0.70"
+      },
+      "acceptance_criteria": [
+        "AC-1: CommitContextBuilder flags: include_test_adjacency, include_blame_snippets",
+        "AC-2: Run on 294c169f6d66, 572f3cee35fe, and 520f7eb892f5 (phase 1)",
+        "AC-3: ≥1/3 commits lift D3 ≥0.25 vs v2_n20_gate baseline without D6 regression on panel",
+        "AC-4: Decision: merge variant | reject | expand to ≥5 hard-panel commits",
+        "AC-5: Document in .harness/evals/exp-bundle-expand-v2.json"
+      ],
+      "implementation_steps": [
+        "Step 1: Add build() kwargs include_test_adjacency/include_blame_snippets (default False)",
+        "Step 2: Implement _resolve_paired_test_paths + _extract_test_adjacency_hunks",
+        "Step 3: Implement _build_blame_appendix reusing turn2 parse_diff_touched_lines",
+        "Step 4: Budget-safe injection (reserve ~2500 chars; append ## sections after assemble_diff)",
+        "Step 5: Unit tests in tests/test_context_builder.py",
+        "Step 6: Wire run_eval.py --bundle-expand for allowlisted commit prefixes only",
+        "Step 7: scripts/exp_bundle_expand_eval.py → 3-commit live run + exp-bundle-expand-v2.json",
+        "Step 8: contract.json for evaluator negotiation"
+      ],
+      "report": ".harness/evals/exp-bundle-expand-v2.json"
+    },
+    {
+      "id": "v2-d3-mini-n20-gate",
+      "name": "D3 mini n=20 re-gate after selector fix + bundle expand",
+      "type": "gate",
+      "status": "conditional_pass",
+      "priority": 4,
+      "cost": "~$0.12",
+      "depends_on": [
+        "v2-d3-selector-retest",
+        "EXP-BUNDLE-EXPAND",
+        "v2-d2-localization-precision"
+      ],
+      "activation_criterion": "v2-d3-selector-retest conditional_pass AND EXP-BUNDLE-EXPAND + v2-d2-localization-precision complete",
+      "scope": "Full stratified n=20 re-run with selector fix + bundle expand flags + D2 localization fix. Compare vs v2_n20_gate baseline.",
+      "success_threshold": "D3 ≥0.35 AND D2 ≥0.25 AND D1 ≥0.75 (no D1 regression)",
+      "decision_rule": "PASS all targets → v2-n50-delivery. FAIL D3 only → v2-d3-h3a-rag. FAIL D1 → revisit v2-fp-risk-tightening.",
+      "result": {
+        "run": "output/runs/2026-06-11_23-07-40_real_n20",
+        "D1": 0.9,
+        "D2": 0.1738,
+        "D2_fix_chain_only": 0.3476,
+        "D3": 0.35,
+        "D4": 0.901,
+        "D5": 0.533,
+        "D6": 0.7625,
+        "cost": "$0.157",
+        "verdict": "CONDITIONAL_PASS",
+        "notes": "D3 exactly at target. D1/D4/D6 strong. D2 full below threshold (0.174) but D2_fix_chain_only=0.348 exceeds 0.25 — drop expected from SUPPORTED-only filter on all-SPECULATIVE commits. Advancing to n=50."
+      },
+      "acceptance_criteria": [
+        "AC-1: n=20 stratified eval completes — PASS",
+        "AC-2: D3 ≥0.35 (primary) — PASS (0.35)",
+        "AC-3: D2 ≥0.25 — CONDITIONAL (full=0.174, fix_chain_only=0.348)",
+        "AC-4: D1 ≥0.75, clean FP rate ≤30% — PASS (D1=0.9, FP=23.7%)",
+        "AC-5: Per-commit D3 delta vs v2_n20_gate documented",
+        "AC-6: All 6 V1 gates pass"
+      ]
+    },
+    {
+      "id": "v2-d3-h3a-rag",
+      "name": "D3 Layer 2b — Historical bug RAG (H3a, closed pairs only)",
+      "type": "experiment",
+      "status": "completed",
+      "priority": 5,
+      "depends_on": [
+        "v2-d3-mini-n20-gate"
+      ],
+      "strategic_note": "DEFERRED until mini n=20 re-gate fails D3≥0.35. Selector fix alone may reach target (+0.10 from tier-2 recovery). Early-stop rule: if <2 flips vs post-selector baseline, reject. Risk: retrieval anchoring on dd6f9ba (FPA-wrong-template).",
+      "activation_criterion": "v2-d3-mini-n20-gate: D3 < 0.35 after selector fix + bundle expand",
+      "activation_met": false,
+      "cost": "~$0.06 (hard panel n=18, ~$0.001/query)",
+      "scope": "Embed 28K ApacheJIT buggy commits (closed pairs only). Query by diff similarity. Inject top-3 defect_category labels. Hard panel n=18. TEMPORAL GUARD: no fix commit content in injected context.",
+      "hypotheses": [
+        "H3a"
+      ],
+      "success_threshold": "D3 ≥ 0.35 on hard panel",
+      "fallback": "v2-d3-t1-h2b-debate",
+      "completion_note": "H3a implemented: project-level fallback distribution + expanded defect taxonomy. Hit rate ~14% from local repos; fallback covers remainder. Net D3 impact minimal (+0.01 ± 0.03)."
+    },
+    {
+      "id": "v2-d3-n20-validate",
+      "name": "D3 n=20 validation gate (legacy — superseded by v2-d3-mini-n20-gate)",
+      "type": "gate",
+      "status": "cancelled",
+      "priority": 7,
+      "depends_on": [
+        "v2-d3-h1h4-t3"
+      ],
+      "superseded_by": "v2-d3-mini-n20-gate",
+      "note": "Replaced by v2-d3-mini-n20-gate which includes selector fix + bundle expand prerequisites.",
+      "cancelled_reason": "Already superseded by v2-d3-mini-n20-gate."
+    },
+    {
+      "id": "v2-n20-gate",
+      "name": "n=20 iteration gate — V2 changes validated",
+      "type": "validation",
+      "status": "completed",
+      "priority": 9,
+      "cost": "~$0.12",
+      "depends_on": [
+        "v2-fp-risk-tightening",
+        "v2-d2-localization-precision",
+        "v2-d3-contrastive-hypothesis",
+        "v2-evidence-strict-supported"
+      ],
+      "result": {
+        "run": "output/runs/2026-06-11_17-52-22_real_n20",
+        "D3": 0.275,
+        "verdict": "CONDITIONAL_PASS",
+        "primary_blocker": "contrastive selector tier-2 regressions"
       }
     },
     {
-      "id": "v2-forensics-n50",
-      "name": "Deep n=50 per-commit failure taxonomy",
-      "type": "spike",
-      "status": "verified",
-      "priority": 1,
-      "depends_on": [],
-      "cost": "~$0",
-      "scope": "Analytical only — no pipeline changes. Produces tagged failure matrix driving all V2 implementation tasks.",
-      "changes": "Script or manual analysis of eval-iter-n50-delivery.json + per-commit investigation JSONs. Tag each commit: d3_tag, d1_tag, d2_tag, truncation_status, supported_count, archetype.",
-      "expected_delta": "None (analysis); unlocks prioritized intervention order",
-      "acceptance_criteria": [
-        "AC-1: Report → .harness/evals/v2-forensics-n50.json with all 50 commits tagged",
-        "AC-2: Report → .harness/evals/v2-forensics-n50.md — human-readable Markdown with summary tables, failure taxonomy, priority matrix, and hard-commit panel",
-        "AC-3: D3=0 commits (11) each tagged wrong-mechanism | missing-context | judge-infra",
-        "AC-4: Clean FP commits (8) each tagged with archetype + supported_count + cap_applied status",
-        "AC-5: Priority matrix with expected ΔD per intervention (matches v2_failure_taxonomy or updates it)",
-        "AC-6: Hard-commit panel defined: ≥11 D3=0 + ≥7 D3=0.25 commits for targeted reruns"
+      "id": "v2-fp-risk-tightening",
+      "name": "D1: tighten risk_policy for clean-commit false positives",
+      "type": "feature",
+      "status": "cancelled",
+      "priority": 34,
+      "reactivated_reason": "D1=0.72 on n=50 (was 0.90 on n=20 favorable sample). Trigger met: D1 regression confirmed. Run after v2-d1-cs-fix-detector to avoid double-counting policy changes.",
+      "depends_on": [
+        "v2-forensics-n50",
+        "v2-n50-delivery"
       ],
-      "implementation_plan": {
-        "script": "scripts/v2_forensics_n50.py",
-        "cost": "$0 — zero LLM calls; reads existing JSON + optional git diff for archetype re-derivation via archetype.py",
-        "inputs_read_order": [
-          {
-            "order": 1,
-            "path": ".harness/evals/eval-iter-n50-delivery.json",
-            "purpose": "Canonical index: 50 commits, aggregate D1–D6, stratum splits, baseline_comparison, clean_fp_rate, buggy_recall",
-            "fields": [
-              "results[].commit_id (full SHA)",
-              "results[].project",
-              "results[].buggy",
-              "results[].has_fix_chain",
-              "results[].agent.risk_level",
-              "results[].agent.confidence",
-              "results[].agent.reasoning_summary",
-              "results[].agent.localization_count",
-              "results[].scores.D1–D6.score",
-              "results[].scores.D1–D6.details",
-              "dimension_averages",
-              "stratum_averages",
-              "baseline_comparison",
-              "judge_model",
-              "metadata.run_dir"
-            ]
-          },
-          {
-            "order": 2,
-            "path": "output/runs/2026-06-11_06-13-50_real_n50/evaluations/{commit_prefix}_{project}.json",
-            "purpose": "Per-commit score mirror (fallback if delivery results[] missing a field); 50 files keyed by first-12-char prefix + project",
-            "fields": [
-              "Same as results[] entry — prefer delivery JSON, use evaluation file only on mismatch"
-            ]
-          },
-          {
-            "order": 3,
-            "path": "output/runs/2026-06-11_06-13-50_real_n50/investigations/{commit_prefix}_{project}.json",
-            "purpose": "Pipeline metadata for tagging: risk cap, truncation, evidence tiers",
-            "fields": [
-              "commit_id",
-              "risk_level",
-              "reasoning_summary",
-              "findings[]",
-              "localization[].file (basename for D2 overlap)",
-              "recommendations[].rationale (evidence tier tags)",
-              "metadata.cap_applied",
-              "metadata.cap_reason",
-              "metadata.applied_rules[]",
-              "metadata.clean_commit_risk_cap_applied",
-              "metadata.truncation_metadata.included_files[]",
-              "metadata.truncation_metadata.truncated_files[]",
-              "metadata.truncation_metadata.total_chars",
-              "metadata.turn_count"
-            ]
-          },
-          {
-            "order": 4,
-            "path": ".harness/evals/eval-iter-n50-delivery-adversarial.json",
-            "purpose": "Sanity cross-check only — confirm 50/50 eval completed, gates passed; do not re-score",
-            "fields": [
-              "criteria[].result",
-              "retest.overall_retest"
-            ]
-          },
-          {
-            "order": 5,
-            "path": ".harness/evals/exp-forensics-tag.json",
-            "purpose": "Reference taxonomy labels from n=20 spike — reuse tag names and sub_tag vocabulary; map overlapping commit prefixes for regression notes",
-            "fields": [
-              "d3_failure_classification.commits[]",
-              "clean_fp_analysis"
-            ]
-          },
-          {
-            "order": 6,
-            "path": "data/repos/{project}/ (git show {commit_id})",
-            "purpose": "Optional deterministic archetype re-derivation when investigation JSON lacks explicit archetype label",
-            "fields": [
-              "CommitContextBuilder → InvestigationContext.raw_diff + touched_files → detect_archetype() + has_production_defect_signals()"
-            ],
-            "note": "No LLM. Skip if repos unavailable; fall back to cap_reason inference only."
-          }
-        ],
-        "derived_fields_per_commit": {
-          "commit_prefix": "commit_id[:12]",
-          "scores": "D1–D6 float from results[].scores",
-          "judge_oracle": "regex \\[judge_oracle=(jira|fix-diff-fallback|unavailable)\\] from scores.D3.details",
-          "judge_fraction": "regex \\[judge (\\d+)/4\\] from scores.D3.details",
-          "d2_jaccard": "regex Jaccard=([\\d.]+) from scores.D2.details",
-          "d2_agent_files": "regex agent=\\[(.*?)\\] from scores.D2.details → split basenames",
-          "d2_fix_files": "regex fix=\\[(.*?)\\] from scores.D2.details → split basenames",
-          "supported_count": "count recommendations where rationale contains 'Hypothesis SUPPORTED'",
-          "speculative_count": "count recommendations where rationale contains 'Hypothesis SPECULATIVE'",
-          "evidence_tags": "{supported, speculative, refuted, unverifiable} counts from recommendation rationales",
-          "truncation_status": "none | partial | heavy — partial if truncated_files non-empty; heavy if len(truncated_files)>=10 OR total_chars>=15000",
-          "cap_applied": "metadata.cap_applied (bool)",
-          "cap_reason": "metadata.cap_reason (string|null)",
-          "archetype_detected": "detect_archetype(ctx) from git OR infer from cap_reason.startswith('clean_archetype')",
-          "production_defect_signals": "has_production_defect_signals(ctx) from git",
-          "is_false_positive": "buggy=false AND agent.risk_level in {HIGH,CRITICAL}",
-          "is_false_negative": "buggy=true AND agent.risk_level not in {HIGH,CRITICAL}"
-        },
-        "taxonomy_rules": {
-          "d3_tag": {
-            "applies_to": "buggy commits only",
-            "D3=0": [
-              "judge-infra: judge_oracle==unavailable OR (judge_oracle==fix-diff-fallback AND re.search('no description|untestable|cannot score', details, I))",
-              "missing-context: truncated_files non-empty AND d2_jaccard < 0.25 OR commit_prefix in KNOWN_CONTEXT_GAP (572f3cee35fe from v2_failure_taxonomy)",
-              "missing-context sub_tags: diff-truncation (truncated_files non-empty) | context-gap (truncated empty but fix files not in agent localization basenames)",
-              "wrong-mechanism: default when D3=0 and neither judge-infra nor missing-context"
-            ],
-            "D3=0.25": [
-              "right-area-wrong-mechanism: default",
-              "sub_tag architectural-depth: judge details match /deadlock|circular.*init|Spring Boot auto-config/i AND d2_fix_files not subset of d2_agent_files",
-              "sub_tag diff-truncation: truncated_files non-empty"
-            ],
-            "D3>=0.50": [
-              "correct: D3>=0.75",
-              "partial-correct: 0.50<=D3<0.75"
-            ],
-            "D3=N/A": "clean commits → d3_tag=null"
-          },
-          "d1_tag": {
-            "false_positive": "is_false_positive",
-            "correct_clean": "buggy=false AND risk_level in {MEDIUM,LOW}",
-            "correct_high": "buggy=true AND risk_level in {HIGH,CRITICAL} AND D1=1.0",
-            "false_negative": "is_false_negative",
-            "fp_mechanism_summary": "first finding sentence or reasoning_summary[:200] for FP commits"
-          },
-          "d2_tag": {
-            "localization_dilution": "buggy AND len(d2_agent_files) >= 2*max(1,len(d2_fix_files))",
-            "fix_chain_low_overlap": "buggy AND d2_jaccard < 0.25",
-            "fix_chain_ok": "buggy AND d2_jaccard >= 0.25",
-            "n_a_clean": "clean commits → d2_tag=null"
-          }
-        },
-        "output_json": {
-          "path": ".harness/evals/v2-forensics-n50.json",
-          "schema": {
-            "meta": {
-              "task": "v2-forensics-n50",
-              "source_run": "output/runs/2026-06-11_06-13-50_real_n50",
-              "source_eval": ".harness/evals/eval-iter-n50-delivery.json",
-              "method": "deterministic JSON aggregation + rule-based tagging",
-              "generated_at": "ISO-8601",
-              "n_commits": 50,
-              "judge_model": "from eval archive"
-            },
-            "aggregate_scores": "dimension_averages + vs acceptance_thresholds.target + v2_failure_taxonomy.n50_scores",
-            "d3_failure_taxonomy": {
-              "distribution": "counts by d3_tag for buggy stratum",
-              "d3_zero_breakdown": "wrong-mechanism | missing-context | judge-infra counts + commit lists",
-              "d3_partial_breakdown": "right-area-wrong-mechanism + sub_tags"
-            },
-            "clean_fp_analysis": {
-              "fp_rate": 0.32,
-              "fp_commits": "8 entries with archetype_detected, supported_count, cap_applied, cap_reason, d1_tag, D6"
-            },
-            "d2_gap_analysis": {
-              "mean_jaccard_buggy": "mean d2_jaccard",
-              "localization_dilution_count": "commits tagged localization_dilution"
-            },
-            "priority_matrix": "copy v2_failure_taxonomy.priority_matrix; update counts if taxonomy differs from preliminary",
-            "hard_commit_panel": {
-              "tier_1_d3_zero": "11 commit_prefixes",
-              "tier_2_d3_partial": "7 commit_prefixes",
-              "union_count": 18,
-              "recommended_rerun_order": "tier_1 first, then tier_2 sorted by truncation_status heavy→partial→none"
-            },
-            "commits": [
-              {
-                "commit_id": "full SHA",
-                "commit_prefix": "12-char",
-                "project": "camel|hadoop",
-                "buggy": true,
-                "scores": {
-                  "D1": 0.0,
-                  "D2": 0.0,
-                  "D3": 0.0,
-                  "D4": 0.0,
-                  "D5": 0.0,
-                  "D6": 0.0
-                },
-                "agent": {
-                  "risk_level": "HIGH",
-                  "localization_count": 0
-                },
-                "tags": {
-                  "d3_tag": "wrong-mechanism|missing-context|judge-infra|right-area-wrong-mechanism|correct|partial-correct|null",
-                  "d3_sub_tag": "diff-truncation|architectural-depth|context-gap|null",
-                  "d1_tag": "false_positive|correct_clean|correct_high|false_negative",
-                  "d2_tag": "localization_dilution|fix_chain_low_overlap|fix_chain_ok|null"
-                },
-                "pipeline": {
-                  "supported_count": 0,
-                  "speculative_count": 0,
-                  "cap_applied": false,
-                  "cap_reason": null,
-                  "archetype_detected": false,
-                  "production_defect_signals": false,
-                  "truncation_status": "none|partial|heavy",
-                  "truncated_file_count": 0,
-                  "judge_oracle": "jira"
-                },
-                "evidence": {
-                  "d3_judge_details_excerpt": "first 200 chars",
-                  "d2_agent_files": [],
-                  "d2_fix_files": [],
-                  "d2_jaccard": 0.0
-                }
-              }
-            ]
-          }
-        },
-        "output_md": {
-          "path": ".harness/evals/v2-forensics-n50.md",
-          "sections": [
-            {
-              "name": "Executive Summary",
-              "content": "n=50 gate pass vs target fail table (D1/D2/D3 gaps); FP rate 32%; recall 72%; top-3 intervention priorities; hard panel size (18 commits)"
-            },
-            {
-              "name": "D3 Failure Taxonomy",
-              "content": "Distribution table (D3=0/0.25/≥0.50 counts); D3=0 tag breakdown with commit lists; D3=0.25 partial panel with sub_tags; compare vs preliminary v2_failure_taxonomy in state.json"
-            },
-            {
-              "name": "D1 FP Analysis",
-              "content": "8 FP commits table: prefix, project, risk, supported_count, cap_applied, archetype_detected, D6, mechanism summary; pattern paragraph (single-SUPPORTED→HIGH rule)"
-            },
-            {
-              "name": "D2 Gap",
-              "content": "Mean Jaccard on buggy stratum; localization_dilution examples (agent file count vs fix file count); fix_chain_subset score 0.381 reference"
-            },
-            {
-              "name": "Priority Matrix",
-              "content": "Ranked interventions with expected ΔD — validate or update state.v2_failure_taxonomy.priority_matrix"
-            },
-            {
-              "name": "Hard-Commit Panel",
-              "content": "Tier 1 (11 D3=0) and Tier 2 (7 D3=0.25) bullet lists with tags; union used by v2-d3-contrastive-hypothesis, EXP-BUNDLE-EXPAND, v2-multiturn-spike"
-            }
-          ]
-        },
-        "execution_steps": [
-          "1. Scaffold scripts/v2_forensics_n50.py with argparse paths (--delivery-json, --run-dir, --output-json, --output-md); default paths from state.v2_failure_taxonomy",
-          "2. Load eval-iter-n50-delivery.json; build commit_index keyed by commit_prefix; assert len(results)==50",
-          "3. For each result entry, load matching investigations/{prefix}_{project}.json; merge fields per derived_fields_per_commit",
-          "4. Parse D2/D3 details with regex extractors; compute supported_count and evidence_tags from recommendations",
-          "5. Apply taxonomy_rules to assign d3_tag, d1_tag, d2_tag (+ sub_tags); record rule_id in commit.evidence for auditability",
-          "6. Optionally re-derive archetype via CommitContextBuilder+detect_archetype when data/repos available; else cap_reason fallback",
-          "7. Aggregate d3_failure_taxonomy, clean_fp_analysis, d2_gap_analysis distributions",
-          "8. Build hard_commit_panel: tier_1=all buggy D3=0 (expect 11), tier_2=all buggy D3=0.25 (expect 7); assert AC-6 counts",
-          "9. Emit .harness/evals/v2-forensics-n50.json; validate JSON schema (50 commits, all tags present)",
-          "10. Render .harness/evals/v2-forensics-n50.md from JSON via deterministic template (no LLM)",
-          "11. Diff priority_matrix vs state.v2_failure_taxonomy; if counts change >10%, note in meta.taxonomy_delta",
-          "12. Run script locally; verify AC-1–AC-6 programmatically (pytest test_v2_forensics_n50.py or inline assert block)"
-        ],
-        "validation_assertions": {
-          "AC-1": "len(commits)==50",
-          "AC-2": "v2-forensics-n50.md exists with 6 section headers",
-          "AC-3": "all 11 D3=0 buggy commits have d3_tag in {wrong-mechanism, missing-context, judge-infra}",
-          "AC-4": "8 FP commits each have archetype_detected, supported_count, cap_applied",
-          "AC-5": "priority_matrix length>=5 with expected_delta fields",
-          "AC-6": "hard_commit_panel.tier_1 count>=11 AND tier_2 count>=7"
-        },
-        "preliminary_expectations": {
-          "note": "Sanity checks from v2_failure_taxonomy — script should reproduce or document deltas",
-          "D3=0_count": 11,
-          "D3=0.25_count": 7,
-          "FP_count": 8,
-          "expected_d3_zero_tags": "mostly wrong-mechanism (~10); missing-context at least 572f3cee35fe; judge-infra likely 0 at n=50 (all D3=0 use judge_oracle=jira)",
-          "truncated_commits": 14
-        }
+      "cost": "~$0.02",
+      "changes": "analysis/risk_policy.py + analysis/archetype.py: on clean_archetype, cap to MEDIUM unless supported_count≥2 OR (supported_count≥1 AND production_defect_signals). Uncaps hidden-fix commits misclassified as clean archetype with strong evidence.",
+      "expected_delta": {
+        "D1": "+0.04 to +0.06 (revised — targets 8 BUG→MEDIUM, not 6 non-archetype FP)",
+        "clean_fp_rate": "maintain ≤25% (watch archetype+≥2 SUPPORTED true-clean commits)"
       },
-      "report": ".harness/evals/v2-forensics-n50.json",
-      "report_md": ".harness/evals/v2-forensics-n50.md"
+      "deferred_reason": "D1=0.90 on n=20 (FP=0). Resume only if mini n=20 shows D1 regression.",
+      "strategic_note": "Misnamed 'tightening': policy LOOSENS cap for clean_archetype+≥2 SUPPORTED. Trade-off: recovers hidden bugs, may re-introduce FP on true-clean commits with spurious multi-SUPPORTED evidence. Validate on mini n=20 before n=50.",
+      "cancelled_reason": "Invalidated: n=50 forensics show clean FPs are defensible risk assessments (large refactors, sync removal), not policy bugs."
+    },
+    {
+      "id": "spike-naming-audit",
+      "name": "Spike — Application vs harness terminology audit (planner deliverable)",
+      "type": "spike",
+      "status": "completed",
+      "priority": 13,
+      "completed_at": "2026-06-12T12:30:00Z",
+      "description": "Planner audit: experiment hypothesis codes (H3a, EXP-BUNDLE-EXPAND, H1/H4/T3, v2-d3-*, iter-3*) leaking into src/, docs/, CLI. Harness (.harness/state.json task IDs, breadcrumbs, evals) correctly retains experiment names. Application rename tasks feat-rename-* and chore-rename-* added below.",
+      "naming_map": {
+        "H3a / --enable-h3a-rag / _H3A_*": "historical defect context / --enable-historical-defect-context",
+        "EXP-BUNDLE-EXPAND / --bundle-expand / bundle_expand": "extended context / --enable-extended-context / extended_context",
+        "HYPOTHESIS_SYSTEM_PROMPT_H1H4T3": "HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR",
+        "H1 anchor / H2+ (prompts)": "primary hypothesis anchor / second and third hypotheses",
+        "H4 compliance / H4-evidenced": "changed-line evidence compliance / grounded evidence",
+        "D3 Layer 2 / T3 / H1+H4+T3 (CLI help)": "contrastive hypothesis / mechanism evaluator loop (drop layer codes)",
+        "[experiment] log prefix": "remove or use neutral [config] prefix",
+        "Phase roadmap experiment IDs (app docs)": "capability names; keep experiment IDs only in .harness/ and docs/evaluation.md run history"
+      },
+      "harness_only": [
+        ".harness/state.json task ids (v2-d3-h3a-rag, EXP-BUNDLE-EXPAND, td-h3a-*)",
+        ".harness/breadcrumbs.jsonl",
+        ".harness/evals/*.json",
+        ".harness/archive/*",
+        "docs/evaluation.md run labels (historical experiment traceability OK)"
+      ],
+      "acceptance_criteria": [
+        "AC-1: Audit inventory documented in spike-naming-audit task occurrences lists",
+        "AC-2: Six implementation tasks added to state.json with rename map and file lists",
+        "AC-3: td-h3a-* tasks updated to depend on feat-rename-historical-defect-context and use application flag name"
+      ]
+    },
+    {
+      "id": "feat-rename-historical-defect-context",
+      "name": "Rename H3a → historical defect context in application code",
+      "type": "feature",
+      "status": "completed",
+      "priority": 14,
+      "depends_on": [],
+      "builder_entry_point": true,
+      "strategic_note": "Start here: zero LLM cost, no deps, unblocks td-h3a-* chain and H3a A/B gate. Can run in parallel with p14 (disjoint files) if two builders available.",
+      "description": "Remove H3a experiment codes from src/. Module historical_rag.py name is OK (describes capability). Rename symbols, logs, comments, and forensics keys to describe ApacheJIT KNN defect-category injection.",
+      "occurrences": [
+        "src/commit_investigator/hypothesis/historical_rag.py:1 — module docstring 'H3a:'",
+        "src/commit_investigator/hypothesis/historical_rag.py:152,154,202 — logger messages 'H3a:'",
+        "src/commit_investigator/hypothesis/hypothesis_engine.py:23 — import alias _get_h3a_context",
+        "src/commit_investigator/hypothesis/hypothesis_engine.py:24 — _H3A_AVAILABLE",
+        "src/commit_investigator/hypothesis/hypothesis_engine.py:363,372 — comment and warning 'H3a historical context'"
+      ],
+      "changes": "historical_rag.py + hypothesis_engine.py: _get_historical_defect_context, _HISTORICAL_DEFECT_CONTEXT_AVAILABLE, log prefix 'historical defect context'. No CLI flag yet (see td-h3a-feature-flag after this task).",
+      "acceptance_criteria": [
+        "AC-1: rg 'H3a|h3a|_H3A' on src/ returns zero matches",
+        "AC-2: get_historical_defect_context() behavior unchanged — 392+ tests pass",
+        "AC-3: Logger messages use 'historical defect context' not 'H3a'"
+      ],
+      "completed_at": "2026-06-12T13:30:00Z"
+    },
+    {
+      "id": "feat-rename-extended-context-cli",
+      "name": "Rename bundle-expand → extended context (CLI, config, module)",
+      "type": "feature",
+      "status": "completed",
+      "priority": 15,
+      "depends_on": [],
+      "parallel_with": [
+        "feat-rename-historical-defect-context"
+      ],
+      "description": "EXP-BUNDLE-EXPAND adopted as production capability: test-adjacency + blame snippets. Rename CLI flag, run_config keys, EvalRunner attrs, and optionally module bundle_expand.py → extended_context.py.",
+      "occurrences": [
+        "src/commit_investigator/runners/run_eval.py:430 — self.bundle_expand",
+        "src/commit_investigator/runners/run_eval.py:458-459 — '[experiment] Bundle expand ENABLED'",
+        "src/commit_investigator/runners/run_eval.py:491 — run_config key bundle_expand",
+        "src/commit_investigator/runners/run_eval.py:516-517 — include_test_adjacency/include_blame_snippets wired from bundle_expand",
+        "src/commit_investigator/runners/run_eval.py:637-639 — --bundle-expand flag + help",
+        "src/commit_investigator/context/context_builder.py:18 — import from bundle_expand",
+        "src/commit_investigator/context/bundle_expand.py — module filename (optional rename to extended_context.py)",
+        "tests/test_context_builder.py:106,108,122 — fixture names bundle_expand_* (optional, lower priority)"
+      ],
+      "changes": "--enable-extended-context (replace --bundle-expand), EvalRunner.extended_context, run_config key extended_context. Optional: rename bundle_expand.py → extended_context.py + update imports. Log: 'extended context ENABLED (test-adjacency + blame snippets)'.",
+      "acceptance_criteria": [
+        "AC-1: --bundle-expand absent; --enable-extended-context present with descriptive help",
+        "AC-2: run_config JSON uses extended_context key, not bundle_expand",
+        "AC-3: rg '--bundle-expand|bundle_expand' on src/ returns zero matches (fixtures/tests may retain old fixture filenames)",
+        "AC-4: 392+ tests pass; context_builder extended-context behavior unchanged"
+      ],
+      "completed_at": "2026-06-12T13:30:00Z"
+    },
+    {
+      "id": "feat-rename-hypothesis-prompt-constants",
+      "name": "Rename H1H4T3 / H1-H4 hypothesis codes in prompts and engine",
+      "type": "feature",
+      "status": "completed",
+      "priority": 16,
+      "depends_on": [],
+      "parallel_with": [
+        "feat-rename-historical-defect-context"
+      ],
+      "description": "Rename experiment-coded prompt constants and docstrings. Keep contrastive/mechanism_evaluator function names (already capability-based). Replace H1/H4/T3 codes in prompts with behavioral language.",
+      "occurrences": [
+        "src/commit_investigator/hypothesis/hypothesis_prompts.py:80 — HYPOTHESIS_SYSTEM_PROMPT_H1H4T3",
+        "src/commit_investigator/hypothesis/hypothesis_prompts.py:145 — 'H2+' in CONTRASTIVE prompt (→ 'second and third hypotheses')",
+        "src/commit_investigator/hypothesis/hypothesis_engine.py:16 — import HYPOTHESIS_SYSTEM_PROMPT_H1H4T3",
+        "src/commit_investigator/hypothesis/hypothesis_engine.py:278 — docstring 'best H4-evidenced candidate'",
+        "src/commit_investigator/pipeline/orchestrator.py:32,229 — HYPOTHESIS_SYSTEM_PROMPT_H1H4T3 usage",
+        "tests/test_hypothesis_engine.py:18,397 — imports and assertions on H1H4T3 constant name"
+      ],
+      "changes": "HYPOTHESIS_SYSTEM_PROMPT_SYMPTOM_FIRST_WITH_EVALUATOR (or MECHANISM_EVALUATOR). Docstrings: 'grounded/changed-line evidence' not H4. Contrastive prompt: drop H2+ shorthand.",
+      "acceptance_criteria": [
+        "AC-1: rg 'H1H4T3|H1H4|H2\\+' on src/ returns zero matches",
+        "AC-2: mechanism_evaluator_loop and generate_contrastive_hypotheses behavior unchanged",
+        "AC-3: 392+ tests pass"
+      ],
+      "completed_at": "2026-06-12T13:30:00Z"
+    },
+    {
+      "id": "feat-rename-eval-runner-terminology",
+      "name": "Clean experiment codes from eval CLI help, logs, and progress metrics",
+      "type": "feature",
+      "status": "completed",
+      "priority": 17,
+      "depends_on": [
+        "feat-rename-extended-context-cli",
+        "feat-rename-hypothesis-prompt-constants"
+      ],
+      "description": "run_eval.py and orchestrator wiring still reference D3 Layer 2, T3, H1+H4+T3, H4 compliance, and [experiment] log prefix. Rename to capability language; keep --enable-contrastive and --enable-mechanism-evaluator flag names (already descriptive).",
+      "occurrences": [
+        "src/commit_investigator/runners/run_eval.py:318 — _compute_h4_compliance",
+        "src/commit_investigator/runners/run_eval.py:341,353-357,361 — H4 compliance in progress output",
+        "src/commit_investigator/runners/run_eval.py:455-459 — '[experiment]' log lines with T3/H1+H4/D3 Layer 2",
+        "src/commit_investigator/runners/run_eval.py:621-628 — CLI help 'H1+H4+T3 experiment variant' and 'D3 Layer 2'",
+        "src/commit_investigator/runners/run_eval.py:634 — help 'D3/H4 comparison'",
+        "src/commit_investigator/runners/run_multiturn_ab.py:1,133 — iter-3f-multiturn-ab experiment strings (deferred runner — still app code)"
+      ],
+      "changes": "_compute_evidence_grounding_compliance; progress shows 'grounding=' not 'H4='; CLI help describes contrastive diversity and mechanism evaluator loop without layer/hypothesis codes; remove [experiment] prefix from startup logs.",
+      "acceptance_criteria": [
+        "AC-1: rg 'H4=|H1\\+H4|\\[experiment\\]|D3 Layer' on src/commit_investigator/runners/ returns zero matches",
+        "AC-2: --enable-contrastive and --enable-mechanism-evaluator help text describe behavior only",
+        "AC-3: 392+ tests pass"
+      ],
+      "completed_at": "2026-06-12T13:30:00Z"
+    },
+    {
+      "id": "chore-rename-application-docs",
+      "name": "Rewrite app docs phase roadmap and implementation map with capability names",
+      "type": "chore",
+      "status": "completed",
+      "priority": 18,
+      "depends_on": [
+        "feat-rename-historical-defect-context",
+        "feat-rename-extended-context-cli",
+        "feat-rename-hypothesis-prompt-constants"
+      ],
+      "description": "docs/architecture.md, docs/agent-loop.md, docs/harness.md, README.md leak experiment task IDs (v2-d3-h3a-rag, EXP-BUNDLE-EXPAND, iter-3*, H3a, H1 anchor) into application documentation. Rewrite using capability names; keep D1-D6 metrics. docs/evaluation.md may keep experiment run labels for historical traceability.",
+      "occurrences": [
+        "docs/architecture.md:11 — 'V2 experiment', iter-3 references in current phase",
+        "docs/architecture.md:173-182 — phase roadmap table (iter-3a–3e, EXP-BUNDLE-EXPAND, v2-d3-h3a-rag, v2-d3-selector-fix)",
+        "docs/architecture.md:191 — 'smart-diff iter-3d'",
+        "docs/architecture.md:250-252 — H3a RAG injection, H3a in HistoricalRAG row",
+        "docs/architecture.md:256 — EXP-JUDGE-SWAP in AdversarialJudge row (OK as eval infra name — or 'cross-model judge validation')",
+        "docs/agent-loop.md:54-55 — H3a RAG + --enable-h3a-rag",
+        "docs/agent-loop.md:64 — H1 anchor",
+        "docs/agent-loop.md:135,141,163 — iter-3f references",
+        "docs/agent-loop.md:155 — bundle_expand in stage table",
+        "docs/harness.md:108,157,166 — iter-3b/iter-3f, H3a RAG",
+        "docs/harness.md:248-263 — phase roadmap experiment IDs",
+        "docs/evaluation.md:184,204,208 — H3a in run section headers (optional cleanup)",
+        "README.md:130 — 'V2 experiment', iter-3"
+      ],
+      "changes": "Phase roadmap → capability milestones (e.g. 'Composite hypothesis selector', 'Extended context injection', 'Historical defect context', 'SUPPORTED-only localization'). agent-loop Stage 1: 'historical defect context (when --enable-historical-defect-context)'. Selector: 'primary hypothesis anchor'. Stage 0: extended_context not bundle_expand.",
+      "acceptance_criteria": [
+        "AC-1: rg 'H3a|EXP-BUNDLE|v2-d3-h3a|--enable-h3a|--bundle-expand' on docs/architecture.md docs/agent-loop.md docs/harness.md README.md returns zero matches",
+        "AC-2: Phase roadmap uses capability names; experiment history remains in .harness/ and docs/evaluation.md",
+        "AC-3: D1-D6 dimension references preserved where appropriate"
+      ],
+      "completed_at": "2026-06-12T13:30:00Z"
+    },
+    {
+      "id": "chore-rename-test-docstrings",
+      "name": "Remove experiment iteration codes from test module docstrings",
+      "type": "chore",
+      "status": "completed",
+      "priority": 19,
+      "depends_on": [
+        "feat-rename-hypothesis-prompt-constants"
+      ],
+      "description": "Test files carry iter-3e, v2-d2, iter-3f experiment codes in module docstrings and section comments. Replace with capability descriptions. Fixture filenames (bundle_expand_*) are optional.",
+      "occurrences": [
+        "tests/test_hypothesis_engine.py:1 — 'iter-3e AC-1...'",
+        "tests/test_hypothesis_engine.py:94 — '# iter-2d: COVERAGE REQUIREMENT'",
+        "tests/test_report_builder.py:1 — 'v2-d2-localization-precision'",
+        "tests/test_turn2_context.py:1 — 'iter-3f-multiturn-ab'",
+        "tests/test_run_multiturn_ab.py:1 — 'experiment defaults'",
+        "tests/test_panel_smart_diff.py:1 — 'iter-3d-smart-diff'",
+        "tests/test_regression_panel.py:3,234 — iter-2 panel baseline references (OK as historical baseline label — or 'regression panel v1')"
+      ],
+      "acceptance_criteria": [
+        "AC-1: rg 'iter-[0-9]|v2-d[0-9]' on tests/ module docstrings (first 3 lines per file) returns zero matches",
+        "AC-2: 392+ tests pass unchanged"
+      ],
+      "completed_at": "2026-06-12T13:30:00Z"
+    },
+    {
+      "id": "chore-cleanup-readme-experiment-id",
+      "name": "Remove Experiment #19b from README tagline",
+      "type": "chore",
+      "status": "committed",
+      "priority": 20,
+      "source": "repo-cleanup-audit-2026-06-12",
+      "effort": "5 min",
+      "description": "README.md line 3 still says Experiment #19b. Product description should use capability language.",
+      "changes": "README.md:3 — replace Experiment #19b with Commit Risk Investigator (or similar capability name)",
+      "acceptance_criteria": [
+        "rg Experiment.*#19b README.md returns zero matches",
+        "First paragraph describes capability, not experiment ID"
+      ],
+      "completed_at": "2026-06-12T10:55:00Z",
+      "commit": "c60c442"
+    },
+    {
+      "id": "chore-cleanup-datasets-doc",
+      "name": "Remove feat-2/feat-3 experiment refs from docs/datasets.md",
+      "type": "chore",
+      "status": "committed",
+      "priority": 21,
+      "source": "repo-cleanup-audit-2026-06-12",
+      "effort": "10 min",
+      "description": "datasets.md mentions feat-2 coverage report and V1 clones (feat-3) — setup context is valid but experiment IDs should be removed.",
+      "changes": "feat-2 coverage report → chain coverage report; V1 clones (feat-3) → local git clones",
+      "acceptance_criteria": [
+        "rg feat-[0-9] docs/datasets.md returns zero matches",
+        "Dataset setup instructions remain accurate and complete"
+      ],
+      "completed_at": "2026-06-12T10:55:00Z",
+      "commit": "c60c442"
+    },
+    {
+      "id": "chore-rename-smoke-script",
+      "name": "Rename scripts/run-iter-1-eval.sh → run-smoke-eval.sh",
+      "type": "chore",
+      "status": "committed",
+      "priority": 22,
+      "source": "repo-cleanup-audit-2026-06-12",
+      "effort": "5 min",
+      "description": "Script logic is current (n=5 smoke eval) but filename and docstring reference iter-1 experiment.",
+      "changes": "git mv run-iter-1-eval.sh run-smoke-eval.sh; update docstring to Smoke eval: n=5 stratified gate",
+      "acceptance_criteria": [
+        "scripts/run-iter-1-eval.sh absent; scripts/run-smoke-eval.sh present",
+        "Script executes correctly (bash -n check)"
+      ],
+      "completed_at": "2026-06-12T10:55:00Z",
+      "commit": "c60c442"
+    },
+    {
+      "id": "chore-cleanup-experiment-context-doc",
+      "name": "Update docs/experiment-context.md — remove #19b/iter-1/feat-* framing",
+      "type": "chore",
+      "status": "committed",
+      "priority": 23,
+      "source": "repo-cleanup-audit-2026-06-12",
+      "effort": "30 min",
+      "description": "Entire framing document uses Experiment #19b, iter-1, feat-2, feat-3. Concepts (investigative agent vs classifier, oracle isolation, six dimensions) are still valid — only naming is stale.",
+      "changes": "Replace experiment-code references with capability names. Or archive to .harness/.archive/docs/ if concepts are already covered in architecture.md.",
+      "acceptance_criteria": [
+        "rg Experiment.*#19b|iter-1|feat-[0-9] docs/experiment-context.md returns zero matches",
+        "Investigative agent thesis and oracle isolation sections preserved"
+      ],
+      "completed_at": "2026-06-12T10:55:00Z",
+      "commit": "c60c442"
+    },
+    {
+      "id": "refactor-run-multiturn-main",
+      "name": "Refactor: split run_multiturn_ab.main() — 152 lines into phase functions",
+      "type": "refactor",
+      "status": "committed",
+      "priority": 24,
+      "source": "repo-cleanup-audit-2026-06-12",
+      "effort": "1-2h",
+      "severity": "high",
+      "description": "152-line god function — 3x the 50-line max. Handles arg parsing, .env loading, git setup, investigation loop, scoring, and JSON output inline. No behavior change allowed.",
+      "changes": "Extract: _parse_args() → 15L, _setup_runner() → 20L, _run_investigations(commits, harness) → 30L, _write_output(results, path) → 15L. main() becomes ~25-line coordinator.",
+      "acceptance_criteria": [
+        "main() <= 30 lines after refactor",
+        "No new functions exceed 50 lines",
+        "run_multiturn_ab tests pass unchanged (392+ total)",
+        "No behavior change: same CLI args, same output JSON structure"
+      ],
+      "completed_at": "2026-06-12T10:55:00Z",
+      "commit": "c60c442"
+    },
+    {
+      "id": "refactor-report-builder",
+      "name": "Refactor: extract helpers from report_builder.build_report() — 89 lines",
+      "type": "refactor",
+      "status": "committed",
+      "priority": 25,
+      "source": "repo-cleanup-audit-2026-06-12",
+      "effort": "1h",
+      "severity": "high",
+      "description": "build_report() orchestrates 5 distinct concerns in 89 lines: localization, evidence tagging, risk evaluation, archetype detection, report assembly.",
+      "changes": "Extract: _tag_and_filter_hypotheses() → tag + filter SUPPORTED, _select_localization(hypotheses, tagged) → localization logic, _apply_risk_cap(risk, hypotheses) → cap logic. build_report() becomes ~25-line orchestrator.",
+      "acceptance_criteria": [
+        "build_report() <= 30 lines after refactor",
+        "Extracted functions each <= 25 lines",
+        "test_report_builder.py passes unchanged (392+ total)",
+        "D2/D6 behavior unchanged — no localization logic drift"
+      ],
+      "completed_at": "2026-06-12T10:55:00Z",
+      "commit": "c60c442"
+    },
+    {
+      "id": "refactor-orchestrator-investigate",
+      "name": "Refactor: split orchestrator.investigate() turn loop — 87 lines",
+      "type": "refactor",
+      "status": "committed",
+      "priority": 26,
+      "source": "repo-cleanup-audit-2026-06-12",
+      "effort": "1h",
+      "severity": "medium",
+      "description": "investigate() 87L inlines turn loop, tool dispatch, follow-up decision, and result assembly.",
+      "changes": "Extract: _run_single_turn(messages, tools, provider) → turn execution, _should_follow_up(result, mode) → follow-up decision, _build_investigation_result(turn_results, context) → result assembly.",
+      "acceptance_criteria": [
+        "investigate() <= 35 lines after refactor",
+        "test_orchestrator.py passes unchanged",
+        "Multi-turn behavior (FollowUpMode) unchanged"
+      ],
+      "completed_at": "2026-06-12T10:55:00Z",
+      "commit": "c60c442"
+    },
+    {
+      "id": "spike-investigation-confidence-equation",
+      "name": "Spike — Investigation confidence equation and adaptive stopping criterion",
+      "type": "spike",
+      "status": "committed",
+      "priority": 27,
+      "cost": "~$0",
+      "motivation": "The agent always terminates in 1-2 turns and always emits HIGH/MEDIUM/LOW with conf=0.70. Empirically: (a) 8 BUG commits get MEDIUM because diffs look cosmetic (agent unsure, no escalation), (b) 6 clean commits get HIGH because the LLM finds plausible risk without distinguishing signal from noise. Both are calibration failures, not capability failures. A confidence equation would make the agent aware of its own uncertainty and act on it.",
+      "research_questions": [
+        "RQ1: Which signals (supported_count, router_agreement, evidence_quality, diff_complexity, missing_reasons) are most predictive of D1 accuracy? Can they be combined into a reliable confidence score?",
+        "RQ2: Does low confidence correlate with the hard-to-classify commits (cs-fix-plus-hidden-bug, borderline FP)?",
+        "RQ3: What threshold separates 'terminate with confidence' from 'escalate or flag as uncertain'?",
+        "RQ4: Should the confidence equation affect (a) stopping criterion only, (b) output risk label, or (c) emit an explicit uncertainty signal alongside the verdict?"
+      ],
+      "proposed_signals": {
+        "supported_count": "Number of SUPPORTED (changed-line-grounded) hypotheses — primary quality signal",
+        "evidence_density": "Fraction of findings with non-empty evidence_quote — coverage signal",
+        "router_agreement": "router_prior >= 0.7 AND agent says HIGH: agreement=1.0; disagreement=0.0; borderline=0.5",
+        "hypothesis_diversity": "Number of distinct mechanism categories in first 3 hypotheses",
+        "diff_signal_ratio": "Proportion of diff lines that are +/- (vs context) — how much actually changed",
+        "missing_context_flags": "Count of missing_reasons (test_adjacency, blame, etc.) — penalizes thin context",
+        "commit_message_clarity": "Does the commit message contain a JIRA key or explicit bug description?"
+      },
+      "candidate_equation": "confidence = 0.35*supported_score + 0.25*router_agreement + 0.20*evidence_density + 0.10*diversity_score + 0.10*message_clarity - 0.05*missing_context_penalty. Thresholds: >=0.65 → terminate; 0.40-0.65 → request turn2; <0.40 → flag LOW_CONFIDENCE. Weights are initial hypotheses to be calibrated against D1 accuracy on n50 eval set.",
+      "deliverables": [
+        "signal_extractor.py: deterministic function InvestigationContext + TagResults → ConfidenceSignals",
+        "confidence_model.py: ConfidenceSignals → scalar score + confidence_tier (HIGH/MEDIUM/LOW)",
+        "calibration notebook or script: fit weights against n50 ground truth D1 outcomes",
+        "A/B eval: run n20 with confidence-gated stopping vs current fixed-turn baseline"
+      ],
+      "connection_to_existing_work": {
+        "v2-multiturn-spike": "The confidence equation REPLACES the heuristic 'follow_up_needed' LLM flag in multiturn logic.",
+        "risk_policy.py evaluate_risk_from_hypotheses": "confidence_tier feeds into the capping logic: LOW_CONFIDENCE commits cap at MEDIUM regardless of supported_count.",
+        "H4_score": "H4 is a partial proxy — confidence equation generalizes it with more signals."
+      },
+      "early_stop_rule": "If no existing n50 signal (supported_count alone) achieves AUC > 0.75 for D1 prediction on the hard-commit subset, the compound equation is unlikely to help — abandon."
+    },
+    {
+      "id": "td-h3a-unit-tests",
+      "name": "TD: unit tests for historical_rag.py (historical defect context)",
+      "type": "fix",
+      "status": "committed",
+      "priority": 28,
+      "severity": "major",
+      "source": "adversarial-audit-2026-06-12",
+      "depends_on": [
+        "feat-rename-historical-defect-context"
+      ],
+      "description": "historical_rag.py is a 343-line module wired into every build_investigation_messages() call yet has zero unit tests. The CSV loader, KNN ranking, defect taxonomy classification, project-level fallback, and git subprocess path are all untested. Harness task id retains v2-d3-h3a-rag traceability.",
+      "changes": "tests/test_historical_rag.py: inline CSV fixture + mock subprocess for _get_commit_message; assert classification, KNN neighbor selection, fallback activation, and formatted output block.",
+      "acceptance_criteria": [
+        "_classify_message() returns expected category for representative messages",
+        "_extract_metrics() handles missing/invalid CSV fields gracefully",
+        "get_historical_defect_context() returns None when csv_features is empty",
+        "Fallback activates when fewer than _MIN_CLASSIFIED_FOR_KNN neighbors classified",
+        "Project-level distribution is cached and not recomputed on second call",
+        "Module import does not fail when apachejit_train.csv is absent"
+      ]
+    },
+    {
+      "id": "td-h3a-cache-refactor",
+      "name": "TD: historical defect context — injectable cache and test isolation",
+      "type": "fix",
+      "status": "committed",
+      "priority": 29,
+      "severity": "major",
+      "source": "adversarial-audit-2026-06-12",
+      "depends_on": [
+        "feat-rename-historical-defect-context",
+        "td-h3a-unit-tests"
+      ],
+      "description": "_TRAINING_LOAD_ATTEMPTED permanently marks failed loads as empty list — transient CSV read error disables historical defect context for process lifetime. Module-level singletons break pytest test isolation.",
+      "changes": "Add pytest autouse reset fixture clearing _TRAINING_CACHE/_TRAINING_LOAD_ATTEMPTED between tests. Add load retry logic or constructor-injectable cache object.",
+      "acceptance_criteria": [
+        "A failed training load does not permanently disable historical defect context across test runs",
+        "Tests that mock CSV can reset state without importing private globals",
+        "Process-level cache is documented with its scope and lifetime"
+      ]
+    },
+    {
+      "id": "td-h3a-feature-flag",
+      "name": "TD: --enable-historical-defect-context feature flag on run_eval",
+      "type": "fix",
+      "status": "committed",
+      "priority": 30,
+      "severity": "major",
+      "source": "adversarial-audit-2026-06-12",
+      "depends_on": [
+        "feat-rename-historical-defect-context",
+        "feat-rename-eval-runner-terminology"
+      ],
+      "description": "Historical defect context is always active when csv_features is populated. Measured D3 lift is +0.01±0.03 — within noise. Cannot A/B test without a code change. Eval reports have no per-commit flag indicating whether historical context was injected.",
+      "changes": "runners/run_eval.py: add --enable-historical-defect-context flag (default off until re-validated). Wire orchestrator/context_builder to skip injection when false. Log per-commit injection status to forensics JSON.",
+      "acceptance_criteria": [
+        "--enable-historical-defect-context=false produces same results as before historical context wiring",
+        "Forensics JSON records historical_defect_context_status per commit: injected | fallback | unavailable | disabled",
+        "Default is --enable-historical-defect-context=false to preserve baseline reproducibility",
+        "rg 'enable-h3a|h3a_status' on src/ returns zero matches"
+      ]
+    },
+    {
+      "id": "v2-d1-cs-fix-detector",
+      "name": "D1: detect hidden-fix-in-CS commits via JIRA key presence",
+      "type": "experiment",
+      "status": "cancelled",
+      "priority": 33,
+      "depends_on": [
+        "td-h3a-feature-flag"
+      ],
+      "source": "v2-n50-failure-analysis",
+      "description": "D1=0.72 ceiling — failure_analysis tags '8 BUG→MEDIUM (hidden-fix-in-CS commits)' as primary D1 miss. These commits are buggy but their diffs look cosmetic (e.g. test assertion change, CS log line). JIRA key presence in commit message signals these are fix-carrying CS commits that should not be capped to MEDIUM by the clean_archetype policy.",
+      "expected_delta": {
+        "D1": "+0.04 to +0.08 (recover 4–6 of the 8 BUG→MEDIUM misses)",
+        "FP_rate": "watch: if CS detection over-fires on truly clean CS commits, FP rate may rise from 24%"
+      },
+      "failure_mode_targeted": "BUG→MEDIUM: clean_archetype cap fires on CS commits with cosmetic diffs but real defect (JIRA bug type + fix key present in message)",
+      "changes": "analysis/risk_policy.py: add _is_cs_fix_commit(context) predicate — returns True when commit message contains JIRA key (e.g. CAMEL-\\d+) AND context.jira_type == 'Bug'. When True, bypass clean_archetype MEDIUM cap. Requires jira_summary wiring from v2-jira-context-injection (or standalone CSV lookup).",
+      "acceptance_criteria": [
+        "AC-1: _is_cs_fix_commit() returns True for commit messages containing JIRA bug key + jira_type='Bug'; False for enhancement/task or absent key",
+        "AC-2: clean_archetype cap bypassed when _is_cs_fix_commit() True — risk_level may remain HIGH if supported_count ≥ 1",
+        "AC-3: Unit tests: 4 known BUG→MEDIUM commits from n=50 failure panel promote to HIGH when JIRA bug key present",
+        "AC-4: FP guard: 6 known FP clean commits (from fp_commits list) do not promote — JIRA type is not 'Bug' for these",
+        "AC-5: 465+ tests pass; no D1 regression on n=20 clean stratum"
+      ],
+      "depends_on_data": "JIRA commit→type mapping CSV (same as v2-jira-context-injection) — can run in parallel once CSV is built",
+      "decision_rule": "D1 ≥ 0.78 on n=20 buggy stratum AND FP ≤ 30% → advance to n=50. If FP rises above 30%, revert bypass or add second guard.",
+      "cancelled_reason": "Invalidated: JIRA API data shows all 7 buggy misses with JIRA key are Improvement/New Feature, not Bug. Core premise disproven."
     }
   ]
 }

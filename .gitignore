@@ -16,6 +16,10 @@ build/
 
 # Pipeline output
 output/
+results/
+
+# Harness logs
+.harness/hooks.log
 
 # Data (large CSVs, download locally)
 data/

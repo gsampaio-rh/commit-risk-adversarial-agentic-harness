@@ -24,9 +24,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 class FakeAttributionLLM(LLMProvider):
     """Fake LLM that simulates an attribution agent conversation.
 
-    Turn 1: requests a search tool
-    Turn 2: requests a diff tool
-    Turn 3: outputs suspects
+    Turns 1-3: requests search/blame/diff tools (meets MIN_TOOL_CALLS_BEFORE_CONCLUDE)
+    Turn 4: outputs suspects
     """
 
     def __init__(self) -> None:
@@ -49,6 +48,13 @@ class FakeAttributionLLM(LLMProvider):
                 "```\n"
             )
         elif self._call_count == 2:
+            content = (
+                "Let me search by file path.\n\n"
+                "```tool\n"
+                '{"tool": "search_commits_by_keyword", "args": {"keyword": "RouteBuilder", "max_results": 3}}\n'
+                "```\n"
+            )
+        elif self._call_count == 3:
             content = (
                 "Let me examine the diff of a suspect commit.\n\n"
                 "```tool\n"
@@ -206,9 +212,9 @@ class TestAgentOrchestratorIntegration:
         assert report.problem_title == "NPE in RouteBuilder"
         assert len(report.suspects) == 1
         assert report.suspects[0].commit_id == "abc123def456"
-        assert len(report.tool_trace) == 2
-        assert report.metadata["turns_used"] == 3
-        assert report.metadata["tool_calls"] == 2
+        assert len(report.tool_trace) == 3
+        assert report.metadata["turns_used"] == 4
+        assert report.metadata["tool_calls"] == 3
         assert report.metadata["evidence_scoring_applied"] is True
         assert report.metadata["post_processing_applied"] is False
         assert len(report.metadata["evidence_scores"]) == 1
@@ -243,6 +249,83 @@ class TestAgentOrchestratorIntegration:
         assert report.metadata["tool_calls"] <= 4
         assert report.metadata["evidence_scoring_applied"] is True
         assert report.metadata["evidence_scores"] == []
+
+
+class TestEarlyExitNudge:
+    """Tests for early exit nudge when agent has examined enough diffs."""
+
+    @skip_no_git
+    def test_early_exit_metadata_recorded(self) -> None:
+        """Verify early_exit_threshold appears in report metadata."""
+        llm = FakeAttributionLLM()
+        orchestrator = AgentOrchestrator(
+            llm_provider=llm,
+            max_turns=10,
+            max_tool_calls=30,
+            early_exit_threshold=5,
+        )
+        problem = ProblemStatement(title="test", description="test", project="test")
+        git = GitContextProvider(REPO_ROOT)
+        report = orchestrator.investigate(problem, git)
+        assert report.metadata["early_exit_threshold"] == 5
+
+    @skip_no_git
+    def test_early_exit_nudge_after_threshold(self) -> None:
+        """Agent receives early conclude nudge after threshold + examine calls."""
+        messages_captured: list[str] = []
+
+        class TrackingLLM(LLMProvider):
+            """LLM that does many tool calls to trigger early exit nudge."""
+
+            def __init__(self) -> None:
+                self._call_count = 0
+
+            @property
+            def model_name(self) -> str:
+                return "tracking-llm"
+
+            def complete(self, messages, **kwargs) -> LLMResponse:
+                self._call_count += 1
+                for m in messages:
+                    if hasattr(m, "content") and "conclude NOW" in m.content:
+                        messages_captured.append(m.content)
+
+                if self._call_count <= 3:
+                    return LLMResponse(
+                        content='```tool\n{"tool": "search_commits_by_keyword", "args": {"keyword": "fix", "max_results": 1}}\n```',
+                        tokens_used=50,
+                        estimated_cost=0.0001,
+                    )
+                elif self._call_count <= 6:
+                    return LLMResponse(
+                        content='```tool\n{"tool": "get_commit_diff", "args": {"commit_id": "HEAD~1"}}\n```',
+                        tokens_used=50,
+                        estimated_cost=0.0001,
+                    )
+                else:
+                    return LLMResponse(
+                        content=(
+                            '```suspects\n'
+                            '[{"commit_id": "abc123", "confidence": 0.8, '
+                            '"mechanism": "test", "evidence_quotes": []}]\n'
+                            '```'
+                        ),
+                        tokens_used=50,
+                        estimated_cost=0.0001,
+                    )
+
+        orchestrator = AgentOrchestrator(
+            llm_provider=TrackingLLM(),
+            max_turns=15,
+            max_tool_calls=30,
+            early_exit_threshold=5,
+        )
+        problem = ProblemStatement(title="test", description="desc", project="test")
+        git = GitContextProvider(REPO_ROOT)
+        report = orchestrator.investigate(problem, git)
+
+        assert len(messages_captured) > 0, "Early exit nudge should have been triggered"
+        assert report.suspects[0].commit_id == "abc123"
 
 
 class TestEvidenceScoringMetadata:
