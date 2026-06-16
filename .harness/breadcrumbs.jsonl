@@ -613,3 +613,6 @@
 {"ts":"2026-06-16T23:16:39","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (3 files)"}
 {"ts":"2026-06-17T03:50:00Z","role":"builder","type":"build","feat":"v4-harness-fixes","msg":"Fixed eval findings: confidence tracking from responses (regex+heuristic), per-turn trace population, validation errors passed to retry prompt, replan_limit/budget degraded modes, HypothesisRecord fields completed. 3 new tests. 371 total pass.","result":"pass"}
 {"ts":"2026-06-16T23:20:48","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (6 files)"}
+{"ts":"2026-06-16T23:22:54","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (2 files)"}
+{"ts":"2026-06-17T04:00:00Z","role":"builder","type":"checkpoint","feat":"p5-p8-complete","msg":"P5-P8 complete and verified by evaluator (PASS). 5 commits, 372 tests. V4 pipeline fully buildable: input pipeline → harness → trace. Next: P9 full eval checkpoint or Level 2 extractor.","result":"pass"}
+{"ts":"2026-06-16T23:24:15","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (2 files)"}

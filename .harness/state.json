@@ -2,7 +2,7 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v4-architecture-redesign",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-16T22:42:00Z",
+  "updated": "2026-06-17T03:55:00Z",
   "schema_version": 5,
   "_archive": "V2 state archived to .harness/state-v2-archive.json. V2 final: D1=0.72 D3=0.31 (n=50), JIRA injection brought D3=0.35 on n=20.",
   "vision": "Build a plan-driven bug attribution agent with internal governance. The system separates concerns into three pipelines: (1) Input Pipeline — deterministic extraction and candidate retrieval at zero LLM cost; (2) Agent Pipeline — LLM plans, examines, and attributes within an InvestigationBrief, governed by an investigation harness with rules and skills; (3) Evaluation Pipeline — oracle scores output. The agent receives a CandidateSet (not raw repo access), operates within completion criteria (not just budget), produces structured InvestigationTraces for learning, and improves over time via skills derived from traces. Evaluated via Hit@k, MRR, D3, D6, and Retrieval Recall against ApacheJIT ground truth.",
@@ -129,7 +129,12 @@
     "gt-noise-analysis: SZZ noise rate 35% (4 noise + 6 questionable / 20). Adjusted Hit@5 on clean data: 0.70",
     "topology-debate: ADR at .harness/docs/topology-debate.md — three pipelines, agent boundary, InvestigationBrief, fallback paths",
     "mechanism-design: ADR at .harness/docs/mechanism-design.md — hybrid rules YAML, hybrid skills MD, prompt assembly, trace schema JSON, completion thresholds, brief validation, artifact ownership. Seed governance files.",
-    "retrieval-spike: Combined recall@100=0.45 (9/20), blame strongest at 0.35. K=100 recommended. Gate>=0.35, target>=0.60. Level 2 needed. ADR at .harness/docs/retrieval-spike-findings.md"
+    "retrieval-spike: Combined recall@100=0.45 (9/20), blame strongest at 0.35. K=100 recommended. Gate>=0.35, target>=0.60. Level 2 needed. ADR at .harness/docs/retrieval-spike-findings.md",
+    "v4-audit-fixes: Level 1 extraction (regex files/symbols/keywords + infer-from-symbols), recall@100 validation, cross-package integration test. 330→372 tests.",
+    "v4-input-pipeline: prepare_investigation() wiring extraction+retrieval, brief-validation retry (2x widened), RetrievalResult dataclass",
+    "v4-checkpoint-retrieval: Recall@100=0.400 (8/20), GATE PASSED. All 4 strategies contribute.",
+    "v4-investigation-harness: State machine (Stages 2→3→4), BriefValidator, CompletionEvaluator, LLMProvider protocol, confidence tracking, per-turn traces",
+    "v4-trace-and-eval: TraceWriter JSON per investigation, run_v4_investigation() top-level runner, V4InvestigationResult"
   ],
   "cancelled_tasks": [
     "v3-post-processing-b (P12): V3 re-ranking — superseded by V4 investigation harness",
@@ -170,7 +175,7 @@
       "id": "v4-prompt-assembler",
       "name": "V4 build: PromptAssembler — 10-section ordered template with truncation policy",
       "type": "feature",
-      "status": "verified",
+      "status": "committed",
       "priority": 4,
       "depends_on": ["v4-governance-loaders"],
       "scope": "commit_investigator/governance/prompt_assembler.py: assemble(stage, problem_statement, candidate_set, investigation_state, brief, evidence) producing ordered sections per mechanism-design ADR §Q3. Truncation at 80% token budget (evidence → candidates → skills). Stage-specific candidate formatting (top 20 for Stage 2; examined + next 5 for Stage 3). Tests with fixture data verifying section order, empty-section omission, and truncation behavior."
@@ -179,7 +184,7 @@
       "id": "v4-input-pipeline",
       "name": "V4 build: input pipeline entry — Stage 0 extraction + Stage 1 retrieval wired",
       "type": "feature",
-      "status": "pending",
+      "status": "committed",
       "priority": 5,
       "depends_on": ["v4-retrieval-module"],
       "scope": "commit_investigator/retrieval/pipeline.py: prepare_investigation(problem, repo, temporal_bound) → (ProblemStatement, CandidateSet). Reuses existing ProblemExtractor for Stage 0. Brief-validation retry path: re-run Stage 1 with widened retrieval (mechanism-design ADR §Q6). CLI smoke script or pytest proving end-to-end input for one eval case. Zero LLM cost."
@@ -188,19 +193,20 @@
       "id": "v4-checkpoint-retrieval",
       "name": "V4 checkpoint: Retrieval Recall@100 on n=20 eval cases",
       "type": "checkpoint",
-      "status": "pending",
+      "status": "committed",
       "priority": 6,
       "depends_on": ["v4-input-pipeline"],
       "scope": "Run production retrieval (input pipeline) on all 20 seed=42 eval cases. Measure Retrieval Recall@100 per case and aggregate. Compare to spike baseline (0.45). Report per-strategy contribution breakdown. Write results to results/v4-checkpoints/retrieval-recall.json.",
       "gate": {"Retrieval_Recall_at_100": 0.35},
       "target": {"Retrieval_Recall_at_100": 0.45},
-      "note": "Early kill switch. If production retrieval underperforms the spike, diagnose before building harness on top. Gate=0.35 (spike ADR), target=0.45 (spike combined result)."
+      "note": "Early kill switch. Gate PASSED (0.400 >= 0.35). Target missed by 1 case (0.400 vs 0.450). Level 2 extractor needed for 0.60.",
+      "result": {"recall_at_100": 0.400, "hits": 8, "tested": 20, "gate_passed": true}
     },
     {
       "id": "v4-investigation-harness",
       "name": "V4 build: investigation harness — state machine, brief validator, completion criteria, scoped tools",
       "type": "feature",
-      "status": "pending",
+      "status": "committed",
       "priority": 7,
       "depends_on": ["v4-prompt-assembler", "v4-input-pipeline", "v4-checkpoint-retrieval"],
       "scope": "New commit_investigator/harness/ package: InvestigationHarness orchestrating Stages 2→3→4. BriefValidator (min 2 hypotheses, 1 retry, default brief fallback per ADR §Q6). CompletionCriteria evaluator after each Stage 3 turn (evidence=3, hypotheses=2, confidence=0.60, max_effort=18). Re-plan loop max 2. Hard-rule enforcement at transitions. Stage 3 tools scoped to CandidateSet. Refactor or wrap existing orchestrator LLM calls behind harness interface. Tests with MockLLMProvider for stage transitions, validation failures, degraded mode.",
@@ -210,11 +216,11 @@
       "id": "v4-trace-and-eval-integration",
       "name": "V4 build: trace writer + run_eval integration — V4 path with Retrieval Recall metric",
       "type": "feature",
-      "status": "pending",
+      "status": "committed",
       "priority": 7,
       "depends_on": ["v4-investigation-harness"],
       "scope": "TraceWriter: JSON InvestigationTrace per investigation at results/traces/{issue_key}/{run_id}.json with per-turn Stage 3 granularity (ADR §Q4). Wire V4 harness into eval/run_eval.py behind --agent-version v4 (or env flag); V3 path preserved for baseline comparison. Attach investigation_trace to BugAttributionReport. Compute Retrieval Recall (ground truth in top 100). Smoke eval on 1–3 cases then n=20 comparison vs V3 baselines.",
-      "note": "Final integration increment. Enables first V4 live eval against V3 Hit@5=0.50 baseline."
+      "note": "Standalone V4 runner (run_v4_investigation) complete. Wiring into run_eval.py CLI deferred to full eval checkpoint."
     },
     {
       "id": "v4-checkpoint-full-eval",
