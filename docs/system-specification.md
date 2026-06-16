@@ -2,7 +2,7 @@
 
 Given a JIRA bug report (title + description) and a temporally-bounded git repository, this system identifies the commit that most likely **introduced** the bug. It produces a ranked list of suspect commits with causal mechanisms and evidence quotes, evaluated against SZZ-derived ground truth.
 
-> **Architecture status:** This document describes the **V4 target architecture**. The current implementation (V3) is summarized at the end. See [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) for the ADR that led to V4. Implementation decisions marked **TBD** will be resolved in the `mechanism-design` and `retrieval-spike` tasks.
+> **Architecture status:** This document describes the **V4 target architecture**. The current implementation (V3) is summarized at the end. See [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) for the ADR that led to V4 and [.harness/docs/mechanism-design.md](../.harness/docs/mechanism-design.md) for governance mechanisms. Retrieval decisions marked **TBD** will be resolved in the `retrieval-spike` task.
 
 ---
 
@@ -98,8 +98,8 @@ The agent operates inside a governed framework with three layers:
 | Layer | Role | Mechanism |
 |-------|------|-----------|
 | **Investigation Harness** | Manages lifecycle, state, transitions, completion | Script-based orchestrator |
-| **Investigation Rules** | Constrains behavior, enforces quality | **TBD**: hard gates / soft guidance / hybrid |
-| **Investigation Skills** | Augments strategy with learned patterns from traces | **TBD**: RAG / rule extraction / hybrid |
+| **Investigation Rules** | Constrains behavior, enforces quality | **Hybrid** — hard gates (harness) + soft guidance (prompt). YAML in `data/governance/rules/`. See [mechanism-design ADR §Q1](../.harness/docs/mechanism-design.md#2-q1--rules-mechanism). |
+| **Investigation Skills** | Augments strategy with learned patterns from traces | **Hybrid** — keyword retrieval + manual curation. Markdown in `data/governance/skills/`. See [mechanism-design ADR §Q2](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism). |
 
 ### Stage 2 — Planning
 
@@ -178,7 +178,7 @@ Rules encode quality constraints. Examples:
 - "For concurrency bugs, trace thread interactions across commits"
 - "If top suspect confidence < 0.6, continue examining"
 
-**TBD:** Enforcement mechanism (hard gates by harness, soft guidance via prompt, or hybrid). To be resolved in `mechanism-design` task.
+**Mechanism:** Hybrid — hard gates enforced by harness at stage transitions; soft rules injected via `PromptAssembler`. YAML files in `data/governance/rules/`, maintained by builder via git. See [mechanism-design ADR §Q1](../.harness/docs/mechanism-design.md#2-q1--rules-mechanism).
 
 ### Investigation Skills
 
@@ -187,7 +187,7 @@ Strategies that improve over time from investigation traces. Examples:
 - "When JIRA mentions NPE, pickaxe for null-check removal"
 - "Large repos: time-window filtering before file search"
 
-**TBD:** Acquisition and application mechanism (RAG few-shot, rule extraction, or hybrid). To be resolved in `mechanism-design` task.
+**Mechanism:** Hybrid — keyword retrieval over `ProblemStatement` signals; manual curation with harness-drafted skills from traces. Markdown in `data/governance/skills/`. See [mechanism-design ADR §Q2](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism).
 
 ---
 
@@ -197,11 +197,12 @@ The agent knows what "done" means before starting. The harness evaluates after e
 
 | Criterion | Description | Threshold |
 |-----------|-------------|-----------|
-| Evidence threshold | Grounded quotes across suspects | **TBD** (N >= 3?) |
-| Hypothesis coverage | Alternative explanations tested | **TBD** (M >= 2?) |
-| Confidence gate | Top suspect confidence sufficient | **TBD** (>= 0.6?) |
+| Evidence threshold | Grounded quotes across suspects | **3** (see [mechanism-design ADR §Q5](../.harness/docs/mechanism-design.md#6-q5--completion-threshold-values)) |
+| Hypothesis coverage | Alternative explanations tested | **2** |
+| Confidence gate | Top suspect confidence sufficient | **0.60** |
 | Brief satisfaction | All planned examinations completed or abandoned with reason | Boolean |
 | Budget (hard stop) | Total tool calls, tokens, or cost limit exceeded | 30 calls / 100K tokens / $0.50 |
+| Default max_effort | Examination tool call budget per brief | **18** |
 
 Budget is a **safety net**, not the primary exit signal. The agent exits when the brief is satisfied, not when tokens run out.
 
@@ -221,7 +222,7 @@ Every investigation produces a structured `InvestigationTrace`:
 | `stage_timings` | Time and cost per stage |
 | `outcome` | Final report + eval result (in eval mode) |
 
-**Schema TBD** — exact fields and storage format to be resolved in `mechanism-design` task.
+**Schema:** JSON per investigation at `results/traces/{issue_key}/{run_id}.json`. Per-turn granularity for Stage 3. Full field definitions in [mechanism-design ADR §Q4](../.harness/docs/mechanism-design.md#5-q4--trace-schema).
 
 Traces enable:
 - Skill emergence (learn from successes and failures)
@@ -276,7 +277,7 @@ class InvestigationBrief:
     examination_plan: list[ExaminationStep] # what to check and why
     success_criteria: CompletionCriteria    # when "done"
     strategy: str                           # overall approach description
-    max_effort: int                         # max tool calls for examination
+    max_effort: int = 18                     # max tool calls for examination (default)
 ```
 
 ### InvestigationState (harness-managed)
@@ -300,9 +301,9 @@ class InvestigationState:
 ```python
 @dataclass
 class CompletionCriteria:
-    evidence_threshold: int                 # min grounded quotes across suspects (TBD)
-    hypothesis_coverage: int                # min alternative explanations tested (TBD)
-    confidence_gate: float                  # min top suspect confidence (TBD)
+    evidence_threshold: int = 3           # min grounded quotes across suspects
+    hypothesis_coverage: int = 2          # min alternative explanations tested
+    confidence_gate: float = 0.60         # min top suspect confidence
     brief_satisfaction: bool = False        # all planned examinations done
     budget_hard_stop: bool = False          # budget exceeded (safety net)
 ```
@@ -312,16 +313,23 @@ class CompletionCriteria:
 ```python
 @dataclass
 class InvestigationTrace:
-    hypotheses: list[dict]                  # formed, confirmed, rejected, abandoned (schema TBD)
-    candidates_examined: list[str]          # commit SHAs inspected
-    candidates_eliminated: list[dict]       # SHA + elimination reason (schema TBD)
-    evidence_collected: list[dict]          # quotes + grounding status (schema TBD)
-    strategy_decisions: list[dict]          # decision + rationale (schema TBD)
-    stage_timings: dict[str, float]         # stage → elapsed_ms
-    outcome: dict                           # eval result if available (schema TBD)
+    trace_id: str
+    issue_key: str
+    run_id: str
+    temporal_bound: str
+    candidate_set_size: int
+    retrieval_recall_100: bool | None       # eval-only
+    hypotheses: list[HypothesisRecord]      # id, statement, status, reason, stage, turn
+    candidates_examined: list[str]            # commit SHAs inspected
+    candidates_eliminated: list[EliminationRecord]  # commit_id, reason, turn, hypothesis_id
+    evidence_collected: list[EvidenceRecord]  # commit_id, quote, grounded, hypothesis_id, turn
+    strategy_decisions: list[StrategyRecord]  # decision, rationale, stage, turn, alternatives
+    examination_turns: list[TurnRecord]      # per-turn Stage 3 log
+    stage_timings: dict[str, float]           # stage → elapsed_ms
+    outcome: OutcomeRecord                    # suspect_count, degraded, hit_at_5 (eval-only)
 ```
 
-> **Note:** Field schemas marked TBD will be defined in the `mechanism-design` task.
+> **Note:** Nested record types defined in [mechanism-design ADR §Q4](../.harness/docs/mechanism-design.md#5-q4--trace-schema).
 
 ### BugAttributionReport (output)
 
@@ -447,7 +455,7 @@ The V3 implementation (current code) uses a different architecture:
 | Governance | Budget-only (30 calls, 100K tokens, 15 turns) | Harness + completion criteria + budget as safety net |
 | Exit signal | Budget exhaustion | Brief satisfaction (or budget hard stop) |
 | Tracing | `tool_trace` (partial, 500-char truncation) | Full `InvestigationTrace` |
-| Learning | None | Skills from traces (**TBD**) |
+| Learning | None | Skills from traces ([mechanism-design ADR §Q2](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism)) |
 | Best result | Hit@5=0.50, MRR=0.304 (n=20, prompt V2) | Target: Hit@5 >= 0.60 with lower cost |
 
 V3 code lives in `src/commit_investigator/` with packages: `extraction/`, `agent/`, `eval/`, `infra/`. The V3 agentic loop runs 7 advisory stages (5 LLM + 2 script) inside `AgentOrchestrator.investigate()`. Full V3 details in the [exp19b retrospective](../.harness/docs/exp19b-retrospective.md).
@@ -462,5 +470,6 @@ V3 code lives in `src/commit_investigator/` with packages: `extraction/`, `agent
 | [evaluation-framework.md](evaluation-framework.md) | Metrics, stage-to-metric mapping, baselines |
 | [glossary.md](glossary.md) | Term definitions |
 | [datasets.md](datasets.md) | ApacheJIT data, ground truth chain |
-| [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) | Architecture Decision Record for V4 |
+| [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) | Architecture Decision Record for V4 topology |
+| [.harness/docs/mechanism-design.md](../.harness/docs/mechanism-design.md) | Mechanism ADR: rules, skills, traces, thresholds |
 | [.harness/docs/exp19b-retrospective.md](../.harness/docs/exp19b-retrospective.md) | V2/V3 retrospective with scores and lessons |

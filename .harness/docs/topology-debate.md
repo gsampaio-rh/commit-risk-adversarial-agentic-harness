@@ -91,7 +91,7 @@ Codified knowledge about what constitutes a good investigation. Examples:
 - "Always examine parent commits in a change chain"
 - "For concurrency bugs, trace thread interactions"
 
-**Mechanism TBD:** Hard gates (script enforcement), soft guidance (prompt injection), or hybrid. To be resolved in `mechanism-design` task.
+**Mechanism:** Hybrid — hard gates + soft prompt guidance. See [mechanism-design ADR §Q1](mechanism-design.md#2-q1--rules-mechanism).
 
 ### Investigation Skills (learned strategies)
 
@@ -99,7 +99,7 @@ Strategies that improve over time from investigation traces. Examples:
 - "For Spark serialization bugs, blame SerDe files first"
 - "When JIRA mentions NPE, pickaxe for null-check removal"
 
-**Mechanism TBD:** RAG few-shot, automatic rule extraction, or hybrid. To be resolved in `mechanism-design` task.
+**Mechanism:** Hybrid — keyword retrieval + manual curation. See [mechanism-design ADR §Q2](mechanism-design.md#3-q2--skills-mechanism).
 
 ---
 
@@ -125,14 +125,15 @@ The agent knows what "done" means before starting. The harness evaluates these a
 
 | Criterion | Description | Threshold |
 |-----------|-------------|-----------|
-| Evidence threshold | Grounded quotes across suspects | TBD (N >= 3?) |
-| Hypothesis coverage | Alternative explanations tested | TBD (M >= 2?) |
-| Confidence gate | Top suspect confidence | TBD (>= 0.6?) |
+| Evidence threshold | Grounded quotes across suspects | **3** |
+| Hypothesis coverage | Alternative explanations tested | **2** |
+| Confidence gate | Top suspect confidence | **0.60** |
+| Default max_effort | Examination tool calls per brief | **18** |
 | Brief satisfaction | All planned examinations completed or explicitly abandoned | Boolean |
 
 **Budget remains as HARD STOP.** If criteria are not met but budget is exhausted, the agent proceeds to attribution in degraded mode. This is logged in the trace.
 
-Threshold values are TBD — to be calibrated empirically in `retrieval-spike` and early implementation.
+Threshold values decided in [mechanism-design ADR §Q5](mechanism-design.md#6-q5--completion-threshold-values). Retrieval Recall@100 targets remain **`retrieval-spike` scope**.
 
 ---
 
@@ -164,7 +165,7 @@ Stage 1 (Retrieval) must respect the temporal bound — all `git log` commands u
 
 ## 8. Decision: Investigation Traces
 
-Every investigation produces a structured trace. Schema TBD in `mechanism-design`, but conceptually includes:
+Every investigation produces a structured trace. Schema defined in [mechanism-design ADR §Q4](mechanism-design.md#5-q4--trace-schema). Conceptually includes:
 
 - Hypotheses formed and their outcomes (confirmed/rejected/abandoned)
 - Candidates examined and elimination reasons
@@ -194,14 +195,11 @@ Traces are the substrate for skill emergence. They also enable failure forensics
 
 ## 10. Open Questions (for mechanism-design task)
 
-These are explicitly NOT decided in this ADR:
+**Resolved** in [mechanism-design ADR](mechanism-design.md): rule mechanism, skill mechanism, trace schema, completion thresholds, brief validation.
 
-1. **Rule mechanism:** Hard gates (script) vs soft guidance (prompt) vs hybrid?
-2. **Skill mechanism:** RAG few-shot vs rule extraction vs hybrid?
-3. **Trace schema:** Exact fields, granularity, storage format?
-4. **Completion thresholds:** Exact values for N, M, confidence?
-5. **CandidateSet ranking:** How to rank candidates within the set? Recency? File overlap? TF-IDF?
-6. **Brief validation:** What makes a brief "valid"? How many hypotheses minimum?
+**Remaining open questions** (this ADR):
+
+5. **CandidateSet ranking:** How to rank candidates within the set? Recency? File overlap? TF-IDF? → **`retrieval-spike` task**
 
 ---
 

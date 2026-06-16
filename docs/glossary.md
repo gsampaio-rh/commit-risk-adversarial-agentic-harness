@@ -13,8 +13,8 @@
 | Term | Definition |
 |------|------------|
 | **Investigation Harness** | The non-LLM orchestration layer that governs the agent's lifecycle. Manages state, enforces transitions, evaluates completion criteria, and controls when the LLM is invoked. The LLM does not self-govern. |
-| **Investigation Rules** | Codified knowledge about investigation quality (e.g., "minimum 3 suspects," "always check parent commits in a chain"). Mechanism TBD: hard gates, soft guidance, or hybrid. |
-| **Investigation Skills** | Learned strategies from past investigations that augment the agent's planning. Mechanism TBD: RAG few-shot, rule extraction from traces, or hybrid. |
+| **Investigation Rules** | Codified quality constraints. **Hybrid:** hard gates (harness) + soft guidance (prompt). YAML in `data/governance/rules/`. See [mechanism-design ADR §Q1](../.harness/docs/mechanism-design.md#2-q1--rules-mechanism). |
+| **Investigation Skills** | Learned strategies augmenting planning. **Hybrid:** keyword retrieval + manual curation. Markdown in `data/governance/skills/`. See [mechanism-design ADR §Q2](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism). |
 | **InvestigationBrief** | Structured output of Stage 2 (Planning). Contains hypotheses, examination plan, success criteria, and strategy. Defines what "done" means for this investigation. Named "brief" (not "contract") to avoid collision with `.harness/contract.json`. |
 | **InvestigationState** | Harness-managed state tracking: current stage, candidates examined, hypotheses tested, evidence collected, re-plan count, budget usage. |
 | **InvestigationTrace** | Full structured record of one investigation: hypotheses formed/tested, candidates examined/eliminated, evidence collected, strategy decisions, outcome. The substrate from which skills emerge. |
@@ -69,7 +69,7 @@
 |------|------------|
 | **D6 Evidence Grounding** | Script-computed: fraction of evidence quotes grounded in actual commit diffs. Measures hallucination rate. |
 | **D3 Attribution Quality** | LLM-judge (0-4 scale): does the causal mechanism correctly explain how the suspect introduced the bug? Implemented in `eval/d3_judge.py`. |
-| **Plan Quality** | Concept (TBD): does the `InvestigationBrief` target the right area of the codebase? Mechanism to be resolved. |
+| **Plan Quality** | Deterministic **Plan Overlap Score** (eval-only): overlap between examination plan files and bug_hash files. Threshold ≥ 0.30. See [mechanism-design ADR §9](../.harness/docs/mechanism-design.md#9-plan-quality-metric-ac12). |
 
 ## Dataset
 

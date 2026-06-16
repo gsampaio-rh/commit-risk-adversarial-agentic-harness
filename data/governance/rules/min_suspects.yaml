@@ -1,0 +1,6 @@
+id: min_suspects
+enforcement: hard
+stage: attribution
+description: Minimum 3 suspects before attribution
+check: len(suspects) >= 3 OR len(candidate_set) < 3
+prompt_text: ""

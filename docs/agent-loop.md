@@ -72,7 +72,7 @@ The agent loop is the reasoning core: Stages 2–3–4 of the system pipeline. I
 1. Harness assembles context: problem statement, candidate summaries, relevant skills
 2. LLM produces structured `InvestigationBrief`
 3. Harness validates brief structure (hypotheses present, plan non-empty, criteria defined)
-4. If invalid → re-invoke with broader prompt (max 1 retry)
+4. If invalid → harness re-runs input pipeline Stage 1 with widened retrieval, then re-invokes Stage 2 (max 1 retry). See [mechanism-design ADR §Q6](../.harness/docs/mechanism-design.md#7-q6--brief-validation).
 
 ### Output: InvestigationBrief
 
@@ -89,7 +89,10 @@ The agent loop is the reasoning core: Stages 2–3–4 of the system pipeline. I
 - Brief invalid after retry → advance to Stage 3 with default brief (examine top 10 candidates)
 
 ### Skills integration
-If investigation skills are available (from past traces), the harness injects relevant strategies into the planning context. **Mechanism TBD.**
+If investigation skills are available, the harness retrieves top-3 skills by keyword overlap and injects them via `PromptAssembler`. See [mechanism-design ADR §Q2–Q3](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism).
+
+### Brief validation
+Minimum 2 hypotheses; all `InvestigationBrief` fields required. Invalid brief → 1 retry → default brief (examine top 10 candidates). See [mechanism-design ADR §Q6](../.harness/docs/mechanism-design.md#7-q6--brief-validation).
 
 ---
 
@@ -118,13 +121,13 @@ Tools are scoped to the `CandidateSet` — the LLM examines pre-retrieved candid
 
 ### Completion criteria evaluation (after each turn)
 
-The harness checks:
+Threshold values and degraded-mode behavior: [mechanism-design ADR §Q5](../.harness/docs/mechanism-design.md#6-q5--completion-threshold-values). The harness checks:
 
 | Criterion | Check | Action if met |
 |-----------|-------|---------------|
-| Evidence threshold | >= N grounded quotes collected | Advance to Stage 4 |
-| Hypothesis coverage | >= M hypotheses tested | Advance to Stage 4 |
-| Confidence gate | Top suspect confidence >= threshold | Advance to Stage 4 |
+| Evidence threshold | >= 3 grounded quotes collected | Advance to Stage 4 |
+| Hypothesis coverage | >= 2 hypotheses tested | Advance to Stage 4 |
+| Confidence gate | Top suspect confidence >= 0.60 | Advance to Stage 4 |
 | Brief satisfaction | All planned examinations done | Advance to Stage 4 |
 | Budget exceeded | Tool calls or tokens at limit | Force advance to Stage 4 (degraded) |
 | Hypotheses exhausted | All tested, none confirmed, brief unsatisfied | Loop back to Stage 2 |
@@ -156,6 +159,9 @@ If all hypotheses are tested but the brief is not satisfied (insufficient eviden
 4. Report assembled with full metadata
 
 ### Rules enforced
+
+Hard/soft rules from `data/governance/rules/`: [mechanism-design ADR §Q1](../.harness/docs/mechanism-design.md#2-q1--rules-mechanism).
+
 - Minimum 3 suspects (if fewer than 3 candidates examined, include all)
 - Each suspect must have a causal mechanism ("If X then Y")
 - Each suspect should have at least 1 evidence quote from a diff
@@ -202,7 +208,7 @@ The LLM does NOT decide:
 
 ## Investigation Tracing
 
-Every step of the agent loop produces trace data. The harness records:
+Trace schema and storage: [mechanism-design ADR §Q4](../.harness/docs/mechanism-design.md#5-q4--trace-schema). Every step of the agent loop produces trace data. The harness records:
 
 ### Per-stage trace data
 
@@ -243,7 +249,7 @@ Investigation ends → trace finalized with outcome
 | Normal | Brief satisfied | Full quality attribution |
 | Degraded (budget) | Budget exceeded before satisfaction | Attribute with partial evidence, log in trace |
 | Degraded (re-plan limit) | 2 re-plans without satisfaction | Attribute with best available suspects |
-| Degraded (empty candidates) | CandidateSet has < 3 commits | Skip planning, examine all, attribute what's found |
+| Degraded (empty candidates) | CandidateSet has < 3 commits | Skip planning, examine all, attribute what's found; `outcome.degraded_reason="empty_candidates"` per [mechanism-design ADR §Q4](../.harness/docs/mechanism-design.md#5-q4--trace-schema) |
 
 All degradation is logged in `InvestigationTrace` and reported in `metadata`.
 
@@ -267,3 +273,4 @@ All degradation is logged in `InvestigationTrace` and reported in `metadata`.
 - [evaluation-framework.md](evaluation-framework.md) — metrics, stage-to-metric mapping
 - [glossary.md](glossary.md) — term definitions
 - [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) — ADR for V4 architecture
+- [.harness/docs/mechanism-design.md](../.harness/docs/mechanism-design.md) — ADR for governance mechanisms

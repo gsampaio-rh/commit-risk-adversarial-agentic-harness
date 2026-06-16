@@ -540,10 +540,19 @@
       "id": "mechanism-design",
       "name": "Architecture V4: mechanism design — rule format, skill mechanism, trace schema, prompt assembly, completion thresholds",
       "type": "debate",
-      "status": "pending",
+      "status": "verified",
       "priority": 2,
       "depends_on": ["topology-debate"],
-      "note": "Implementation-level decisions. Open questions: (1) Rules: hard gates vs soft guidance vs hybrid — WHERE do rules live as artifacts, WHAT format, WHO creates/maintains; (2) Skills: RAG few-shot vs rule extraction vs hybrid — WHERE stored, HOW retrieved, WHO curates; (3) Prompt assembly: how does the harness BUILD the LLM prompt from rules + skills + stage instructions + candidate data; (4) Trace schema: fields, granularity, storage format, output directory; (5) Completion criteria threshold values; (6) Brief validation: what makes a brief valid, minimum hypotheses; (7) Artifact ownership: who creates rules, who approves skills, lifecycle of each governance artifact."
+      "note": "ADR at .harness/docs/mechanism-design.md. Resolves: (Q1) hybrid rules — hard gates + soft prompt guidance in YAML, (Q2) hybrid skills — keyword retrieval + manual curation in Markdown, (Q3) ordered section prompt assembly via PromptAssembler, (Q4) JSON trace per investigation with per-turn Stage 3, (Q5) thresholds: evidence=3, hypothesis_coverage=2, confidence_gate=0.60, max_effort=18, (Q6) min 2 hypotheses, 1 retry, default brief fallback, (Q7) filesystem artifact ownership, no approval gates. Seed governance files in data/governance/.",
+      "deliverables": [
+        ".harness/docs/mechanism-design.md (ADR)",
+        "docs/system-specification.md (TBD markers replaced)",
+        "docs/agent-loop.md (TBD markers replaced)",
+        "docs/glossary.md (rules/skills/plan quality entries)",
+        "docs/evaluation-framework.md (Plan Quality metric)",
+        "data/governance/rules/ (3 seed rules)",
+        "data/governance/skills/ (2 seed skills)"
+      ]
     },
     {
       "id": "retrieval-spike",

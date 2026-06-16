@@ -1,0 +1,118 @@
+{
+  "task_id": "mechanism-design",
+  "timestamp": "2026-06-16T20:00:00Z",
+  "overall": "PASS",
+  "computational_checks": {
+    "lint": "N/A — documentation-only deliverable",
+    "types": "N/A — documentation-only deliverable",
+    "tests": "N/A — no code changes in scope",
+    "build": "N/A — documentation-only deliverable"
+  },
+  "criteria": [
+    {
+      "criterion": "AC1: ADR exists at .harness/docs/mechanism-design.md with Status: Accepted",
+      "result": "PASS",
+      "evidence": "mechanism-design.md line 3: **Status:** Accepted"
+    },
+    {
+      "criterion": "AC2: ADR contains Q1–Q7 each with single chosen approach, rationale, no TBD deferrals",
+      "result": "PASS",
+      "evidence": "Sections 2–8 cover Q1–Q7 with single decisions (Hybrid rules Q1:27, Hybrid skills Q2:106, PromptAssembler Q3:163, JSON traces Q4:250, numeric thresholds Q5:375, brief validation Q6:407, artifact lifecycle Q7:442). Q5 includes required AC7 carve-out for Retrieval Recall@100 (line 388) — not an undecided question. No TBD markers within Q1–Q7 body text."
+    },
+    {
+      "criterion": "AC3: Rule mechanism — hybrid, YAML, path, enforcement, creator, 3 examples with enforcement tags",
+      "result": "PASS",
+      "evidence": "Q1:27–35 — Hybrid, YAML, data/governance/rules/, harness gate + PromptAssembler, builder via git. Three examples at lines 55–90: min_suspects (hard), parent_chain_examine (soft), continue_below_confidence (hard). Seed files match at data/governance/rules/*.yaml."
+    },
+    {
+      "criterion": "AC4: Skill mechanism — format, path, retrieval, curation, 2 examples with trigger/action/source",
+      "result": "PASS",
+      "evidence": "Q2:106–114 — Markdown+YAML frontmatter, data/governance/skills/, keyword overlap retrieval, manual promotion from drafts. Examples lines 141–149: spark_serde_blame (manual), npe_null_check_removal (trace-derived) with trigger/action/source. Seed files at data/governance/skills/*.md match."
+    },
+    {
+      "criterion": "AC5: Prompt assembly — ordered template, algorithm, truncation, Stage 2 example ≥200 words",
+      "result": "PASS",
+      "evidence": "Q3:167–188 — 10-section ordered template, 5-step assembly algorithm, truncation policy (80K budget, ordered truncation). Stage 2 example lines 192–238: 308 words (wc -w verified)."
+    },
+    {
+      "criterion": "AC6: Trace schema — fields+types, nested schemas, JSON/JSONL, path, granularity, valid JSON example",
+      "result": "PASS",
+      "evidence": "Q4:252–321 — JSON (not JSONL), results/traces/{issue_key}/{run_id}.json, per-turn Stage 3 / per-stage 2+4. Top-level fields table lines 265–280. Nested schemas: HypothesisRecord, EliminationRecord, EvidenceRecord, StrategyRecord, TurnRecord, OutcomeRecord. Minimal JSON example lines 325–356."
+    },
+    {
+      "criterion": "AC7: Completion thresholds — numeric values, V3 calibration, degraded mode, retrieval recall deferred",
+      "result": "PASS",
+      "evidence": "Q5:379–384 — evidence_threshold=3, hypothesis_coverage=2, confidence_gate=0.60, max_effort=18. V3 calibration cited line 377 (Hit@5=0.50, MRR=0.304, Evidence_Grounding=0.610, 10/20 hits, avg tool calls 2.95–4.7, budget 30). Degraded mode E4 lines 394–401. Retrieval Recall@100 deferred line 388."
+    },
+    {
+      "criterion": "AC8: Brief validation — min hypotheses, required fields, invalid definition, harness responses, topology-debate §7 aligned",
+      "result": "PASS",
+      "evidence": "Q6:409–434 — min 2 hypotheses, required fields listed, invalid-brief definition lines 417–423, harness responses table (1 retry → default brief top 10, max 2 re-plans). Aligns with topology-debate §7 lines 155–162 (wider retrieval on planning failure, max 2 re-plans on examination exhaust, budget degraded attribution)."
+    },
+    {
+      "criterion": "AC9: Artifact ownership — creator per type, approval gates, retention paths",
+      "result": "PASS",
+      "evidence": "Q7:444–452 — table with Rules/Skills/Traces/Briefs creators, 'None' approval for all, repo-relative paths and retention policy. Line 452: 'No approval workflows. No external services.'"
+    },
+    {
+      "criterion": "AC10: Mechanism TBD markers replaced in system-spec, agent-loop, glossary; retrieval-spike TBDs untouched",
+      "result": "PASS",
+      "evidence": "rg 'Mechanism TBD|schema TBD' docs/ → zero matches. system-spec CompletionCriteria (lines 303–309) and InvestigationTrace (lines 314–330) have concrete types/values + ADR §Q4 note. Remaining TBDs are retrieval-spike/level2-extractor scoped (e.g. system-spec line 75 retrieval module, eval-framework line 245 Retrieval Recall@100 targets). Glossary rules/skills/plan quality entries link to mechanism-design ADR §Q1, §Q2, §9."
+    },
+    {
+      "criterion": "AC11: CandidateSet ranking deferred; no contradiction with topology-debate or state.json invariants",
+      "result": "PASS",
+      "evidence": "Section 10 line 480 defers ranking to retrieval-spike with rationale. Skills explicitly scope to CandidateSet (Q2:148, npe_null_check_removal.md line 14). Harness governs transitions (agent-loop lines 74–75, 108–109, 137–146). No skill instructs full-repo search in decided mechanisms."
+    },
+    {
+      "criterion": "AC12: Plan Quality decided or explicitly deferred with justification",
+      "result": "PASS",
+      "evidence": "Section 9 lines 460–474 — Plan Overlap Score (deterministic), threshold ≥0.30, LLM judge explicitly deferred with rationale. evaluation-framework.md §Plan Quality lines 63–77 mirrors decision."
+    },
+    {
+      "criterion": "AC13: Filesystem only; no database/approval/external services",
+      "result": "PASS",
+      "evidence": "Section 11 lines 484–492 explicitly rejects database, approval workflows, external services, embedding RAG. All storage paths repo-relative (data/governance/, results/traces/)."
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "E1: Conflicting rules — precedence order",
+      "result": "PASS",
+      "evidence": "Q1 lines 92–100 — precedence: budget > hard rules > completion criteria > soft rules; min_suspects vs confidence conflict resolved."
+    },
+    {
+      "case": "E2: Skill scope tagging (project vs general)",
+      "result": "PASS",
+      "evidence": "Q2 lines 151–157 — scope: general|project, retrieval filter prefers project-scoped on tie. Seed skills: spark_serde_blame scope=project, npe_null_check_removal scope=general."
+    },
+    {
+      "case": "E3: Zero suspects — empty-result path + trace encoding",
+      "result": "PASS",
+      "evidence": "Q4 lines 359–369 — degraded Stage 4, outcome.degraded=true, degraded_reason=no_confirmed_hypotheses or empty_candidates."
+    },
+    {
+      "case": "E4: Budget exhausted — degraded behavior + trace flag",
+      "result": "PASS",
+      "evidence": "Q5 lines 394–401 — force Stage 4, budget_used.hard_stop=true, outcome.degraded=true, degraded_reason=budget_exhausted, min_suspects relaxed."
+    },
+    {
+      "case": "E5: Brief invalid after max retries — default brief fallback",
+      "result": "PASS",
+      "evidence": "Q6 line 430 — after 1 retry: default brief examining top 10 candidates by retrieval rank with generic hypothesis and Q5 defaults."
+    },
+    {
+      "case": "E6: CandidateSet ranking deferred to retrieval-spike",
+      "result": "PASS",
+      "evidence": "Section 10 line 480 — explicit deferral with one-sentence rationale."
+    }
+  ],
+  "architecture_rubric_warn": {
+    "mode": "warn",
+    "overall_score": "N/A",
+    "summary": "Documentation-only ADR; code-layer architecture criteria (dependency direction, bounded contexts, ports/adapters) are NOT_APPLICABLE. No WARN-level findings in ADR governance model — harness/LLM boundary is consistent with topology-debate.",
+    "notable_observation": "system-specification.md skill examples (line 188 'time-window filtering before file search') are illustrative and slightly broader than ADR CandidateSet-only wording; mechanism decisions themselves are consistent with llm_reasons_scripts_retrieve."
+  },
+  "recommendation": "proceed",
+  "notes": "All 13 acceptance criteria and 6 edge cases pass. Seed artifacts at data/governance/ match ADR examples. contract.json should be marked verified: true."
+}

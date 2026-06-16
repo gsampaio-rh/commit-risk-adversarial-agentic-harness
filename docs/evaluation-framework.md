@@ -46,7 +46,7 @@ This table maps the V4 pipeline stages to the metrics that measure them. See [sy
 
 | Stage | Metric(s) | What is measured | Status |
 |-------|-----------|------------------|--------|
-| 2 Planning | **Plan Quality** | Does the brief cover the right area? Are hypotheses relevant? | Concept — **TBD** mechanism |
+| 2 Planning | **Plan Quality** | Does the brief cover the right area? Are hypotheses relevant? | Plan Overlap Score (eval-only) — see [mechanism-design ADR §9](../.harness/docs/mechanism-design.md#9-plan-quality-metric-ac12) |
 | 3 Examination | **Retrieval Recall** (agent-level) | Whether `bug_hash` appears in `tool_trace[].args.commit_id` from examine tools | Implemented (V3 compatible) |
 | 4 Attribution | **Hit@k**, **MRR**, **D3 Attribution Quality** | Final ranked suspect list vs ground truth; causal mechanism quality | Implemented |
 | 4 Attribution (post) | **D6 Evidence Grounding** | Whether evidence quotes appear in suspect diffs | Implemented |
@@ -60,14 +60,21 @@ This table maps the V4 pipeline stages to the metrics that measure them. See [sy
 
 A case can have Retrieval Recall@100 = 1 (bug was in candidates) but agent Retrieval Recall = 0 (agent never examined it). This distinguishes input quality from agent examination quality.
 
-### Plan Quality (concept — TBD)
+### Plan Quality (Plan Overlap Score)
 
-Plan Quality measures whether the `InvestigationBrief` produced in Stage 2 targets the right area of the codebase. Possible approaches:
-- Does the plan mention files touched by `bug_hash`?
-- Do hypotheses relate to the actual bug mechanism?
-- Is the examination plan efficient (targets few candidates that include ground truth)?
+Plan Quality measures whether the `InvestigationBrief` targets the right area of the codebase using a deterministic overlap metric (zero LLM cost).
 
-**Mechanism TBD** — to be resolved in `mechanism-design` task. May require LLM judge or could be a deterministic overlap metric.
+**Mechanism:** Script-computed Plan Overlap Score in eval mode:
+
+```
+plan_overlap = |examination_plan_files ∩ bug_hash_files| / |bug_hash_files|
+```
+
+Where `bug_hash_files` = files changed in the ground-truth bug commit (eval-only oracle). Extract file paths from each examination plan step's `file_path` or from `commit_id` → files via git.
+
+**Threshold:** Plan Overlap ≥ 0.30 = plan targets correct area (binary per case).
+
+**Deferred:** LLM judge for plan quality — overlap metric sufficient at n=20 research scale. See [mechanism-design ADR §9](../.harness/docs/mechanism-design.md#9-plan-quality-metric-ac12).
 
 ### V3 compatibility note
 
@@ -276,8 +283,8 @@ These thresholds are **provisional** — they will be calibrated after the first
 | Retrieval Recall@100 ceiling | If input pipeline can't get `bug_hash` in top 100, agent fails at foundation | `retrieval-spike` task will empirically test strategies |
 | Tool output truncation (8K chars) | Large diffs or blame output may lose relevant lines | Truncation appends a notice; agent can request specific line ranges via `get_blame` |
 | Agent Retrieval Recall args-only | Only `tool_trace[].args.commit_id` counts; search result SHAs ignored | Agent examines from CandidateSet — V4 reduces this gap |
-| Plan Quality not yet measurable | Cannot evaluate whether the InvestigationBrief targets the right area | Metric concept defined above; mechanism TBD |
-| Skills mechanism undefined | Cannot leverage past investigations for improvement yet | To be resolved in `mechanism-design` task |
+| Plan Quality (eval-only) | Plan Overlap Score requires eval-mode oracle (`bug_hash` files) | Metric defined in [mechanism-design ADR §9](../.harness/docs/mechanism-design.md#9-plan-quality-metric-ac12); not available in production mode |
+| Skills mechanism undefined | Cannot leverage past investigations for improvement yet | Resolved in [mechanism-design ADR §Q2](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism) |
 | Single-LLM architecture | No multi-agent debate, no separate planning model | Harness governance provides structure; multi-agent TBD if needed |
 | No re-ranking | Evidence scores don't change suspect order | Phase B deferred until forensics justify it |
 

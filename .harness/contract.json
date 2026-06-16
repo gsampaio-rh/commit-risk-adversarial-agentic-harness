@@ -1,24 +1,37 @@
 {
-  "task_id": "tech-debt-cleanup-post-reorg",
-  "feature": "Post-reorg tech debt cleanup: delete dead code, fix stale docs/scripts, prune unused deps, verify clean tree",
-  "depends_on": ["src-package-separation"],
+  "task_id": "mechanism-design",
+  "feature": "Architecture V4 mechanism design: rules, skills, traces, prompt assembly, completion thresholds, brief validation, artifact ownership",
+  "problem": "The topology-debate ADR established V4's three pipelines and agent governance layers but left 7 implementation-level decisions as TBD. Without resolving these, no V4 code can be written — data structures, harness logic, and prompt assembly all depend on these decisions.",
+  "proposed_solution": "Produce an ADR (.harness/docs/mechanism-design.md) via builder-evaluator debate that resolves all 7 open questions with concrete, implementable decisions. Update system-specification.md, agent-loop.md, and docs/glossary.md to replace mechanism-design TBD markers with decided mechanisms.",
   "acceptance_criteria": [
-    "delete-dead-python: calibrate_confidence.py, src/eval/forensics.py, src/eval/__init__.py deleted",
-    "delete-v2-panel-test: tests/test_panel_smart_diff.py deleted",
-    "fix-stale-docs: README, system-spec, eval-framework, project_domain.mdc path corrections — zero stale module paths",
-    "fix-stale-scripts: run-smoke-eval.sh uses eval.run_eval; check-docs.sh deleted",
-    "prune-unused-deps: xgboost, scikit-learn removed from pyproject.toml",
-    "archive-stale-audit: .harness/audits/ deleted",
-    "verify-clean: pytest tests/ all pass (165); zero old import paths in src/, tests/, scripts/, docs/, README.md, AGENTS.md, .cursor/rules/"
+    "AC1: ADR exists at .harness/docs/mechanism-design.md with Status: Accepted (not Proposed)",
+    "AC2: ADR contains a numbered section for each of the 7 questions — (Q1) rules mechanism, (Q2) skills mechanism, (Q3) prompt assembly, (Q4) trace schema, (Q5) completion threshold values, (Q6) brief validation, (Q7) artifact ownership — each with a single chosen approach (not a list of options), rationale, and no TBD/depends/future-work deferrals",
+    "AC3: Rule mechanism decision specifies: hard/soft/hybrid choice, file format (e.g. YAML/JSON/markdown), storage path under repo, enforcement mechanism (harness gate vs prompt injection vs both), creator/maintainer role, at least 3 concrete rule examples each tagged with enforcement type",
+    "AC4: Skill mechanism decision specifies: storage format, storage path, retrieval method (e.g. keyword match, embedding RAG, manual index), curation process, at least 2 concrete skill examples each with trigger condition, recommended action, and source (manual or trace-derived)",
+    "AC5: Prompt assembly decision specifies: ordered section template (placeholders for rules, skills, stage instructions, candidate data, problem statement), assembly algorithm (what goes where, truncation policy), and a concrete filled example for Stage 2 Planning showing section headers and sample content (≥200 words total in example)",
+    "AC6: Trace schema decision specifies: top-level InvestigationTrace fields with types, nested schemas for hypotheses/evidence_collected/candidates_eliminated/strategy_decisions/outcome (replacing dict TBDs in system-spec), storage format (JSON vs JSONL), output directory convention (relative path), granularity (per-turn vs per-stage), and one minimal valid JSON example",
+    "AC7: Completion threshold decision specifies numeric values for evidence_threshold, hypothesis_coverage, confidence_gate, and default max_effort; calibration rationale citing V3 task_subagent_eval_v2 data (Hit@5=0.50, MRR=0.304, Evidence_Grounding=0.610, 10/20 hits, avg tool calls 2.95–4.7, budget 30 calls); degraded-mode behavior when budget exhausted before criteria met; explicitly states Retrieval Recall@100 targets remain retrieval-spike scope",
+    "AC8: Brief validation specifies: minimum hypotheses count (numeric), required InvestigationBrief fields, structural validity rules, invalid-brief definition, harness responses (retry count, default-brief fallback, re-plan trigger at max 2), aligned with topology-debate §7 fallback table",
+    "AC9: Artifact ownership lifecycle specifies: creator role per artifact type (rules, skills, traces, briefs), approval gates if any (or explicit none), retention/archival policy with paths",
+    "AC10: Mechanism-design TBD markers replaced in docs/system-specification.md (including dataclass field comments lines ~303–321), docs/agent-loop.md, and docs/glossary.md (rules, skills, plan quality entries); each replacement references mechanism-design ADR section; retrieval-spike TBDs (Retrieval Recall@100 targets) remain untouched",
+    "AC11: ADR explicitly defers CandidateSet ranking to retrieval-spike with one-sentence rationale; no other decision contradicts topology-debate ADR §§3–8 or state.json invariants (temporal_bound, llm_reasons_scripts_retrieve, agent_is_governed, observable_by_design)",
+    "AC12: Plan Quality metric (evaluation-framework.md §Plan Quality): ADR either decides measurement mechanism (deterministic overlap vs LLM judge vs deferred-with-rationale) or explicitly defers with written justification — no silent TBD left",
+    "AC13: Pragmatic research constraints verified: storage uses repo-relative filesystem paths only; banned patterns explicitly rejected in ADR (database, approval workflow, external service for rules/skills); no contradiction with AC3–AC9 storage decisions"
   ],
-  "verification_method": "pytest tests/; rg stale path patterns; filesystem checks for deleted artifacts; AGENTS.md vs find src/commit_investigator; pyproject.toml hatch/pytest config; python -m commit_investigator.eval.run_eval --help",
-  "phase": "verified",
-  "verified": true,
-  "verified": true,
-  "evaluator_verdict": {
-    "verdict": "PASS",
-    "evaluated_at": "2026-06-16T20:00:00Z",
-    "summary": "Session-final validation: all 10 checks PASS. 165/165 tests, imports OK, zero stale paths, dead artifacts removed, README/AGENTS aligned, 22 .py files.",
-    "eval_report": ".harness/evals/eval-session-final-validation.json"
-  }
+  "edge_cases": [
+    "E1: Conflicting rules (e.g., minimum 3 suspects vs conclude at confidence > 0.9 for 1 suspect) — ADR must specify conflict resolution precedence",
+    "E2: Skills from traces that are project-specific vs generalizable — ADR must specify skill scope tagging and retrieval filter",
+    "E3: Completion criteria met but zero suspects found — ADR must specify empty-result path and trace outcome encoding",
+    "E4: Budget exhausted before completion criteria met — ADR must specify degraded attribution behavior and trace flag",
+    "E5: Brief invalid after max retries — ADR must specify default-brief fallback content (e.g., examine top-N candidates)",
+    "E6: CandidateSet ranking — ADR must defer to retrieval-spike, not decide ranking algorithm"
+  ],
+  "verification_method": "Evaluator reads .harness/docs/mechanism-design.md section-by-section against AC2 checklist. Grep docs/system-specification.md, docs/agent-loop.md, docs/glossary.md for 'Mechanism TBD' and mechanism-design-scoped TBD in CompletionCriteria/InvestigationTrace dataclass comments — expect zero matches except retrieval-spike-scoped items. Verify numeric thresholds in AC7 are present. Cross-check topology-debate ADR §§3–8 and state.json invariants for contradictions. Architecture rubric (warn mode) on ADR + changed docs.",
+  "rubrics": ["architecture"],
+  "rubric_mode": "warn",
+  "negotiation_rounds": 1,
+  "negotiation_notes": "Round 1 (evaluator): AC1 requires Accepted not Proposed; AC2 enumerates 7 questions; AC5–AC7 strengthened for numeric/checkable outputs; AC10 expanded to glossary + nested schemas; AC11–AC13 added for deferral boundary and Plan Quality; edge cases E4–E6 added; verification_method made grep-specific.",
+  "phase": "evaluating",
+  "retest_count": 0,
+  "verified": true
 }

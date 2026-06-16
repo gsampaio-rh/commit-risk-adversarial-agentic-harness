@@ -1,0 +1,8 @@
+id: parent_chain_examine
+enforcement: soft
+stage: examination
+description: When a candidate is flagged, examine its parent commit in the same file chain
+check: null
+prompt_text: |
+  When a candidate commit modifies a file and a related bug is suspected,
+  examine the parent commit that last touched the same file path before concluding.
