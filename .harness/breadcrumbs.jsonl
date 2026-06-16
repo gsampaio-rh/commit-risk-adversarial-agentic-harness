@@ -605,3 +605,7 @@
 {"ts":"2026-06-16T23:01:26","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (4 files)"}
 {"ts":"2026-06-17T02:45:00Z","role":"builder","type":"checkpoint","feat":"v4-checkpoint-retrieval","msg":"P6 Retrieval Recall@100 = 0.400 (8/20). GATE PASSED (>=0.35). Target 0.45 missed by 1 case. All 4 strategies contribute: blame(4), keyword_grep(4), file_log(3), pickaxe(3). Results: results/v4-checkpoints/retrieval-recall.json","result":"pass"}
 {"ts":"2026-06-16T23:09:22","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (2 files)"}
+{"ts":"2026-06-16T23:09:43","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (2 files)"}
+{"ts":"2026-06-16T23:10:05","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (2 files)"}
+{"ts":"2026-06-17T03:15:00Z","role":"builder","type":"build","feat":"v4-investigation-harness","msg":"P7 investigation harness: state machine (Stages 2→3→4), BriefValidator (min 2 hypotheses, 1 retry, default fallback), CompletionEvaluator (5 statuses), LLMProvider protocol, hard-rule enforcement. 4 files, 521 lines total. 17 new tests, 357 pass.","result":"pass"}
+{"ts":"2026-06-16T23:13:55","role":"builder","type":"checkpoint","feat":"v4-input-pipeline","msg":"Commit:  (2 files)"}
