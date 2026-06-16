@@ -1,32 +1,134 @@
 {
-  "task_id": "v4-core-models",
-  "feature": "V4 core data structures — CandidateSet, InvestigationBrief, InvestigationState, InvestigationTrace",
-  "problem": "V4 architecture (three pipelines, governed agent) requires typed data structures that flow between pipelines and stages. V3 has ad-hoc dataclasses in orchestrator.py (BudgetState, SuspectCommit, ToolCallRecord, BugAttributionReport) but nothing for V4 concepts: CandidateSet (input pipeline output), InvestigationBrief (Stage 2 output), InvestigationState (harness-managed), CompletionCriteria (brief-driven exit), InvestigationTrace (structured investigation record with 7 nested record types). Without these, no downstream V4 task (governance, retrieval, harness) can be built.",
-  "proposed_solution": "New src/commit_investigator/models/ package with three modules: candidates.py (CandidateSet, CandidateCommit), investigation.py (InvestigationBrief, Hypothesis, ExaminationStep, InvestigationState, CompletionCriteria, BudgetState), trace.py (InvestigationTrace + HypothesisRecord, EliminationRecord, EvidenceRecord, StrategyRecord, TurnRecord, OutcomeRecord). All dataclasses with to_dict()/from_dict() JSON serialization. Unit tests for construction, defaults, and round-trip serialization. Models package is self-contained — no imports from V3 orchestrator.",
+  "feature": "v4-governance-loaders",
+  "description": "YAML rule loader and Markdown skill retriever for V4 investigation harness governance",
+  "adr_ref": ".harness/docs/mechanism-design.md §Q1 (rules), §Q2 (skills)",
+  "phase": "complete",
+  "verified": true,
+  "negotiation_round": 1,
   "acceptance_criteria": [
-    "AC1: src/commit_investigator/models/__init__.py exists and re-exports all public model types (CandidateSet, CandidateCommit, InvestigationBrief, Hypothesis, ExaminationStep, InvestigationState, CompletionCriteria, BudgetState, InvestigationTrace, HypothesisRecord, EliminationRecord, EvidenceRecord, StrategyRecord, TurnRecord, OutcomeRecord)",
-    "AC2: CandidateSet and CandidateCommit dataclasses match system-specification.md field definitions — CandidateCommit has commit_id (str), rank (int), retrieval_signal (str), summary (str), files_changed (list[str]), date (str); CandidateSet has commits (list[CandidateCommit]), retrieval_metadata (dict), temporal_bound (str)",
-    "AC3: InvestigationBrief dataclass with hypotheses (list[Hypothesis]), examination_plan (list[ExaminationStep]), success_criteria (CompletionCriteria), strategy (str), max_effort (int) defaulting to 18 per mechanism-design ADR §Q5",
-    "AC4: CompletionCriteria dataclass with defaults: evidence_threshold=3, hypothesis_coverage=2, confidence_gate=0.60, brief_satisfaction=False, budget_hard_stop=False — matching mechanism-design ADR §Q5 values exactly",
-    "AC5: InvestigationState dataclass with current_stage (int), candidates_examined (int), candidates_total (int), hypotheses_tested (int), hypotheses_confirmed (int), evidence_quotes_collected (int), re_plan_count (int), budget_used (BudgetState), brief (InvestigationBrief | None)",
-    "AC6: InvestigationTrace dataclass with all nested record types matching mechanism-design ADR §Q4 — HypothesisRecord (id, statement, status, reason, stage, turn), EliminationRecord (commit_id, reason, turn, hypothesis_id), EvidenceRecord (commit_id, quote, grounded, hypothesis_id, turn), StrategyRecord (decision, rationale, stage, turn, alternatives_considered), TurnRecord (turn, tool_calls, hypothesis_updates, completion_check), OutcomeRecord (suspect_count, top_confidence, degraded, degraded_reason, hit_at_5, mrr)",
-    "AC7: All model types have to_dict() → dict and from_dict(data: dict) → Self round-trip JSON serialization; json.dumps(model.to_dict()) produces valid JSON; Model.from_dict(json.loads(json_str)) reconstructs equivalent instance",
-    "AC8: tests/test_models.py with tests covering: construction with all defaults, default value assertions for max_effort=18 and CompletionCriteria thresholds, round-trip JSON (to_dict → from_dict → to_dict produces identical output) for every top-level model type (CandidateSet, InvestigationBrief, InvestigationState, InvestigationTrace)",
-    "AC9: Models package has zero imports from commit_investigator.agent — self-contained, no circular dependencies",
-    "AC10: pytest tests/ passes — all existing tests (165+) plus new model tests",
-    "AC11: Each module file ≤ 300 lines"
+    {
+      "id": "AC1",
+      "description": "GovernanceRule dataclass with fields: id (str), enforcement (Literal['hard','soft']), stage (Literal['planning','examination','attribution','all']), description (str), check (str | None), prompt_text (str). Invalid enforcement or stage values raise ValueError on construction.",
+      "verification": "Unit test: construct from valid dict; assert all fields; assert ValueError for enforcement='maybe' and stage='invalid'"
+    },
+    {
+      "id": "AC2",
+      "description": "load_rules(stage, rules_dir=None) → tuple[list[GovernanceRule], list[GovernanceRule]] as (hard_rules, soft_rules). Includes rules where rule.stage == stage OR rule.stage == 'all'. Default rules_dir=data/governance/rules/.",
+      "verification": "Unit test against seed files: load_rules('attribution') returns only min_suspects (hard); load_rules('examination') returns parent_chain_examine (soft) + continue_below_confidence (hard); load_rules('planning') returns ([], [])"
+    },
+    {
+      "id": "AC3",
+      "description": "Hard/soft partition is exhaustive and exclusive: every loaded rule appears in exactly one of hard_rules or soft_rules based on enforcement field.",
+      "verification": "Unit test: len(hard)+len(soft) == total matched; hard all enforcement=hard; soft all enforcement=soft; no overlap by id"
+    },
+    {
+      "id": "AC4",
+      "description": "RuleViolation dataclass with fields: rule_id (str), message (str), context (dict). HardRuleRegistry.register(rule_id, check_fn) and check_all(stage, context) → list[RuleViolation] invoking registered check_fns for hard rules at stage.",
+      "verification": "Unit test: register stub for min_suspects returning one violation; check_all('attribution', ctx) returns it; unregistered hard rules skipped without error"
+    },
+    {
+      "id": "AC5",
+      "description": "HardRuleRegistry includes stub check implementations registered by default for min_suspects and continue_below_confidence. Stubs read context keys suspects/candidate_set/top_confidence/confidence_gate/budget_hard_stop and return violations when check condition fails.",
+      "verification": "Unit test: min_suspects stub returns violation when len(suspects)<3 and len(candidate_set)>=3; continue_below_confidence stub returns violation when top_confidence<gate and not budget_hard_stop"
+    },
+    {
+      "id": "AC6",
+      "description": "GovernanceSkill dataclass with fields: id (str), scope (Literal['project','general']), project (str | None), triggers (list[str]), source (Literal['manual','trace-derived']), trace_ref (str), body (str — markdown after frontmatter). scope=project requires non-empty project.",
+      "verification": "Unit test: parse spark_serde_blame and npe_null_check_removal seed files; assert all fields including body non-empty; ValueError when scope=project and project empty"
+    },
+    {
+      "id": "AC7",
+      "description": "retrieve_skills(problem_statement, top_k=3, skills_dir=None) → list[tuple[GovernanceSkill, int]] ranked by score descending. score = len({t.lower() for t in triggers} ∩ {k.lower() for k in problem_statement.extracted_keywords}); include only score > 0. Default skills_dir=data/governance/skills/ (excludes skills/drafts/ subtree).",
+      "verification": "Unit test: ProblemStatement(project='SPARK', keywords=['serialization','kryo']) returns spark_serde_blame with score 2 as first result"
+    },
+    {
+      "id": "AC8",
+      "description": "retrieve_skills scope filter: project-scoped skills included only when problem_statement.project equals skill.project (case-insensitive). general-scoped skills match any project when triggers overlap.",
+      "verification": "Unit test: SPARK skill not returned for GROOVY project even when keywords match; general npe skill returned for GROOVY when NPE keywords match"
+    },
+    {
+      "id": "AC9",
+      "description": "retrieve_skills tie-breaking: on equal score, project-scoped skills rank before general-scoped skills; stable order by skill id when still tied.",
+      "verification": "Unit test: fixture with project and general skill sharing one trigger keyword — project skill ranks first"
+    },
+    {
+      "id": "AC10",
+      "description": "Loaders parse committed seed governance artifacts without modification: 3 YAML rules + 2 active MD skills at data/governance/ match ADR field values (enforcement, stage, triggers, scope, source, trace_ref).",
+      "verification": "Integration test: load seed dirs; assert rule ids {min_suspects, parent_chain_examine, continue_below_confidence}; assert skill ids {spark_serde_blame, npe_null_check_removal}; parent_chain_examine.check is None"
+    },
+    {
+      "id": "AC11",
+      "description": "governance/__init__.py exports: GovernanceRule, GovernanceSkill, RuleViolation, load_rules, retrieve_skills, HardRuleRegistry",
+      "verification": "Import test: from commit_investigator.governance import all seven names"
+    },
+    {
+      "id": "AC12",
+      "description": "Package isolation: governance imports only from commit_investigator.extraction (ProblemStatement) and stdlib/third-party (yaml). Zero imports from agent/, eval/, infra/, or models/.",
+      "verification": "grep: no 'from commit_investigator.(agent|eval|infra|models)' in src/commit_investigator/governance/"
+    },
+    {
+      "id": "AC13",
+      "description": "pyyaml listed in pyproject.toml [project].dependencies (package name pyyaml, import yaml).",
+      "verification": "pyproject.toml dependencies include pyyaml; python -c 'import yaml' succeeds in project venv"
+    },
+    {
+      "id": "AC14",
+      "description": "tests/test_governance.py covers all ACs and edge cases; pytest tests/ passes with zero regressions (188+ existing tests).",
+      "verification": "pytest tests/ --ignore=tests/_v2_archive exits 0; test_governance.py exists with ≥15 tests"
+    },
+    {
+      "id": "AC15",
+      "description": "Each module file under src/commit_investigator/governance/ ≤ 300 lines.",
+      "verification": "wc -l on all .py files in governance package"
+    }
   ],
   "edge_cases": [
-    "E1: CandidateSet with empty commits list — construction succeeds, to_dict() produces valid JSON with empty list",
-    "E2: InvestigationTrace with all optional/nullable fields set to None — round-trip preserves None values correctly",
-    "E3: CompletionCriteria with custom thresholds (non-default values) — from_dict() respects provided values over defaults"
+    {
+      "id": "E1",
+      "description": "load_rules('planning') against seed data returns empty hard and soft lists",
+      "verification": "Unit test: ([], [])"
+    },
+    {
+      "id": "E2",
+      "description": "Rule with stage='all' is returned for every load_rules(stage) call",
+      "verification": "Unit test: tmp rules dir with stage=all rule; load_rules('examination') and load_rules('attribution') both include it"
+    },
+    {
+      "id": "E3",
+      "description": "retrieve_skills returns [] when no keyword overlap (score=0 for all skills)",
+      "verification": "Unit test: keywords=['unrelated_xyz'] returns []"
+    },
+    {
+      "id": "E4",
+      "description": "retrieve_skills ignores skills/drafts/ even when draft file has matching triggers",
+      "verification": "Unit test: draft skill in tmp skills/drafts/ with matching keywords not returned"
+    },
+    {
+      "id": "E5",
+      "description": "Malformed YAML rule file skipped with warning logged; other valid rules still load",
+      "verification": "Unit test: tmp dir with one bad.yaml + one valid.yaml; caplog/warning assert; valid rule loaded"
+    },
+    {
+      "id": "E6",
+      "description": "Malformed skill markdown (missing/invalid frontmatter) skipped with warning; valid skills still load",
+      "verification": "Unit test: tmp dir with broken.md + valid.md; warning logged; valid skill returned"
+    },
+    {
+      "id": "E7",
+      "description": "Empty rules_dir and skills_dir return empty results without error",
+      "verification": "Unit test: load_rules('examination', rules_dir=empty_tmp) → ([],[]); retrieve_skills(..., skills_dir=empty_tmp) → []"
+    },
+    {
+      "id": "E8",
+      "description": "Keyword matching is case-insensitive: trigger 'Kryo' matches extracted keyword 'kryo'",
+      "verification": "Unit test: case-variant keywords produce score ≥ 1"
+    }
   ],
-  "verification_method": "Evaluator runs: (1) python -c 'from commit_investigator.models import CandidateSet, InvestigationBrief, InvestigationState, InvestigationTrace' to verify imports; (2) pytest tests/test_models.py -v to verify all model tests pass; (3) pytest tests/ to verify no regressions; (4) rg 'from commit_investigator.agent' src/commit_investigator/models/ to verify no V3 imports; (5) wc -l on each model file to verify ≤300 lines; (6) spot-check default values in Python REPL.",
-  "rubrics": [
-    "code-quality"
+  "out_of_scope": [
+    "PromptAssembler and §Q3 section ordering (v4-prompt-assembler task)",
+    "Q1 conflict-resolution precedence at harness transitions (v4-investigation-harness task)",
+    "Skill draft writer from traces (future harness task)",
+    "Composite trigger 'project + keyword' beyond seed file triggers (spark_serde_blame uses keyword list only)"
   ],
-  "rubric_mode": "warn",
-  "negotiation_rounds": 1,
-  "phase": "verified",
-  "verified": true
+  "verification_method": "pytest tests/test_governance.py tests/ + grep import isolation + wc -l file sizing + ReadLints on src/commit_investigator/governance/"
 }
