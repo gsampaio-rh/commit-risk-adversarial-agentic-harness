@@ -5,10 +5,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from commit_investigator.context.git_context import GitContextProvider
-from commit_investigator.context.problem_extractor import ProblemStatement
+from commit_investigator.infra.git_context import GitContextProvider
+from commit_investigator.extraction.problem_extractor import ProblemStatement
 from commit_investigator.infra.llm import LLMMessage, LLMProvider, LLMResponse
-from commit_investigator.pipeline.orchestrator import (
+from commit_investigator.agent.orchestrator import (
     AgentOrchestrator,
     BudgetState,
     BugAttributionReport,
@@ -332,7 +332,7 @@ class TestEvidenceScoringMetadata:
     """Unit tests for in-pipeline evidence score attachment."""
 
     def test_suspects_unchanged_after_scoring(self) -> None:
-        from commit_investigator.pipeline.orchestrator import _attach_evidence_scores
+        from commit_investigator.agent.orchestrator import _attach_evidence_scores
 
         suspects = [
             SuspectCommit("abc123", 1, 0.85, "mechanism one", ["quote a"]),
@@ -357,7 +357,7 @@ class TestEvidenceScoringMetadata:
         assert scores[1]["grounding_rate"] == 0.0
 
     def test_empty_suspects_returns_empty_scores(self) -> None:
-        from commit_investigator.pipeline.orchestrator import _attach_evidence_scores
+        from commit_investigator.agent.orchestrator import _attach_evidence_scores
 
         git = MagicMock()
         assert _attach_evidence_scores([], git) == []

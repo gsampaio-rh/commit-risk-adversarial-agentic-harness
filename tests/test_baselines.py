@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from commit_investigator.context.git_context import GitContextProvider
-from commit_investigator.context.problem_extractor import ProblemStatement
-from commit_investigator.runners.baselines import (
+from commit_investigator.infra.git_context import GitContextProvider
+from commit_investigator.extraction.problem_extractor import ProblemStatement
+from commit_investigator.eval.baselines import (
     _extract_class_names,
     _extract_file_hints,
     file_history_recency,

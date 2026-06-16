@@ -39,15 +39,11 @@ Before starting a new task: check if a contract exists, read the last 5 breadcru
 
 ```
 src/commit_investigator/
-├── analysis/          # evidence_tagger, report schema
-├── context/           # git_context, smart_diff, problem_extractor (new)
-├── hypothesis/        # (will contain attribution prompts)
-├── infra/             # ground_truth, jira_client, llm providers
-├── pipeline/          # orchestrator (attribution agent), tools
-└── runners/           # eval_harness, run_eval
+├── extraction/        # problem_extractor, jira_client
+├── agent/             # orchestrator, tools, investigators, evidence_tagger
+├── eval/              # eval_metrics, d3_judge, baselines, run_eval, ground_truth
+└── infra/             # llm, git_context, smart_diff (shared)
 ```
-
-V2 modules are preserved under `src/commit_investigator/_v2_archive/` and `tests/_v2_archive/` for reference. Do not import from `_v2_archive/` in V3 code paths.
 
 ## Pipeline
 
@@ -57,9 +53,9 @@ ProblemStatement (input) → Attribution Agent (multi-turn, tool-use) → Eviden
 
 | Stage | Module | Owner |
 |-------|--------|-------|
-| Eval setup | `runners/run_eval.py`, `context/problem_extractor.py` | Harness |
-| Commit search & attribution | `pipeline/orchestrator.py` | LLM + tools |
-| Evidence scoring | `analysis/evidence_tagger.py` (inside `investigate()`) | Script |
-| Evaluation | `runners/eval_metrics.py` | Oracle |
+| Eval setup | `eval/run_eval.py`, `extraction/problem_extractor.py` | Harness |
+| Commit search & attribution | `agent/orchestrator.py` | LLM + tools |
+| Evidence scoring | `agent/evidence_tagger.py` (inside `investigate()`) | Script |
+| Evaluation | `eval/eval_metrics.py` | Oracle |
 
 Full three-stage pipeline specification in [docs/system-specification.md](docs/system-specification.md).

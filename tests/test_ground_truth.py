@@ -4,7 +4,7 @@ import pytest
 
 from tests.conftest import skip_no_data
 
-from commit_investigator.infra.ground_truth import GroundTruthGraph, CommitChain
+from commit_investigator.eval.ground_truth import GroundTruthGraph, CommitChain
 
 
 @skip_no_data

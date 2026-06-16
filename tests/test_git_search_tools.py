@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from commit_investigator.context.git_context import GitContextProvider
+from commit_investigator.infra.git_context import GitContextProvider
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

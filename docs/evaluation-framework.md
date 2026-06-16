@@ -23,7 +23,7 @@ These metrics evaluate the quality of the LLM's output independent of whether it
 | Metric | Type | Question answered | Owner | Status |
 |--------|------|-------------------|-------|--------|
 | **D6 Evidence Grounding** | Continuous [0, 1] per case | Are the evidence quotes from real diffs? | Script | Implemented |
-| **D3 Attribution Quality** | 0-4 scale per case | Does the causal mechanism explain how the suspect introduced the bug? | LLM judge | **Not yet implemented** |
+| **D3 Attribution Quality** | 0-4 scale per case | Does the causal mechanism explain how the suspect introduced the bug? | LLM judge | Implemented (`eval/d3_judge.py`) |
 
 ---
 
@@ -37,7 +37,7 @@ This table links agentic loop stages (see [system-specification.md](system-speci
 | 2 Search | — | Search listing tools do not feed Retrieval Recall directly (see below) | — |
 | 3 Examine | **Retrieval Recall** | Whether `bug_hash` appears in `tool_trace[].args.commit_id` from examine tools (`get_commit_diff`, `get_commit_message`, `get_file_at_commit`) | Implemented |
 | 4 Refine | **Retrieval Recall** (continued) | Same as stage 3 — any tool call with `commit_id` in args counts | Implemented |
-| 5 Conclude | **Hit@k**, **MRR**, **D3 Attribution Quality** | Final ranked suspect list vs ground truth `bug_hash`; causal mechanism quality | Hit@k/MRR implemented; D3 not yet implemented |
+| 5 Conclude | **Hit@k**, **MRR**, **D3 Attribution Quality** | Final ranked suspect list vs ground truth `bug_hash`; causal mechanism quality | Implemented |
 | 6 Evidence Scoring | **D6 Evidence Grounding** | Whether evidence quotes appear in suspect diffs | Implemented |
 | 7 Report Assembly | — | Structural correctness of `BugAttributionReport` | Tested via schema, not scored |
 
@@ -116,7 +116,7 @@ aggregated = mean(case_score for all cases)
 
 **Why it matters:** Measures whether the LLM is hallucinating evidence. A high grounding rate means the agent is citing real code changes. This is computed by script — no LLM judge needed.
 
-### D3 Attribution Quality (design — not yet implemented)
+### D3 Attribution Quality
 
 **What it measures:** Does the causal mechanism ("If X then Y") correctly explain how the suspect commit introduced the bug?
 
@@ -134,7 +134,7 @@ aggregated = mean(case_score for all cases)
 
 **Why separate from Hit@k:** An agent can find the right commit (Hit@1 = 1) with a bad explanation (D3 = 1), or miss the right commit (Hit@1 = 0) but produce excellent reasoning about a plausible alternative (D3 = 3). Both cases are informative.
 
-**Implementation status:** Rubric defined. LLM judge not yet implemented (task `d3-llm-judge`, P7).
+**Implementation status:** Implemented in `eval/d3_judge.py`. Scores top-3 suspects per case using any `LLMProvider`. Integrated into `evaluate_attribution()` via optional `d3_llm` parameter.
 
 ---
 
@@ -177,7 +177,7 @@ Baselines establish the performance floor. The agent must beat these to justify 
 
 **Expected Hit@5:** ~0.01 (1 in ~10K commits). Useful only as an absolute floor reference.
 
-**Implementation status:** Not yet implemented (task `random-baseline`, P6).
+**Implementation status:** Implemented in `eval/baselines.py`. Random baseline selects 5 commits from a pool of 500.
 
 ---
 

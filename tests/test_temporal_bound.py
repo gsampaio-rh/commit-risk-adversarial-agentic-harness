@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from commit_investigator.context.git_context import (
+from commit_investigator.infra.git_context import (
     GitCommitNotFoundError,
     GitContextProvider,
     GitRepoNotFoundError,

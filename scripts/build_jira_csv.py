@@ -30,8 +30,8 @@ _SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-from commit_investigator.context.git_context import GitContextProvider, GitRepoNotFoundError
-from commit_investigator.infra.jira_client import JiraClient, JiraClientError
+from commit_investigator.infra.git_context import GitContextProvider, GitRepoNotFoundError
+from commit_investigator.extraction.jira_client import JiraClient, JiraClientError
 
 _JIRA_KEY_PATTERN = re.compile(r"([A-Z][A-Z0-9]+-\d+)")
 

@@ -4,12 +4,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from commit_investigator.pipeline.orchestrator import (
+from commit_investigator.agent.orchestrator import (
     BugAttributionReport,
     SuspectCommit,
     ToolCallRecord,
 )
-from commit_investigator.runners.eval_metrics import (
+from commit_investigator.eval.eval_metrics import (
     AggregateEvalReport,
     AttributionEvalResult,
     _find_rank,

@@ -8,11 +8,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from commit_investigator.context.problem_extractor import ProblemStatement
-from commit_investigator.infra.ground_truth import CommitChain, GroundTruthGraph
-from commit_investigator.infra.jira_client import JiraClientError, JiraIssue
-from commit_investigator.pipeline.orchestrator import BugAttributionReport, SuspectCommit
-from commit_investigator.runners.run_eval import (
+from commit_investigator.extraction.problem_extractor import ProblemStatement
+from commit_investigator.eval.ground_truth import CommitChain, GroundTruthGraph
+from commit_investigator.extraction.jira_client import JiraClientError, JiraIssue
+from commit_investigator.agent.orchestrator import BugAttributionReport, SuspectCommit
+from commit_investigator.eval.run_eval import (
     ComparisonReport,
     EvalCase,
     _print_comparison,
@@ -61,7 +61,7 @@ class TestEvalCase:
 
 class TestComparisonReport:
     def test_to_dict(self) -> None:
-        from commit_investigator.runners.eval_metrics import (
+        from commit_investigator.eval.eval_metrics import (
             AggregateEvalReport,
         )
 
@@ -92,7 +92,7 @@ class TestComparisonReport:
 
 class TestMarkdownRender:
     def test_renders_table(self) -> None:
-        from commit_investigator.runners.eval_metrics import AggregateEvalReport
+        from commit_investigator.eval.eval_metrics import AggregateEvalReport
 
         agent_agg = AggregateEvalReport(
             total=5, hit_at_1=0.2, hit_at_3=0.4, hit_at_5=0.6,
@@ -122,7 +122,7 @@ class TestMarkdownRender:
 
 class TestPrintComparison:
     def test_no_error(self, capsys: pytest.CaptureFixture) -> None:
-        from commit_investigator.runners.eval_metrics import AggregateEvalReport
+        from commit_investigator.eval.eval_metrics import AggregateEvalReport
 
         agent_agg = AggregateEvalReport(
             total=3, hit_at_1=0.33, hit_at_3=0.33, hit_at_5=0.67,

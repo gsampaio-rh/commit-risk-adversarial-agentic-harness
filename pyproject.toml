@@ -10,8 +10,6 @@ requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.0",
     "httpx",
-    "xgboost",
-    "scikit-learn",
     "cursor-sdk>=0.1.7",
 ]
 

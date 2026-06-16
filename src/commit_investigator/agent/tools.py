@@ -1,0 +1,202 @@
+"""Tool registry: defines tools available to the attribution agent.
+
+Tools wrap GitContextProvider methods for LLM function-calling dispatch.
+V3 tools enable repository-wide search (not single-commit examination).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Callable
+
+from commit_investigator.infra.git_context import GitContextProvider
+
+
+@dataclass
+class ToolDefinition:
+    """A tool that the agent can invoke during investigation."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
+    handler: Callable[..., str]
+
+
+class ToolRegistry:
+    """Registry of tools available to the investigative agent.
+
+    Tools are dispatched by name. Each tool returns a string result
+    that gets appended to the conversation context.
+    """
+
+    def __init__(self) -> None:
+        self._tools: dict[str, ToolDefinition] = {}
+
+    def register(self, tool: ToolDefinition) -> None:
+        self._tools[tool.name] = tool
+
+    def get(self, name: str) -> ToolDefinition | None:
+        return self._tools.get(name)
+
+    def execute(self, name: str, **kwargs: Any) -> str:
+        """Execute a tool by name. Returns result string or error message."""
+        tool = self._tools.get(name)
+        if tool is None:
+            return f"Error: unknown tool '{name}'"
+        try:
+            return tool.handler(**kwargs)
+        except Exception as e:
+            return f"Error executing {name}: {e}"
+
+    @property
+    def tool_names(self) -> list[str]:
+        return sorted(self._tools.keys())
+
+    def to_openai_tools(self) -> list[dict[str, Any]]:
+        """Export tools in OpenAI function-calling format."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                },
+            }
+            for t in self._tools.values()
+        ]
+
+
+def _format_entries(entries: list, label: str = "Results") -> str:
+    """Format FileHistoryEntry list as readable text."""
+    if not entries:
+        return "No results found."
+    lines = [f"{label} ({len(entries)} commits):"]
+    for e in entries:
+        lines.append(f"  {e.commit_id[:12]} | {e.date[:10]} | {e.author} | {e.message}")
+    return "\n".join(lines)
+
+
+def _truncate(text: str, max_chars: int = 8000) -> str:
+    """Truncate long tool output to keep context manageable."""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + f"\n\n... (truncated, {len(text)} chars total)"
+
+
+def build_attribution_tools(git: GitContextProvider) -> ToolRegistry:
+    """Build the tool registry for the V3 attribution agent."""
+    registry = ToolRegistry()
+
+    registry.register(ToolDefinition(
+        name="search_commits_by_file",
+        description="Find commits that modified a specific file path. Returns most recent first.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path to search history for"},
+                "max_results": {"type": "integer", "description": "Max commits to return", "default": 10},
+            },
+            "required": ["path"],
+        },
+        handler=lambda path, max_results=10: _format_entries(
+            git.search_commits_by_file(path, max_results=max_results),
+            f"Commits touching {path}",
+        ),
+    ))
+
+    registry.register(ToolDefinition(
+        name="search_commits_by_keyword",
+        description="Search commit messages for a keyword (case-insensitive). Good for finding JIRA keys, feature names, or error patterns.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "keyword": {"type": "string", "description": "Keyword to search for in commit messages"},
+                "max_results": {"type": "integer", "description": "Max commits to return", "default": 10},
+            },
+            "required": ["keyword"],
+        },
+        handler=lambda keyword, max_results=10: _format_entries(
+            git.search_commits_by_keyword(keyword, max_results=max_results),
+            f"Commits matching '{keyword}'",
+        ),
+    ))
+
+    registry.register(ToolDefinition(
+        name="list_recent_commits",
+        description="List recent commits, optionally filtered by file path.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "max_results": {"type": "integer", "description": "Max commits to return", "default": 20},
+                "path": {"type": "string", "description": "Optional file path filter"},
+            },
+        },
+        handler=lambda max_results=20, path=None: _format_entries(
+            git.list_recent_commits(max_results=max_results, path=path),
+            "Recent commits",
+        ),
+    ))
+
+    registry.register(ToolDefinition(
+        name="get_commit_diff",
+        description="Get the unified diff (patch) for a specific commit. Shows exactly what changed.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "commit_id": {"type": "string", "description": "Full or short commit hash"},
+            },
+            "required": ["commit_id"],
+        },
+        handler=lambda commit_id: _truncate(
+            git.get_diff(commit_id) or f"No diff found for {commit_id}"
+        ),
+    ))
+
+    registry.register(ToolDefinition(
+        name="get_commit_message",
+        description="Get the full commit message for a specific commit.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "commit_id": {"type": "string", "description": "Full or short commit hash"},
+            },
+            "required": ["commit_id"],
+        },
+        handler=lambda commit_id: git.get_commit_message(commit_id) or f"No message for {commit_id}",
+    ))
+
+    registry.register(ToolDefinition(
+        name="get_blame",
+        description="Get git blame for a file, showing which commit last modified each line. Useful for finding who introduced specific code.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path to blame"},
+                "line_start": {"type": "integer", "description": "Start line number", "default": 1},
+                "line_end": {"type": "integer", "description": "End line number (omit for whole file)"},
+            },
+            "required": ["path"],
+        },
+        handler=lambda path, line_start=1, line_end=None: _truncate(
+            git.get_blame(path, line_start=line_start, line_end=line_end) or f"No blame for {path}"
+        ),
+    ))
+
+    registry.register(ToolDefinition(
+        name="get_file_at_commit",
+        description="Get the contents of a file at a specific commit. Useful for seeing state before/after a change.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "commit_id": {"type": "string", "description": "Commit hash"},
+                "path": {"type": "string", "description": "File path"},
+            },
+            "required": ["commit_id", "path"],
+        },
+        handler=lambda commit_id, path: _truncate(
+            git.get_file_at_commit(commit_id, path) or f"File {path} not found at {commit_id}"
+        ),
+    ))
+
+    return registry

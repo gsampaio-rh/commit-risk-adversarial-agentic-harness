@@ -25,8 +25,8 @@ _SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-from commit_investigator.infra.ground_truth import GroundTruthGraph
-from commit_investigator.infra.jira_client import JiraClient, JiraClientError
+from commit_investigator.eval.ground_truth import GroundTruthGraph
+from commit_investigator.extraction.jira_client import JiraClient, JiraClientError
 
 logger = logging.getLogger(__name__)
 

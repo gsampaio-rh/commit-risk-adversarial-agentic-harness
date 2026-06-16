@@ -2,7 +2,7 @@
 
 import pytest
 
-from commit_investigator.analysis.evidence_tagger import (
+from commit_investigator.agent.evidence_tagger import (
     SuspectEvidenceScore,
     score_suspect_evidence,
 )

@@ -250,7 +250,7 @@ def _compute_adjusted_metrics(
 
 
 def main() -> None:
-    from commit_investigator.infra.ground_truth import GroundTruthGraph
+    from commit_investigator.eval.ground_truth import GroundTruthGraph
 
     with open(EVAL_RESULTS) as f:
         eval_data = json.load(f)

@@ -23,14 +23,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from commit_investigator.context.git_context import GitContextProvider
-from commit_investigator.context.problem_extractor import ProblemStatement
-from commit_investigator.pipeline.orchestrator import _attach_evidence_scores
-from commit_investigator.pipeline.task_subagent_investigator import (
+from commit_investigator.infra.git_context import GitContextProvider
+from commit_investigator.extraction.problem_extractor import ProblemStatement
+from commit_investigator.agent.orchestrator import _attach_evidence_scores
+from commit_investigator.agent.task_subagent_investigator import (
     parse_subagent_response,
     suspects_to_report,
 )
-from commit_investigator.runners.eval_metrics import (
+from commit_investigator.eval.eval_metrics import (
     aggregate_results,
     evaluate_attribution,
 )

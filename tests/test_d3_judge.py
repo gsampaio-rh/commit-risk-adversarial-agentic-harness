@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from commit_investigator.infra.llm import LLMMessage, LLMProvider, LLMResponse
-from commit_investigator.pipeline.orchestrator import SuspectCommit
-from commit_investigator.runners.d3_judge import (
+from commit_investigator.agent.orchestrator import SuspectCommit
+from commit_investigator.eval.d3_judge import (
     D3Score,
     _format_evidence,
     _truncate_diff,

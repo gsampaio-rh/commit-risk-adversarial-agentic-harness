@@ -26,7 +26,7 @@ if str(_SRC_ROOT) not in sys.path:
 
 
 def check_ground_truth(zip_path: str) -> bool:
-    from commit_investigator.infra.ground_truth import GroundTruthGraph
+    from commit_investigator.eval.ground_truth import GroundTruthGraph
 
     print("1. Ground Truth Graph")
     try:
@@ -67,9 +67,9 @@ def check_repos(repos_dir: str, projects: list[str]) -> tuple[bool, list[str]]:
 
 
 def check_jira_cache(jira_cache: str, n: int, seed: int, zip_path: str) -> tuple[bool, int]:
-    from commit_investigator.infra.ground_truth import GroundTruthGraph
-    from commit_investigator.infra.jira_client import JiraClient
-    from commit_investigator.runners.run_eval import select_eval_cases
+    from commit_investigator.eval.ground_truth import GroundTruthGraph
+    from commit_investigator.extraction.jira_client import JiraClient
+    from commit_investigator.eval.run_eval import select_eval_cases
 
     print(f"\n3. JIRA Cache + Case Selection (n={n}, seed={seed})")
     gt = GroundTruthGraph.from_replication_zip(zip_path)
@@ -95,9 +95,9 @@ def check_jira_cache(jira_cache: str, n: int, seed: int, zip_path: str) -> tuple
 
 
 def check_eval_readiness(repos_dir: str, jira_cache: str, n: int, seed: int, zip_path: str) -> bool:
-    from commit_investigator.infra.ground_truth import GroundTruthGraph
-    from commit_investigator.infra.jira_client import JiraClient
-    from commit_investigator.runners.run_eval import select_eval_cases
+    from commit_investigator.eval.ground_truth import GroundTruthGraph
+    from commit_investigator.extraction.jira_client import JiraClient
+    from commit_investigator.eval.run_eval import select_eval_cases
 
     print(f"\n4. Eval Readiness (repos + JIRA for all {n} cases)")
     gt = GroundTruthGraph.from_replication_zip(zip_path)

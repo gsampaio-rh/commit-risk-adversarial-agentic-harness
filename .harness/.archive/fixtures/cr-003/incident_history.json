@@ -1,3 +1,0 @@
-[
-  {"incident_id": "INC-2025-2567", "service": "auth-gateway", "change_category": "certificate_rotation", "severity": "P3", "root_cause_summary": "Certificate chain incomplete after rotation — resolved by adding intermediate CA", "date": "2025-08-30"}
-]

@@ -23,11 +23,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from commit_investigator.context.problem_extractor import ProblemExtractor
-from commit_investigator.infra.ground_truth import GroundTruthGraph
-from commit_investigator.infra.jira_client import JiraClient
-from commit_investigator.pipeline.task_subagent_investigator import EvalCaseSpec
-from commit_investigator.runners.run_eval import select_eval_cases
+from commit_investigator.extraction.problem_extractor import ProblemExtractor
+from commit_investigator.eval.ground_truth import GroundTruthGraph
+from commit_investigator.extraction.jira_client import JiraClient
+from commit_investigator.agent.task_subagent_investigator import EvalCaseSpec
+from commit_investigator.eval.run_eval import select_eval_cases
 
 
 def _load_dotenv(path: str = ".env") -> None:

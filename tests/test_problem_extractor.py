@@ -2,8 +2,8 @@
 
 import pytest
 
-from commit_investigator.context.problem_extractor import ProblemExtractor, ProblemStatement
-from commit_investigator.infra.jira_client import JiraIssue
+from commit_investigator.extraction.problem_extractor import ProblemExtractor, ProblemStatement
+from commit_investigator.extraction.jira_client import JiraIssue
 
 
 def _make_jira_issue(

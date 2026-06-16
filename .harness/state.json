@@ -2,7 +2,7 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v3-prompt-v2-done",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-16T08:00:00Z",
+  "updated": "2026-06-16T16:00:00Z",
   "schema_version": 5,
   "_archive": "V2 state archived to .harness/state-v2-archive.json. V2 final: D1=0.72 D3=0.31 (n=50), JIRA injection brought D3=0.35 on n=20.",
   "vision": "Build a bug attribution agent: given a JIRA bug report (title + description), autonomously search a git repository to identify the commit that introduced the bug. The agent uses git tools (log, blame, diff, show) with temporal bounds, producing a ranked list of suspect commits with evidence-grounded causal explanations. Evaluated via Hit@k, MRR, and attribution quality metrics against ApacheJIT ground truth.",
@@ -312,7 +312,7 @@
         "regression": ["FLINK-3602 (different commit in chain selected)"]
       },
       "modules_created": [
-        "src/commit_investigator/pipeline/task_subagent_investigator.py",
+        "src/commit_investigator/agent/task_subagent_investigator.py",
         "scripts/prepare_subagent_eval.py",
         "scripts/collect_subagent_results.py"
       ]
@@ -347,8 +347,132 @@
         "implement-judge: DONE — score_suspect_d3() + judge_attribution_d3() with diff truncation, parse fallbacks",
         "integrate-eval: DONE — d3_avg_score/d3_top_score/d3_details in AttributionEvalResult + AggregateEvalReport"
       ],
-      "modules_created": ["src/commit_investigator/runners/d3_judge.py", "tests/test_d3_judge.py"],
+      "modules_created": ["src/commit_investigator/eval/d3_judge.py", "tests/test_d3_judge.py"],
       "note": "17 tests pass. Accepts any LLMProvider. Scores top-3 suspects by default. Optional via d3_llm param in evaluate_attribution()."
+    },
+    {
+      "id": "src-package-separation",
+      "name": "Reorganize src/ into 3 clear packages: extraction, agent, evaluation",
+      "type": "refactor",
+      "status": "verified",
+      "priority": 7,
+      "depends_on": [],
+      "subtasks": [
+        "package-1-extraction: Issue/problem extraction (ProblemExtractor, JIRA client, ground truth loading)",
+        "package-2-agent: Investigation agent (orchestrator, tools, hypothesis, evidence tagging)",
+        "package-3-eval: Evaluation and judging (metrics, D3 judge, baselines, run_eval)"
+      ],
+      "note": "Done: extraction/, agent/, eval/, infra/ packages. Old dirs (context/, pipeline/, runners/, analysis/, hypothesis/) removed. 165 tests pass except test_panel_smart_diff (V2 orphan)."
+    },
+    {
+      "id": "tech-debt-cleanup-post-reorg",
+      "name": "Post-reorg tech debt cleanup: dead code, stale docs, broken tests",
+      "type": "cleanup",
+      "status": "verified",
+      "priority": 7,
+      "depends_on": ["src-package-separation"],
+      "scope": "Delete or fix only broken/dead/misleading artifacts. No refactors of working code.",
+      "audit_summary": {
+        "dead_python": [
+          "calibrate_confidence.py — V2 D1 calibration; imports commit_investigator.analysis.signal_extractor (ModuleNotFoundError)",
+          "src/eval/forensics.py — orphan top-level package (not commit_investigator/eval/); imports analysis.archetype + context.context_builder (both deleted)",
+          "src/eval/__init__.py — empty stub for orphan src/eval/ package; delete with forensics.py"
+        ],
+        "broken_tests": [
+          "tests/test_panel_smart_diff.py — imports runners.eval_judge + analysis.report (V2 archived); blocks pytest collection; depends on missing output/runs/2026-06-10 panel data"
+        ],
+        "not_broken": [
+          "tests/test_smart_diff.py — already imports commit_investigator.infra.smart_diff (correct post-reorg); no fix needed"
+        ],
+        "stale_docs": [
+          "README.md — V2 package layout, runners.run_eval commands, D1-D6 thresholds, 'V2 pipeline active' status",
+          "docs/system-specification.md — 7 module paths still use runners/, context/, pipeline/, infra/ground_truth.py",
+          "docs/evaluation-framework.md — D3 judge and random baseline marked 'not yet implemented' (both verified done)",
+          ".cursor/rules/project_domain.mdc — stale module paths + 'D3 not yet implemented'"
+        ],
+        "stale_scripts": [
+          "scripts/run-smoke-eval.sh — 3x commit_investigator.runners.run_eval (should be eval.run_eval)",
+          "scripts/check-docs.sh — references docs/temporal-model.md, docs/architecture.md, docs/evaluation.md (none exist); fails if run"
+        ],
+        "unused_deps": [
+          "pyproject.toml — xgboost, scikit-learn declared but zero imports in src/ or scripts/"
+        ],
+        "stale_harness_artifacts": [
+          ".harness/audits/audit-repo-cleanup-2026-06-12.json — pre-reorg audit referencing deleted V2 modules (run_multiturn_ab, report_builder, historical_rag); misleading if read today"
+        ],
+        "intentionally_preserved": [
+          ".harness/.archive/ — 66 files from prior ITSM incarnation; historical reference, do not delete without explicit approval",
+          ".harness/evals/ — harness eval JSON history; not imported by code",
+          "tests/test_evidence_scorer_v3.py + tests/test_evidence_tagger.py — overlapping but both pass; rename/consolidate optional, not blocking"
+        ]
+      },
+      "subtasks": [
+        {
+          "id": "delete-dead-python",
+          "action": "delete",
+          "files": ["calibrate_confidence.py", "src/eval/forensics.py", "src/eval/__init__.py"],
+          "verify": "python -c import attempts on deleted paths fail; src/eval/ directory gone"
+        },
+        {
+          "id": "delete-v2-panel-test",
+          "action": "delete",
+          "files": ["tests/test_panel_smart_diff.py"],
+          "verify": "pytest tests/ --collect-only exits 0 with zero import errors"
+        },
+        {
+          "id": "fix-stale-docs",
+          "action": "update",
+          "files": [
+            "README.md",
+            "docs/system-specification.md",
+            "docs/evaluation-framework.md",
+            ".cursor/rules/project_domain.mdc"
+          ],
+          "path_mapping": {
+            "runners/run_eval.py": "eval/run_eval.py",
+            "runners/eval_metrics.py": "eval/eval_metrics.py",
+            "runners/baselines.py": "eval/baselines.py",
+            "context/problem_extractor.py": "extraction/problem_extractor.py",
+            "context/git_context.py": "infra/git_context.py",
+            "infra/ground_truth.py": "eval/ground_truth.py",
+            "pipeline/orchestrator.py": "agent/orchestrator.py",
+            "analysis/evidence_tagger.py": "agent/evidence_tagger.py",
+            "python -m commit_investigator.runners.run_eval": "python -m commit_investigator.eval.run_eval"
+          },
+          "verify": "rg 'runners/|context/problem|pipeline/orchestrator|infra/ground_truth' docs/ README.md .cursor/rules/project_domain.mdc returns zero matches"
+        },
+        {
+          "id": "fix-stale-scripts",
+          "action": "update",
+          "files": ["scripts/run-smoke-eval.sh"],
+          "optional": ["scripts/check-docs.sh — rewrite for current doc set or delete if obsolete"],
+          "verify": "rg 'commit_investigator\\.runners' scripts/ returns zero matches"
+        },
+        {
+          "id": "prune-unused-deps",
+          "action": "update",
+          "files": ["pyproject.toml"],
+          "remove": ["xgboost", "scikit-learn"],
+          "verify": "pip install -e . succeeds; pytest tests/ passes"
+        },
+        {
+          "id": "archive-stale-audit",
+          "action": "move or delete",
+          "files": [".harness/audits/audit-repo-cleanup-2026-06-12.json"],
+          "note": "Move to .harness/.archive/audits/ or delete — references modules that no longer exist",
+          "verify": "No active .harness/audits/ file references runners/, pipeline/, hypothesis/"
+        },
+        {
+          "id": "verify-clean",
+          "action": "verify",
+          "checks": [
+            "pytest tests/ — all pass, zero collection errors",
+            "rg 'commit_investigator\\.(runners|pipeline|context|analysis)' --glob '!*.jsonl' --glob '!.harness/.archive/**' — zero matches in src/, tests/, scripts/, docs/, README.md, AGENTS.md, .cursor/rules/",
+            "python -m commit_investigator.eval.run_eval --help exits 0"
+          ]
+        }
+      ],
+      "note": "165/165 tests pass when test_panel_smart_diff excluded. All commit_investigator/* modules import cleanly. Blocks full CI pytest until test_panel_smart_diff deleted."
     },
     {
       "id": "spike-level2-extractor",
@@ -356,7 +480,7 @@
       "type": "spike",
       "status": "pending",
       "priority": 8,
-      "depends_on": ["first-live-eval"],
+      "depends_on": ["first-live-eval", "tech-debt-cleanup-post-reorg"],
       "note": "Plan says: build Level 1 only first, add Level 2 only if Level 1 has clear gaps. Decision depends on first-live-eval results."
     },
     {

@@ -25,10 +25,10 @@ Prepares the investigation context. The agent never sees this stage.
 
 | Step | Module | Input | Output |
 |------|--------|-------|--------|
-| Load ground truth | `infra/ground_truth.py` | Replication zip (commit_links CSVs) | `GroundTruthGraph` |
-| Select eval case | `runners/run_eval.py` | `GroundTruthGraph` + `JiraClient` | `EvalCase` (bug_hash, fix_hash, project, issue_key) |
-| Build problem | `context/problem_extractor.py` | `JiraIssue` (summary + description) | `ProblemStatement` |
-| Set temporal bound | `context/git_context.py` | fix_hash from eval case | `GitContextProvider` bounded at `fix_hash~1` |
+| Load ground truth | `eval/ground_truth.py` | Replication zip (commit_links CSVs) | `GroundTruthGraph` |
+| Select eval case | `eval/run_eval.py` | `GroundTruthGraph` + `JiraClient` | `EvalCase` (bug_hash, fix_hash, project, issue_key) |
+| Build problem | `extraction/problem_extractor.py` | `JiraIssue` (summary + description) | `ProblemStatement` |
+| Set temporal bound | `infra/git_context.py` | fix_hash from eval case | `GitContextProvider` bounded at `fix_hash~1` |
 
 ### Stage 2: Investigation (LLM + scripts)
 
@@ -52,9 +52,9 @@ Compares the report against ground truth. The agent never sees these results.
 
 | Step | Module | Input | Output |
 |------|--------|-------|--------|
-| Score attribution | `runners/eval_metrics.py` | `BugAttributionReport` + `bug_hash` | `AttributionEvalResult` (Hit@k, MRR, etc.) |
-| Run baselines | `runners/baselines.py` | `ProblemStatement` + `GitContextProvider` | Baseline `BugAttributionReport`s |
-| Aggregate + compare | `runners/run_eval.py` | All results | `ComparisonReport` (agent vs baselines) |
+| Score attribution | `eval/eval_metrics.py` | `BugAttributionReport` + `bug_hash` | `AttributionEvalResult` (Hit@k, MRR, etc.) |
+| Run baselines | `eval/baselines.py` | `ProblemStatement` + `GitContextProvider` | Baseline `BugAttributionReport`s |
+| Aggregate + compare | `eval/run_eval.py` | All results | `ComparisonReport` (agent vs baselines) |
 
 ---
 
@@ -288,7 +288,7 @@ All 7 tools wrap `GitContextProvider` methods. Large outputs are truncated at 8,
 
 ## Data Structures
 
-All V3 data structures are defined in `pipeline/orchestrator.py` (not in the V2 `analysis/report.py`).
+All V3 data structures are defined in `agent/orchestrator.py`.
 
 ### ProblemStatement
 

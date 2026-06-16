@@ -15,7 +15,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from commit_investigator.analysis.evidence_tagger import (
+from commit_investigator.agent.evidence_tagger import (
     TagResult,
     count_supported_from_reasoning,
     quote_in_diff,
@@ -33,7 +33,7 @@ MAX_DIFF_CHARS = 16_000
 
 
 def _load_diff(commit_id: str, project: str, *, full: bool = False) -> str:
-    from commit_investigator.context.git_context import GitContextProvider
+    from commit_investigator.infra.git_context import GitContextProvider
 
     repo_path = REPOS_BASE / project
     if not repo_path.exists():

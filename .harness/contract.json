@@ -1,102 +1,24 @@
 {
-  "task_id": "arch-spec-rewrite",
-  "feature": "Agentic Loop specification: redefine as 7-stage pipeline (ProblemStatement → BugAttributionReport) in system-specification.md and evaluation-framework.md",
-  "problem": "The current system-specification.md treats the 'Agent Loop' as only the LLM turn-taking (stages 1-5) and puts Evidence Scoring and Report Assembly as separate 'post-loop' sections. This misframes the architecture: the agentic loop is the ENTIRE investigation — from ProblemStatement to BugAttributionReport — composed of 7 stages with explicit owners (LLM or Script). The docs say 'post-loop' but the code runs everything inside investigate().",
-  "proposed_solution": "Rewrite the 'Agent Loop' + 'Evidence Scoring (Post-Loop)' sections as a single 'Agentic Loop' section with 7 enumerated stages. Each stage gets: owner, input, output, what happens (grounded in code), and the evaluation dimension that measures it. Also add a stage-to-metric mapping table in evaluation-framework.md.",
-  "proposed_7_stages": {
-    "1_problem_analysis": {
-      "owner": "LLM",
-      "input": "ProblemStatement (JIRA title + description via to_prompt_text())",
-      "output": "Identified file names, class names, error messages, component names (implicit in first LLM response)",
-      "code_reference": "orchestrator.py lines 305-308: messages = [system_prompt, problem.to_prompt_text()]",
-      "evaluation_dimension": "N/A (no separate metric; quality propagates to search)"
-    },
-    "2_search": {
-      "owner": "LLM via tools",
-      "input": "Problem understanding + git tool catalog",
-      "output": "Set of candidate commit SHAs discovered via search/blame/log tools",
-      "code_reference": "orchestrator.py lines 328-357: tool_calls parsed + registry.execute()",
-      "evaluation_dimension": "Retrieval Recall"
-    },
-    "3_examine": {
-      "owner": "LLM via tools",
-      "input": "Candidate commits from search",
-      "output": "Diff content + commit messages for suspects",
-      "code_reference": "Same tool execution loop; tools: get_commit_diff, get_commit_message, get_file_at_commit",
-      "evaluation_dimension": "Retrieval Recall (continued)"
-    },
-    "4_refine": {
-      "owner": "LLM via tools",
-      "input": "Examined diffs + prior reasoning",
-      "output": "Narrowed suspect list with blame chains and cross-references",
-      "code_reference": "Same tool execution loop; tools: get_blame, search_commits_by_keyword",
-      "evaluation_dimension": "Hit@k / MRR (ranking quality)"
-    },
-    "5_conclude": {
-      "owner": "LLM",
-      "input": "Full investigation context (all prior turns)",
-      "output": "```suspects``` JSON block: list[SuspectCommit] with commit_id, confidence, mechanism, evidence_quotes",
-      "code_reference": "orchestrator.py lines 323-326: _parse_suspects(response.content) → suspects = parsed_suspects → break",
-      "evaluation_dimension": "Hit@k / MRR + D3 Attribution Quality"
-    },
-    "6_evidence_scoring": {
-      "owner": "Script",
-      "input": "suspects list + git diffs (via git_provider.get_diff())",
-      "output": "Per-suspect SuspectEvidenceScore (grounding_rate, per_quote TagResults)",
-      "code_reference": "orchestrator.py line 373: _attach_evidence_scores(suspects, git_provider)",
-      "evaluation_dimension": "D6 Evidence Grounding"
-    },
-    "7_report_assembly": {
-      "owner": "Script (inline in investigate())",
-      "input": "suspects + evidence_scores + tool_trace + budget state + timing",
-      "output": "BugAttributionReport dataclass",
-      "code_reference": "orchestrator.py lines 375-394: return BugAttributionReport(...)",
-      "evaluation_dimension": "Structural correctness (tested via schema, not scored)"
-    }
-  },
+  "task_id": "tech-debt-cleanup-post-reorg",
+  "feature": "Post-reorg tech debt cleanup: delete dead code, fix stale docs/scripts, prune unused deps, verify clean tree",
+  "depends_on": ["src-package-separation"],
   "acceptance_criteria": [
-    "AC1: system-specification.md has a single 'Agentic Loop' section (no separate 'Agent Loop' + 'Evidence Scoring (Post-Loop)' sections)",
-    "AC2: All 7 stages are enumerated with: stage number, name, owner (LLM or Script), input, output, and evaluation dimension. Stage 1 output must be labeled 'implicit LLM reasoning (not a structured artifact)' — not a code-produced output.",
-    "AC3: Each stage description is grounded in actual code — references function names in orchestrator.py and evidence_tagger.py (line numbers optional). Stages 2-4 must explicitly share one code path (investigate() tool loop) and be distinguished by typical tool types, not separate enforcement.",
-    "AC4: The Pipeline Overview (Stage 2 table) references the 7-stage agentic loop, not just 'LLM loop + evidence scoring + report assembly'",
-    "AC5: evaluation-framework.md contains a 'Stage-to-Metric Mapping' section. Retrieval Recall maps to stages 3-4 (tools with commit_id in tool_trace args: get_commit_diff, get_commit_message, get_file_at_commit) — NOT stage 2 search listing tools. Hit@k/MRR map to stage 5 (final suspect list). D3 maps to stage 5 with 'not yet implemented' status. D6 maps to stage 6.",
-    "AC6: Stages 1-5 are documented as advisory (LLM may interleave) — no implication of strict sequential enforcement",
-    "AC7: Resource limits (budget: tokens/cost/tool_calls via BudgetState.budget_exceeded; max_turns via orchestrator loop counter) span stages 1-5 collectively, not per-stage",
-    "AC8: Stages 6-7 are documented as unconditional (always run after LLM loop exits, regardless of exit condition)",
-    "AC9: All content from the old 'Agent Loop' and 'Evidence Scoring (Post-Loop)' sections is preserved under the new structure: loop mechanics pseudocode, three exit conditions, tool/suspect output formats, budget table, evidence cascade, special cases, metadata keys"
+    "delete-dead-python: calibrate_confidence.py, src/eval/forensics.py, src/eval/__init__.py deleted",
+    "delete-v2-panel-test: tests/test_panel_smart_diff.py deleted",
+    "fix-stale-docs: README, system-spec, eval-framework, project_domain.mdc path corrections — zero stale module paths",
+    "fix-stale-scripts: run-smoke-eval.sh uses eval.run_eval; check-docs.sh deleted",
+    "prune-unused-deps: xgboost, scikit-learn removed from pyproject.toml",
+    "archive-stale-audit: .harness/audits/ deleted",
+    "verify-clean: pytest tests/ all pass (165); zero old import paths in src/, tests/, scripts/, docs/, README.md, AGENTS.md, .cursor/rules/"
   ],
-  "edge_cases": [
-    "EC1: Stages 1-5 are NOT strictly sequential — the LLM may interleave search, examine, and refine across turns. The 5-phase strategy is advisory text in the system prompt, not enforced code. The doc must not imply stage gates.",
-    "EC2: Resource limits span stages 1-5 as a whole (budget checked at turn start; max_turns=15 via separate loop counter), not per-stage. The doc must not suggest per-stage budgets.",
-    "EC3: Stage 5 (Conclude) may not happen — if budget is exceeded, max_turns reached, or LLM emits no tools/no suspects, the loop exits with empty suspects. Stages 6-7 still run.",
-    "EC4: Stage 6 handles edge cases: diff unavailable (rate=0.0), diff truncated + quote not found (UNVERIFIABLE), quote < 8 chars (not grounded), no quotes (rate=0.0). These must be documented.",
-    "EC5: Evidence scores (stage 6) are metadata only — they do NOT modify suspect rank or confidence. This must be explicit.",
-    "EC6: Retrieval recall (eval_metrics.py) only checks commit_id in tool_trace[].args — SHAs appearing only in search tool result text are NOT counted. Doc must state this precisely.",
-    "EC7: If a response contains both ```suspects``` and ```tool``` blocks, suspects take precedence — tools in that turn are not executed (orchestrator checks suspects before tool_calls).",
-    "EC8: Mid-batch tool-call budget cutoff: when max_tool_calls reached mid-batch, remaining tool calls in the batch get a budget-limit message but the loop continues to the next turn."
-  ],
-  "verification_method": "Evaluator reads the updated docs and cross-checks: (1) each stage description matches the actual code flow in orchestrator.py (investigate() method), (2) evidence scoring details match evidence_tagger.py (score_suspect_evidence + quote_in_diff), (3) stage-to-metric mapping in evaluation-framework.md matches the metrics defined in eval_metrics.py, (4) AC9 preservation checklist — all details from old sections present in new structure",
-  "rubrics": [
-    "architecture"
-  ],
-  "rubric_mode": "warn",
-  "negotiation_rounds": 2,
+  "verification_method": "pytest tests/; rg stale path patterns; filesystem checks for deleted artifacts; AGENTS.md vs find src/commit_investigator; pyproject.toml hatch/pytest config; python -m commit_investigator.eval.run_eval --help",
   "phase": "verified",
+  "verified": true,
   "verified": true,
   "evaluator_verdict": {
     "verdict": "PASS",
-    "evaluated_at": "2026-06-15T23:39:00Z",
-    "summary": "Full doc work verified (Phases 1-3): 7-stage Agentic Loop in system-specification.md, Stage-to-Metric Mapping in evaluation-framework.md, agent-loop.md rewrite, deprecated docs deleted, stale refs eliminated in docs/. All 9 ACs + 8 ECs hold. Code cross-check vs orchestrator.py, evidence_tagger.py, eval_metrics.py. 208 tests green.",
-    "findings": [
-      "WARN: README archive link path .harness/archive/docs/ should be .harness/.archive/docs/",
-      "WARN: docs/harness.md still V2-oriented with broken agent-loop.md#multi-turn-policy anchor",
-      "INFO: docs/experiment-context.md V2 framing unchanged — out of contract scope"
-    ]
-  },
-  "evaluator_negotiation": {
-    "verdict": "APPROVE with amendments",
-    "negotiated_at": "2026-06-16T02:45:00Z",
-    "summary": "7-stage framing is correct for docs (stages 6-7 are real code boundaries; stages 1-5 are advisory prompt phases sharing one tool loop). Contract amended on stage-to-metric mapping (retrieval recall), stage 1 output framing, max_turns vs budget, information preservation AC, and 3 missing edge cases.",
-    "seven_stage_assessment": "Stages 6-7 map to real code in investigate(). Stages 1-5 are NOT separate code paths — they mirror _SYSTEM_PROMPT_TEMPLATE advisory text. Present stages 1-5 as 'investigation strategy phases' within one multi-turn loop, not enforced pipeline gates."
+    "evaluated_at": "2026-06-16T20:00:00Z",
+    "summary": "Session-final validation: all 10 checks PASS. 165/165 tests, imports OK, zero stale paths, dead artifacts removed, README/AGENTS aligned, 22 .py files.",
+    "eval_report": ".harness/evals/eval-session-final-validation.json"
   }
 }
