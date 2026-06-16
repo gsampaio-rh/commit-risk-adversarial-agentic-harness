@@ -1,364 +1,380 @@
-# System Specification — Bug Attribution Agent (V3)
+# System Specification — Bug Attribution Agent (V4 Target Architecture)
 
 Given a JIRA bug report (title + description) and a temporally-bounded git repository, this system identifies the commit that most likely **introduced** the bug. It produces a ranked list of suspect commits with causal mechanisms and evidence quotes, evaluated against SZZ-derived ground truth.
 
-## Pipeline Overview
-
-The system has three stages with distinct ownership:
-
-```
-Stage 1: EVAL SETUP (harness)        Stage 2: INVESTIGATION (LLM + scripts)       Stage 3: EVALUATION (oracle)
-┌─────────────────────────┐          ┌─────────────────────────────────────┐       ┌────────────────────────┐
-│ JIRA ticket              │          │ ProblemStatement                     │       │ BugAttributionReport    │
-│   → ProblemExtractor     │   ───►   │   → 7-stage Agentic Loop            │  ───►  │   → Hit@k / MRR        │
-│   → ProblemStatement     │          │     (stages 1-5 LLM, 6-7 script)     │       │   → Retrieval Recall   │
-│                          │          │   → BugAttributionReport            │       │   → Evidence Grounding │
-│ GroundTruthGraph         │          │                                     │       │                        │
-│   → fix_hash → bound     │          │ GitContextProvider                  │       │ Ground truth: bug_hash │
-│   → GitContextProvider   │          │   (bounded at COMMIT_B~1)           │       │                        │
-└─────────────────────────┘          └─────────────────────────────────────┘       └────────────────────────┘
-```
-
-### Stage 1: Eval Setup (harness-owned)
-
-Prepares the investigation context. The agent never sees this stage.
-
-| Step | Module | Input | Output |
-|------|--------|-------|--------|
-| Load ground truth | `eval/ground_truth.py` | Replication zip (commit_links CSVs) | `GroundTruthGraph` |
-| Select eval case | `eval/run_eval.py` | `GroundTruthGraph` + `JiraClient` | `EvalCase` (bug_hash, fix_hash, project, issue_key) |
-| Build problem | `extraction/problem_extractor.py` | `JiraIssue` (summary + description) | `ProblemStatement` |
-| Set temporal bound | `infra/git_context.py` | fix_hash from eval case | `GitContextProvider` bounded at `fix_hash~1` |
-
-### Stage 2: Investigation (LLM + scripts)
-
-The agent searches the repository and produces a report inside `AgentOrchestrator.investigate()`. This is the only pipeline stage involving an LLM. The **agentic loop** runs from `ProblemStatement` to `BugAttributionReport` as seven stages (stages 1–5 are advisory LLM phases; stages 6–7 are unconditional script steps):
-
-| Stage | Name | Owner | Input | Output |
-|-------|------|-------|-------|--------|
-| 1 | Problem Analysis | LLM | `ProblemStatement` via `to_prompt_text()` | Implicit LLM reasoning (not a structured artifact) |
-| 2 | Search | LLM via tools | Problem understanding + tool catalog | Candidate commit SHAs from search/blame/log tools |
-| 3 | Examine | LLM via tools | Candidate commits | Diff content + commit messages |
-| 4 | Refine | LLM via tools | Examined diffs + prior reasoning | Narrowed suspects, blame chains |
-| 5 | Conclude | LLM | Full investigation context | ` ```suspects``` ` JSON → `list[SuspectCommit]` |
-| 6 | Evidence Scoring | Script (`_attach_evidence_scores`) | Suspects + diffs | Per-suspect grounding scores in `metadata` |
-| 7 | Report Assembly | Script (inline in `investigate()`) | Suspects + scores + trace + timing | `BugAttributionReport` |
-
-Stages 2–4 share one code path — the multi-turn tool loop in `investigate()`. They are distinguished by typical tool types, not separate enforcement. Stages 6–7 always run after the LLM loop exits, regardless of exit condition. Suspect rank and confidence are **not modified** in stages 6–7 — evidence scores are metadata only.
-
-### Stage 3: Evaluation (oracle-owned)
-
-Compares the report against ground truth. The agent never sees these results.
-
-| Step | Module | Input | Output |
-|------|--------|-------|--------|
-| Score attribution | `eval/eval_metrics.py` | `BugAttributionReport` + `bug_hash` | `AttributionEvalResult` (Hit@k, MRR, etc.) |
-| Run baselines | `eval/baselines.py` | `ProblemStatement` + `GitContextProvider` | Baseline `BugAttributionReport`s |
-| Aggregate + compare | `eval/run_eval.py` | All results | `ComparisonReport` (agent vs baselines) |
+> **Architecture status:** This document describes the **V4 target architecture**. The current implementation (V3) is summarized at the end. See [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) for the ADR that led to V4. Implementation decisions marked **TBD** will be resolved in the `mechanism-design` and `retrieval-spike` tasks.
 
 ---
 
-## The LLM Boundary
+## Three Pipelines
 
-The LLM operates inside a strict information boundary. Everything outside this boundary is either harness infrastructure or eval oracle data.
+The system consists of three pipelines with distinct ownership and clear boundaries:
 
-### What the LLM sees
-
-| Source | Content | Delivered via |
-|--------|---------|---------------|
-| Bug report | JIRA title + description (raw text) | `ProblemStatement.to_prompt_text()` as the first user message |
-| Git history | Commit log, blame, diffs, file contents — all pre-fix only | Tool results injected as user messages |
-| Budget status | Tool calls used / remaining, tokens used | `TURN_PROMPT` template each turn |
-| Its own prior responses | Full conversation history | Message list accumulation |
-
-### What the LLM never sees
-
-| Data | Why forbidden |
-|------|---------------|
-| `bug_hash` (ground truth answer) | Would trivialize the task |
-| `fix_hash`, fix commit diff/message | Beyond temporal bound; reveals the fix |
-| Ground truth chain (bug→fix→issue linkage) | Retrospective SZZ assignment |
-| JIRA `priority`, `components`, `resolution`, `status` | Not part of investigation context |
-| `project`, `issue_key`, `extracted_files`, `extracted_symbols` | Stored on `ProblemStatement` but excluded from `to_prompt_text()` |
-| Evidence scores | Computed in stages 6–7 inside `investigate()`; never fed back to LLM |
-| Eval metrics (Hit@k, MRR) | Oracle-only |
-
-### Prompt structure
-
-The LLM receives exactly this message sequence:
-
-**Turn 1:**
 ```
-messages = [
-    {"role": "system",  "content": SYSTEM_PROMPT + tool_descriptions},
-    {"role": "user",    "content": "## Bug Report: {title}\n\n{description}"},
-]
+┌─────────────────────────────────────┐
+│  INPUT PIPELINE (infrastructure)    │
+│  Stage 0: Extraction                │
+│  Stage 1: Candidate Retrieval       │
+│  Owner: Scripts / eval harness      │
+│  LLM cost: Zero                     │
+└──────────────┬──────────────────────┘
+               │ CandidateSet + ProblemStatement
+               ▼
+┌─────────────────────────────────────┐
+│  AGENT PIPELINE (governed LLM)      │
+│  Stage 2: Planning                  │
+│  Stage 3: Examination               │
+│  Stage 4: Attribution               │
+│  Owner: Investigation Harness + LLM │
+│  LLM cost: Full budget              │
+└──────────────┬──────────────────────┘
+               │ BugAttributionReport
+               ▼
+┌─────────────────────────────────────┐
+│  EVALUATION PIPELINE (oracle)       │
+│  Scoring: Hit@k, MRR, D3, D6       │
+│  Owner: Eval harness                │
+│  LLM cost: Zero (except D3 judge)  │
+└─────────────────────────────────────┘
 ```
 
-**Turn N (after tool execution):**
-```
-messages += [
-    {"role": "assistant", "content": <LLM's previous response>},
-    {"role": "user",      "content": TURN_PROMPT with tool results},
-]
-```
+### Pipeline boundaries
 
-Tool results are plain text in the user message — **not** `role="tool"` messages. The orchestrator does not use native function-calling APIs; tool dispatch is entirely text-based via markdown fences.
+| Pipeline | Stages | Owner | LLM involvement | The agent sees... |
+|----------|--------|-------|-----------------|-------------------|
+| Input | 0 (Extraction) + 1 (Retrieval) | Scripts / eval harness | Zero (optional LLM for Level 2 extraction) | Nothing — this is input preparation |
+| Agent | 2 (Planning) + 3 (Examination) + 4 (Attribution) | Agent framework (harness governs LLM) | Full — all LLM budget spent here | CandidateSet + ProblemStatement + skills |
+| Evaluation | Scoring against ground truth | Oracle (eval harness) | Zero (except D3 LLM judge) | Nothing — scores are oracle-only |
 
 ---
 
-## Agentic Loop
+## Input Pipeline (Stages 0–1)
 
-The **agentic loop** is the entire investigation inside `AgentOrchestrator.investigate()` — from `ProblemStatement` to `BugAttributionReport`. It is a text-based multi-turn conversation (stages 1–5) followed by unconditional script steps (stages 6–7). Stages 1–5 mirror the advisory strategy in `_SYSTEM_PROMPT_TEMPLATE` (Understand → Search → Examine → Refine → Conclude); they are **not** enforced as sequential gates — the LLM may interleave search, examine, and refine across turns.
+The input pipeline prepares everything the agent needs to begin reasoning. It is infrastructure — not part of the agent's cognitive loop.
 
-### Seven stages
+### Stage 0 — Extraction
 
-| # | Name | Owner | Input | Output | Evaluation dimension |
-|---|------|-------|-------|--------|---------------------|
-| 1 | Problem Analysis | LLM | `ProblemStatement` via `to_prompt_text()` | Implicit LLM reasoning (not a structured artifact) | N/A |
-| 2 | Search | LLM via tools | Problem understanding + tool catalog | Candidate commit SHAs from search/blame/log tools | N/A (see Retrieval Recall for examine tools) |
-| 3 | Examine | LLM via tools | Candidate commits | Diff content + commit messages | Retrieval Recall |
-| 4 | Refine | LLM via tools | Examined diffs + prior reasoning | Narrowed suspects, blame chains | Retrieval Recall (continued) |
-| 5 | Conclude | LLM | Full investigation context | ` ```suspects``` ` JSON → `list[SuspectCommit]` | Hit@k, MRR, D3 (not yet implemented) |
-| 6 | Evidence Scoring | Script | Suspects + diffs | `SuspectEvidenceScore` per suspect in `metadata` | D6 Evidence Grounding |
-| 7 | Report Assembly | Script | Suspects + scores + trace + timing | `BugAttributionReport` | Structural correctness (schema tests) |
+| Aspect | Detail |
+|--------|--------|
+| **Owner** | Script (regex + optional LLM for Level 2) |
+| **Input** | Raw JIRA text (title + description) |
+| **Output** | `ProblemStatement` with extracted files, symbols, keywords, time hints |
+| **Contract** | Must produce at least 1 search signal |
+| **Module** | `extraction/problem_extractor.py` |
 
-#### Stage 1 — Problem Analysis
+Extraction is NOT part of the agent. It transforms raw text into structured signals that the retrieval stage can use. Level 1 is regex-based (current). Level 2 adds LLM-assisted extraction (**TBD**: `spike-level2-extractor` task).
 
-**Code:** `investigate()` builds initial messages with `_SYSTEM_PROMPT_TEMPLATE` and `problem.to_prompt_text()` (`orchestrator.py`).
+### Stage 1 — Candidate Retrieval
 
-The LLM reads the bug report and forms an internal understanding (file names, class names, error messages). No structured output is produced — this is implicit reasoning that propagates into later tool calls.
+| Aspect | Detail |
+|--------|--------|
+| **Owner** | Script (git commands, zero LLM) |
+| **Input** | `ProblemStatement` + repo + temporal bound |
+| **Output** | `CandidateSet` (50-100 ranked commits) |
+| **Contract** | Retrieval Recall target: ground truth in top 100 |
+| **Module** | **TBD** — to be built in `retrieval-spike` task |
 
-#### Stages 2–4 — Search, Examine, Refine (shared tool loop)
+Retrieval uses deterministic git operations to assemble a candidate set:
+- File-based: `git log --all -- <extracted_files>` bounded by temporal ref
+- Keyword-based: `git log --all --grep="<keyword>"` bounded by temporal ref
+- Pickaxe: `git log --all -S "<symbol>"` for code-level search
+- Time-window: recent commits within N months of bug report
+- Blame-based: `git blame <bound> -- <file>` to find line-level authorship
 
-**Code:** `investigate()` loop — `_parse_tool_calls()` → `ToolRegistry.execute()` (`orchestrator.py`).
+**Fallback:** If extraction yields zero signals, retrieval widens to broad heuristics (recent commits, large diffs). If candidate set is too small (< 10), retrieval parameters are loosened.
 
-All three stages run in the **same** multi-turn loop. They are distinguished by typical tool usage, not separate code paths:
-
-| Stage | Typical tools |
-|-------|---------------|
-| 2 Search | `search_commits_by_file`, `search_commits_by_keyword`, `list_recent_commits` |
-| 3 Examine | `get_commit_diff`, `get_commit_message`, `get_file_at_commit` |
-| 4 Refine | `get_blame`, `search_commits_by_keyword` (cross-reference) |
-
-The LLM may call any tool in any order within resource limits. There are no stage gates.
-
-#### Stage 5 — Conclude
-
-**Code:** `_parse_suspects(response.content)` — if suspects block found, loop breaks (`orchestrator.py`).
-
-The LLM emits a ` ```suspects``` ` JSON array. `_parse_suspects()` assigns `rank` from array order (1-based). Stage 5 may **not** happen — if budget is exceeded, `max_turns` is reached, or the LLM emits neither tools nor suspects, the loop exits with an empty suspect list. Stages 6–7 still run.
-
-**Precedence:** If a response contains both ` ```suspects``` ` and ` ```tool``` ` blocks, suspects are parsed first — tools in that turn are not executed.
-
-#### Stage 6 — Evidence Scoring
-
-**Code:** `_attach_evidence_scores()` → `score_suspect_evidence()` (`orchestrator.py`, `evidence_tagger.py`).
-
-Always runs after the LLM loop exits, regardless of exit condition (including empty suspects):
-
-1. For each suspect, fetch the commit diff via `git_provider.get_diff()`
-2. Call `score_suspect_evidence(commit_id, evidence_quotes, diff)`
-3. For each quote, check presence via `quote_in_diff()` / `tag_hypothesis()` cascade:
-   - Exact substring match
-   - Normalized match (strip `+/-` prefixes, collapse whitespace)
-   - Token-set fuzzy match (≥80% of tokens ≥3 chars found in order within 200-char windows)
-4. A quote is **grounded** if the cascade finds a match (tier = `SUPPORTED`)
-5. `grounding_rate` = grounded_quotes / total_quotes
-
-Scores serialize to `metadata["evidence_scores"]`:
-```json
-[{"commit_id": "abc...", "total_quotes": 3, "grounded_quotes": 2, "grounding_rate": 0.667}]
-```
-
-**Special cases:**
-- Diff unavailable → all quotes `UNVERIFIABLE`, rate = 0.0
-- Diff truncated (>16K chars) and quote not found → `UNVERIFIABLE`
-- Quote < 8 chars → not grounded
-- No quotes → rate = 0.0
-
-Evidence scores are **metadata only** — they do **not** modify suspect rank, confidence, or mechanism.
-
-#### Stage 7 — Report Assembly
-
-**Code:** `return BugAttributionReport(...)` (`orchestrator.py`).
-
-Always runs after stage 6. Assembles `problem_title`, `problem_description`, `suspects`, `reasoning_summary` (first 2000 chars of all LLM responses), `tool_trace` (result truncated to 500 chars per record), and `metadata` including `evidence_scoring_applied=True` and `post_processing_applied=False`.
-
-### Loop mechanics
-
-```
-for turn in range(max_turns):         # default: 15 (orchestrator counter)
-    if budget.budget_exceeded: break  # tokens, cost, or tool_calls
-
-    response = llm.complete(messages)
-    budget.record(response)
-
-    if response contains ```suspects```:
-        suspects = _parse_suspects(...) → break   # EXIT: stage 5
-
-    tool_calls = _parse_tool_calls(...)
-    if not tool_calls:
-        break                                   # EXIT: no tools, no suspects
-
-    for call in tool_calls:                      # stages 2-4
-        if budget.total_tool_calls >= max_tool_calls:
-            append budget-limit message; break  # mid-batch cutoff
-        result = registry.execute(...)
-        tool_trace.append(...)
-    append TURN_PROMPT with tool results
-```
-
-### Three exit conditions
-
-| Condition | Result |
-|-----------|--------|
-| LLM emits a ` ```suspects``` ` block | Suspects parsed from JSON array (stage 5) |
-| LLM emits neither tools nor suspects | Empty suspect list |
-| Budget exceeded, max_turns reached, or mid-batch tool cutoff | Whatever suspects were last parsed (usually empty) |
-
-Stages 6–7 run unconditionally after any exit.
-
-### Tool calling format
-
-The LLM must emit tool calls as markdown-fenced JSON:
-
-```
-I'll search for commits touching the RouteBuilder file.
-
-` ` `tool
-{"tool": "search_commits_by_file", "args": {"path": "src/main/java/RouteBuilder.java"}}
-` ` `
-```
-
-The orchestrator extracts all ` ```tool``` ` blocks via `_TOOL_CALL_PATTERN`, executes them sequentially via `ToolRegistry.execute()`, and returns results as plain text in the next user message.
-
-### Suspect output format
-
-When the LLM concludes (stage 5), it emits:
-
-```
-` ` `suspects
-[
-  {"commit_id": "abc123...", "confidence": 0.8,
-   "mechanism": "If <change> then <consequence>",
-   "evidence_quotes": ["exact text from diff"]}
-]
-` ` `
-```
-
-Parsing: array order determines `rank` (1-based). `confidence` and `mechanism` are LLM-provided. Missing fields get defaults via `_parse_suspects()`.
-
-### Resource limits (stages 1–5 collectively)
-
-Resource limits apply to the entire LLM loop — not per advisory stage. Budget check runs at the **start** of each turn.
-
-| Resource | Limit | Enforced by |
-|----------|-------|-------------|
-| Tool calls | 30 | `BudgetState.total_tool_calls`; mid-batch cutoff when limit reached mid-turn |
-| Tokens | 100,000 | `BudgetState.budget_exceeded` (from `LLMResponse.tokens_used`) |
-| Cost | $0.50 USD | `BudgetState.budget_exceeded` (from `LLMResponse.estimated_cost`) |
-| Turns | 15 | Orchestrator `for turn in range(self._max_turns)` — separate from `budget_exceeded` |
-
-When `budget_exceeded` is true at turn start, or `max_turns` is exhausted, the loop exits and stages 6–7 proceed with whatever suspects were collected (often none).
+All retrieval respects the temporal bound — only commits reachable from `COMMIT_B~1`.
 
 ---
 
-## Tool Catalog
+## Agent Pipeline (Stages 2–3–4)
 
-All 7 tools wrap `GitContextProvider` methods. Large outputs are truncated at 8,000 characters.
+The agent receives `CandidateSet` + `ProblemStatement` as input and produces `BugAttributionReport` as output. It is governed by the **investigation harness** — the LLM does not self-govern.
 
-| Tool | Required args | Optional args | What it does |
-|------|--------------|---------------|--------------|
-| `search_commits_by_file` | `path` | `max_results` (10) | Commits touching a file path. Most recent first. |
-| `search_commits_by_keyword` | `keyword` | `max_results` (10) | Case-insensitive search of commit messages. |
-| `list_recent_commits` | — | `max_results` (20), `path` | Recent commits, optionally filtered by file. |
-| `get_commit_diff` | `commit_id` | — | Unified diff (patch) for a commit. |
-| `get_commit_message` | `commit_id` | — | Full commit message text. |
-| `get_blame` | `path` | `line_start` (1), `line_end` | Line-level blame at the temporal bound. |
-| `get_file_at_commit` | `commit_id`, `path` | — | File contents at a specific commit. |
+### Agent Framework
 
-### Temporal enforcement per tool type
+The agent operates inside a governed framework with three layers:
 
-- **Per-commit reads** (`get_commit_diff`, `get_commit_message`, `get_file_at_commit`): `_enforce_bound()` called before returning data. Violation raises `TemporalBoundViolation`, which the orchestrator catches and returns as `"Error: ..."` text to the LLM.
-- **History searches** (`search_commits_by_file`, `search_commits_by_keyword`, `list_recent_commits`): temporal bound ref appended to `git log` command, so results are pre-filtered to commits reachable from `COMMIT_B~1`.
-- **Blame** (`get_blame`): uses the temporal bound ref (or HEAD if unbounded) as the blame target.
+| Layer | Role | Mechanism |
+|-------|------|-----------|
+| **Investigation Harness** | Manages lifecycle, state, transitions, completion | Script-based orchestrator |
+| **Investigation Rules** | Constrains behavior, enforces quality | **TBD**: hard gates / soft guidance / hybrid |
+| **Investigation Skills** | Augments strategy with learned patterns from traces | **TBD**: RAG / rule extraction / hybrid |
+
+### Stage 2 — Planning
+
+| Aspect | Detail |
+|--------|--------|
+| **Owner** | LLM (structured output), governed by harness |
+| **Input** | `CandidateSet` + `ProblemStatement` + relevant skills |
+| **Output** | `InvestigationBrief` |
+| **Contract** | Must state falsifiable hypotheses + completion criteria |
+
+The LLM produces a structured `InvestigationBrief` that defines:
+- Hypotheses to test (falsifiable statements about what caused the bug)
+- Examination plan (which commits/files to inspect and what to look for)
+- Success criteria (when the investigation is "done")
+- Strategy rationale
+
+The harness validates the brief structure before allowing transition to Stage 3. If the brief is invalid (no hypotheses, no plan), the harness re-invokes planning with broader context.
+
+### Stage 3 — Examination
+
+| Aspect | Detail |
+|--------|--------|
+| **Owner** | LLM + tools, governed by harness + rules |
+| **Input** | `InvestigationBrief` + candidate diffs/blame |
+| **Output** | Evidence collected, hypotheses confirmed/rejected |
+| **Contract** | Brief satisfaction: evidence quality threshold met |
+
+The LLM examines candidate commits according to the brief. Tools available:
+
+| Tool | Use case |
+|------|----------|
+| `get_commit_diff` | Inspect candidate changes |
+| `get_commit_message` | Read author intent |
+| `get_file_at_commit` | Read file state at commit |
+| `get_blame` | Trace line-level authorship |
+
+Tools are **scoped to the candidate set** — the LLM examines commits from `CandidateSet`, not the entire repository history. All tools enforce the temporal bound.
+
+After each examination turn, the harness evaluates completion criteria:
+- Evidence threshold met? → advance to Stage 4
+- Hypotheses exhausted but insufficient evidence? → loop back to Stage 2 (max 2 re-plans)
+- Budget exceeded? → forced advance to Stage 4 (degraded mode)
+
+### Stage 4 — Attribution
+
+| Aspect | Detail |
+|--------|--------|
+| **Owner** | LLM (conclude), governed by harness |
+| **Input** | Evidence collected + reasoning from Stage 3 |
+| **Output** | `BugAttributionReport` with ranked suspects |
+| **Contract** | Min 3 suspects, causal mechanism per suspect, grounded quotes |
+
+The LLM produces the final attribution: ranked suspect commits with confidence scores, causal mechanisms ("If X then Y"), and evidence quotes from examined diffs.
+
+After attribution, evidence scoring (script) runs unconditionally to attach grounding metadata.
+
+---
+
+## Agent Governance
+
+### Investigation Harness
+
+The harness is the non-LLM orchestration layer that controls the agent's lifecycle:
+
+- **State management**: Tracks current stage, progress metrics, what's been examined
+- **Transition enforcement**: Stage 3 requires valid brief; Stage 4 requires brief satisfaction or budget exhaustion
+- **Progress tracking**: "examined 12/20 candidates, 3 hypotheses tested, 1 confirmed"
+- **LLM control**: Decides when to invoke LLM, what context to provide, when to stop
+- **Completion evaluation**: Checks criteria after each examination turn
+
+### Investigation Rules
+
+Rules encode quality constraints. Examples:
+- "Never conclude with fewer than 3 suspects"
+- "Always examine parent commits in a change chain"
+- "For concurrency bugs, trace thread interactions across commits"
+- "If top suspect confidence < 0.6, continue examining"
+
+**TBD:** Enforcement mechanism (hard gates by harness, soft guidance via prompt, or hybrid). To be resolved in `mechanism-design` task.
+
+### Investigation Skills
+
+Strategies that improve over time from investigation traces. Examples:
+- "For Spark serialization bugs, blame SerDe files first"
+- "When JIRA mentions NPE, pickaxe for null-check removal"
+- "Large repos: time-window filtering before file search"
+
+**TBD:** Acquisition and application mechanism (RAG few-shot, rule extraction, or hybrid). To be resolved in `mechanism-design` task.
+
+---
+
+## Completion Criteria
+
+The agent knows what "done" means before starting. The harness evaluates after each examination turn:
+
+| Criterion | Description | Threshold |
+|-----------|-------------|-----------|
+| Evidence threshold | Grounded quotes across suspects | **TBD** (N >= 3?) |
+| Hypothesis coverage | Alternative explanations tested | **TBD** (M >= 2?) |
+| Confidence gate | Top suspect confidence sufficient | **TBD** (>= 0.6?) |
+| Brief satisfaction | All planned examinations completed or abandoned with reason | Boolean |
+| Budget (hard stop) | Total tool calls, tokens, or cost limit exceeded | 30 calls / 100K tokens / $0.50 |
+
+Budget is a **safety net**, not the primary exit signal. The agent exits when the brief is satisfied, not when tokens run out.
+
+---
+
+## Investigation Traces
+
+Every investigation produces a structured `InvestigationTrace`:
+
+| Field | Description |
+|-------|-------------|
+| `hypotheses` | Formed, confirmed, rejected, abandoned — with reasons |
+| `candidates_examined` | Which commits were inspected and what was found |
+| `candidates_eliminated` | Which were rejected and why |
+| `evidence_collected` | Quotes, grounding status, quality |
+| `strategy_decisions` | Why this path was chosen over alternatives |
+| `stage_timings` | Time and cost per stage |
+| `outcome` | Final report + eval result (in eval mode) |
+
+**Schema TBD** — exact fields and storage format to be resolved in `mechanism-design` task.
+
+Traces enable:
+- Skill emergence (learn from successes and failures)
+- Failure forensics (why did we miss case X?)
+- Retrieval diagnostics (did the candidate set contain ground truth?)
+- Cost analysis (where is budget spent?)
 
 ---
 
 ## Data Structures
 
-All V3 data structures are defined in `agent/orchestrator.py`.
-
-### ProblemStatement
+### ProblemStatement (input to agent)
 
 ```python
 @dataclass(frozen=True)
 class ProblemStatement:
     title: str                              # JIRA summary
     description: str                        # JIRA description (raw)
-    project: str                            # e.g. "CAMEL" (not sent to LLM)
-    issue_key: str = ""                     # e.g. "CAMEL-1234" (not sent to LLM)
-    extracted_files: list[str] = []         # future: Level 2 extractor
-    extracted_symbols: list[str] = []       # future: Level 2 extractor
+    project: str                            # e.g. "CAMEL" (harness metadata)
+    issue_key: str = ""                     # e.g. "CAMEL-1234" (harness metadata)
+    extracted_files: list[str] = []         # from extraction stage
+    extracted_symbols: list[str] = []       # from extraction stage
+    extracted_keywords: list[str] = []      # from extraction stage
+    time_hints: dict = field(default_factory=dict)  # temporal context
 ```
 
-`to_prompt_text()` emits only `title` and `description`. All other fields are metadata for the harness.
-
-### SuspectCommit
+### CandidateSet (input to agent, from retrieval)
 
 ```python
 @dataclass
-class SuspectCommit:
-    commit_id: str                          # full SHA from LLM output
-    rank: int                               # 1-based, from array position
-    confidence: float                       # LLM-provided (0.0-1.0)
-    mechanism: str                          # "If <change> then <consequence>"
-    evidence_quotes: list[str] = []         # exact text from diffs
+class CandidateSet:
+    commits: list[CandidateCommit]          # ranked, 50-100 entries
+    retrieval_metadata: dict                # strategy used, time window, recall estimate
+    temporal_bound: str                     # the bound ref applied during retrieval
+
+@dataclass
+class CandidateCommit:
+    commit_id: str                          # full 40-char SHA
+    rank: int                               # 1-based retrieval rank
+    retrieval_signal: str                   # why this was retrieved (file match, keyword, blame)
+    summary: str                            # one-line commit message
+    files_changed: list[str]               # stat output
+    date: str                              # author date
 ```
 
-### BugAttributionReport
+### InvestigationBrief (Stage 2 output)
+
+```python
+@dataclass
+class InvestigationBrief:
+    hypotheses: list[Hypothesis]            # falsifiable statements
+    examination_plan: list[ExaminationStep] # what to check and why
+    success_criteria: CompletionCriteria    # when "done"
+    strategy: str                           # overall approach description
+    max_effort: int                         # max tool calls for examination
+```
+
+### InvestigationState (harness-managed)
+
+```python
+@dataclass
+class InvestigationState:
+    current_stage: int                      # 2, 3, or 4
+    candidates_examined: int
+    candidates_total: int
+    hypotheses_tested: int
+    hypotheses_confirmed: int
+    evidence_quotes_collected: int
+    re_plan_count: int                      # max 2
+    budget_used: BudgetState
+    brief: InvestigationBrief | None
+```
+
+### CompletionCriteria (brief-driven exit)
+
+```python
+@dataclass
+class CompletionCriteria:
+    evidence_threshold: int                 # min grounded quotes across suspects (TBD)
+    hypothesis_coverage: int                # min alternative explanations tested (TBD)
+    confidence_gate: float                  # min top suspect confidence (TBD)
+    brief_satisfaction: bool = False        # all planned examinations done
+    budget_hard_stop: bool = False          # budget exceeded (safety net)
+```
+
+### InvestigationTrace (structured investigation record)
+
+```python
+@dataclass
+class InvestigationTrace:
+    hypotheses: list[dict]                  # formed, confirmed, rejected, abandoned (schema TBD)
+    candidates_examined: list[str]          # commit SHAs inspected
+    candidates_eliminated: list[dict]       # SHA + elimination reason (schema TBD)
+    evidence_collected: list[dict]          # quotes + grounding status (schema TBD)
+    strategy_decisions: list[dict]          # decision + rationale (schema TBD)
+    stage_timings: dict[str, float]         # stage → elapsed_ms
+    outcome: dict                           # eval result if available (schema TBD)
+```
+
+> **Note:** Field schemas marked TBD will be defined in the `mechanism-design` task.
+
+### BugAttributionReport (output)
 
 ```python
 @dataclass
 class BugAttributionReport:
     problem_title: str
     problem_description: str
-    suspects: list[SuspectCommit]           # rank-ordered, not modified post-LLM
-    reasoning_summary: str                  # first 2000 chars of all LLM responses
-    tool_trace: list[ToolCallRecord]        # result field truncated to 500 chars
-    metadata: dict[str, Any]                # see below
+    suspects: list[SuspectCommit]           # rank-ordered
+    reasoning_summary: str
+    tool_trace: list[ToolCallRecord]
+    metadata: dict[str, Any]                # evidence_scores, cost, model, etc.
+    investigation_trace: InvestigationTrace | None  # full structured trace
 ```
 
-**Metadata keys** (set by `investigate()`):
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `turns_used` | int | LLM turns consumed |
-| `tool_calls` | int | Total tool executions |
-| `tokens_used` | int | Total tokens (prompt + completion) |
-| `total_cost_usd` | float | Estimated cost |
-| `elapsed_ms` | float | Wall-clock time |
-| `temporal_bound` | str | The bound ref (e.g. "abc123~1") |
-| `model` | str | LLM model name |
-| `budget_exceeded` | bool | Whether any limit was hit |
-| `evidence_scores` | list[dict] | Per-suspect grounding scores |
-| `evidence_scoring_applied` | bool | Always `True` in V3 |
-| `post_processing_applied` | bool | Always `False` (Phase B deferred) |
-
-### BudgetState
+### SuspectCommit
 
 ```python
 @dataclass
-class BudgetState:
-    total_tokens: int = 0
-    total_cost: float = 0.0
-    total_tool_calls: int = 0
-    max_tokens: int = 100_000
-    max_cost: float = 0.50
-    max_tool_calls: int = 30
-    turns_used: int = 0
+class SuspectCommit:
+    commit_id: str                          # full SHA
+    rank: int                               # 1-based
+    confidence: float                       # 0.0-1.0
+    mechanism: str                          # "If <change> then <consequence>"
+    evidence_quotes: list[str]              # exact text from diffs
 ```
+
+---
+
+## The LLM Boundary
+
+The LLM operates inside a strict information boundary:
+
+### What the LLM sees (V4)
+
+| Source | Content | Delivered via |
+|--------|---------|---------------|
+| Bug report | JIRA title + description | `ProblemStatement.to_prompt_text()` |
+| Candidate set | Pre-filtered commits with summaries | `CandidateSet` formatted by harness |
+| Skills | Relevant strategies from past investigations | Injected by harness into planning context |
+| Examination results | Diffs, blame, file contents of candidates | Tool results from Stage 3 |
+| Investigation state | Progress, remaining work | Harness status messages |
+
+### What the LLM never sees
+
+| Data | Why forbidden |
+|------|---------------|
+| `bug_hash` (ground truth answer) | Would trivialize the task |
+| `fix_hash`, fix commit diff/message | Beyond temporal bound |
+| Ground truth chain (bug→fix→issue) | Eval-only retrospective data |
+| Evidence scores | Computed post-attribution; never fed back |
+| Eval metrics (Hit@k, MRR) | Oracle-only |
+| Raw repo history (unbounded) | Agent works on CandidateSet, not full repo |
 
 ---
 
@@ -367,8 +383,8 @@ class BudgetState:
 The agent simulates an engineer at **bug-report time** — after the defect exists but before any fix lands.
 
 ```
-[bug introduced] --> [bug reported in JIRA] --> agent investigates HERE --> [fix commit(s)]
-                         ^ input                    ^ bound = COMMIT_B~1       ^ invisible
+[bug introduced] --> [bug reported] --> agent investigates HERE --> [fix commit(s)]
+                        ^ input              ^ bound = COMMIT_B~1       ^ invisible
 ```
 
 ### Rules
@@ -376,34 +392,65 @@ The agent simulates an engineer at **bug-report time** — after the defect exis
 | Rule | Detail |
 |------|--------|
 | Bound definition | `COMMIT_B~1` = parent of the earliest fix commit |
-| Multi-fix policy | Use the **earliest** fix commit SHA as `COMMIT_B` |
-| Bound source | `fix_hash` from the eval case sets the bound; this is eval-only data |
-| Fix commit invisibility | `COMMIT_B`'s diff, message, and metadata are never accessible |
+| Scope | Constrains the ENTIRE system (input pipeline + agent tools) |
+| Eval mode source | `fix_hash` from ground truth chain |
+| Production mode source | Bug report creation date or HEAD (**TBD**) |
+| Fix commit invisibility | `COMMIT_B`'s diff, message, metadata never accessible |
 
-### Enforcement implementation
+### Enforcement
 
-Two mechanisms in `GitContextProvider`:
-
-1. **Per-commit guard** (`_enforce_bound`): resolves the requested commit SHA, then checks `git merge-base --is-ancestor <commit> <bound>`. Violation raises `TemporalBoundViolation`. Results cached via `@lru_cache(maxsize=512)`.
-
-2. **Search pre-filtering**: all `git log` commands append the bound ref as a positional argument, limiting traversal to commits reachable from `COMMIT_B~1`.
-
-Edge case: if a commit SHA cannot be resolved (e.g. short hash ambiguity), the bound check is silently skipped rather than raising.
+- **Input Pipeline (Stage 1):** All `git log` commands append the bound ref
+- **Agent Tools (Stage 3):** `_enforce_bound()` per-commit guard + search pre-filtering
+- **Violation handling:** `TemporalBoundViolation` → error text returned to LLM
 
 ---
 
-## LLM Provider
+## Fallback and Degradation
 
-Factory priority (`get_provider()`):
+| Failure mode | Detection | Fallback |
+|--------------|-----------|----------|
+| Extraction yields zero signals | `extracted_files` empty, no keywords | Retrieval widens: recent commits, large diffs, broad time window |
+| Retrieval < 10 candidates | `CandidateSet` size below threshold | Widen parameters: longer time window, looser matching |
+| Retrieval recall = 0 | Only measurable in eval mode | Log as retrieval failure. Agent proceeds best-effort. |
+| Planning produces no hypotheses | Harness validates brief structure | Re-invoke planning with broader prompt |
+| Examination exhausts brief | All hypotheses tested, none confirmed | Loop back to planning (max 2 re-plans) |
+| Budget exceeded | Hard stop by harness | Proceed to attribution with available evidence (degraded) |
 
-| Priority | Provider | Model | Trigger |
-|----------|----------|-------|---------|
-| 1 | CursorSDKProvider | claude-sonnet-4-6 | `CURSOR_API_KEY` set |
-| 2 | OpenAIProvider | gpt-4o-mini (or `OPENAI_MODEL`) | `OPENAI_API_KEY` set |
-| 3 | OllamaProvider | llama3.1:8b | Local Ollama running |
-| 4 | MockLLMProvider | mock-investigator-v1 | Fallback (tests) |
+---
 
-CursorSDKProvider flattens the conversation into a single prompt string. OpenAIProvider supports native function calling but the orchestrator does not use it — all tool dispatch is text-based.
+## Tool Catalog (Stage 3)
+
+All tools wrap `GitContextProvider` methods. Available during Stage 3 (Examination) only.
+
+| Tool | Required args | Optional args | Use case |
+|------|--------------|---------------|----------|
+| `get_commit_diff` | `commit_id` | — | Inspect candidate changes |
+| `get_commit_message` | `commit_id` | — | Read author intent |
+| `get_file_at_commit` | `commit_id`, `path` | — | Read file state at commit |
+| `get_blame` | `path` | `line_start`, `line_end` | Trace line-level authorship |
+
+**Scoping:** In V4, search tools (`search_commits_by_file`, `search_commits_by_keyword`, `list_recent_commits`) move to the input pipeline (Stage 1). The agent examines candidates from `CandidateSet` rather than searching the full repo.
+
+**Temporal enforcement:** All tools enforce the temporal bound via `_enforce_bound()`. Violations return error text to the LLM.
+
+---
+
+## Current Implementation (V3) — Reference
+
+The V3 implementation (current code) uses a different architecture:
+
+| Aspect | V3 (current) | V4 (target) |
+|--------|--------------|-------------|
+| Agent receives | `ProblemStatement` + `GitContextProvider` (full repo access) | `CandidateSet` + `ProblemStatement` (pre-filtered) |
+| Search | LLM does search via tools (5-8 calls) | Scripts do retrieval (zero LLM) |
+| Planning | None — implicit in "Problem Analysis" advisory phase | Explicit `InvestigationBrief` with hypotheses |
+| Governance | Budget-only (30 calls, 100K tokens, 15 turns) | Harness + completion criteria + budget as safety net |
+| Exit signal | Budget exhaustion | Brief satisfaction (or budget hard stop) |
+| Tracing | `tool_trace` (partial, 500-char truncation) | Full `InvestigationTrace` |
+| Learning | None | Skills from traces (**TBD**) |
+| Best result | Hit@5=0.50, MRR=0.304 (n=20, prompt V2) | Target: Hit@5 >= 0.60 with lower cost |
+
+V3 code lives in `src/commit_investigator/` with packages: `extraction/`, `agent/`, `eval/`, `infra/`. The V3 agentic loop runs 7 advisory stages (5 LLM + 2 script) inside `AgentOrchestrator.investigate()`. Full V3 details in the [exp19b retrospective](../.harness/docs/exp19b-retrospective.md).
 
 ---
 
@@ -411,6 +458,9 @@ CursorSDKProvider flattens the conversation into a single prompt string. OpenAIP
 
 | Document | Content |
 |----------|---------|
-| [evaluation-framework.md](evaluation-framework.md) | Metrics, rubrics, baselines, thresholds |
-| [datasets.md](datasets.md) | ApacheJIT data, ground truth chain, git clones |
+| [agent-loop.md](agent-loop.md) | Detailed agent loop mechanics (stages 2-3-4) |
+| [evaluation-framework.md](evaluation-framework.md) | Metrics, stage-to-metric mapping, baselines |
 | [glossary.md](glossary.md) | Term definitions |
+| [datasets.md](datasets.md) | ApacheJIT data, ground truth chain |
+| [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) | Architecture Decision Record for V4 |
+| [.harness/docs/exp19b-retrospective.md](../.harness/docs/exp19b-retrospective.md) | V2/V3 retrospective with scores and lessons |

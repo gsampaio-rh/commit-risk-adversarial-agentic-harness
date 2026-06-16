@@ -1,6 +1,8 @@
-# Evaluation Framework — Bug Attribution Agent (V3)
+# Evaluation Framework — Bug Attribution Agent (V4 Target)
 
 This document defines how the bug attribution system is measured. It separates **system-level metrics** (does the pipeline find the right commit?) from **output-quality metrics** (is the LLM's reasoning good?), and specifies baselines, thresholds, and known limitations.
+
+> **Architecture status:** This describes evaluation for the V4 target architecture (three pipelines: Input / Agent / Evaluation). Metric definitions and computation remain the same as V3 — what changes is the stage-to-metric mapping and the addition of input pipeline metrics.
 
 ## Two Levels of Evaluation
 
@@ -27,21 +29,49 @@ These metrics evaluate the quality of the LLM's output independent of whether it
 
 ---
 
-## Stage-to-Metric Mapping
+## Stage-to-Metric Mapping (V4 — Three Pipelines)
 
-This table links agentic loop stages (see [system-specification.md](system-specification.md#agentic-loop)) to the metrics that measure them. Stages 1–5 are advisory LLM phases; stages 6–7 are script steps inside `investigate()`.
+This table maps the V4 pipeline stages to the metrics that measure them. See [system-specification.md](system-specification.md) for full stage details.
 
-| Agentic loop stage | Metric(s) | What is measured | Status |
-|--------------------|-----------|------------------|--------|
-| 1 Problem Analysis | — | No separate metric; quality propagates to tool usage | — |
-| 2 Search | — | Search listing tools do not feed Retrieval Recall directly (see below) | — |
-| 3 Examine | **Retrieval Recall** | Whether `bug_hash` appears in `tool_trace[].args.commit_id` from examine tools (`get_commit_diff`, `get_commit_message`, `get_file_at_commit`) | Implemented |
-| 4 Refine | **Retrieval Recall** (continued) | Same as stage 3 — any tool call with `commit_id` in args counts | Implemented |
-| 5 Conclude | **Hit@k**, **MRR**, **D3 Attribution Quality** | Final ranked suspect list vs ground truth `bug_hash`; causal mechanism quality | Implemented |
-| 6 Evidence Scoring | **D6 Evidence Grounding** | Whether evidence quotes appear in suspect diffs | Implemented |
-| 7 Report Assembly | — | Structural correctness of `BugAttributionReport` | Tested via schema, not scored |
+### Input Pipeline Metrics
 
-**Retrieval Recall caveat:** `evaluate_attribution()` in `eval_metrics.py` checks only `commit_id` values in `tool_trace[].args`. Commit SHAs that appear **only** in search tool result text (`search_commits_by_file`, `search_commits_by_keyword`, `list_recent_commits`) are **not** counted. A case can have low retrieval recall even if search listed the right commit, until the agent calls an examine tool with that `commit_id`.
+| Stage | Metric | What is measured | Status |
+|-------|--------|------------------|--------|
+| 0 Extraction | **Extraction Signal Count** | Number of search signals produced (files, symbols, keywords) | Concept — not yet implemented |
+| 1 Retrieval | **Retrieval Recall@100** | Is `bug_hash` in the `CandidateSet`? | Concept — to be built in `retrieval-spike` |
+
+**Retrieval Recall@100** is the foundational metric for V4. If the input pipeline does not include `bug_hash` in the candidate set, the agent cannot succeed regardless of reasoning quality. This metric measures input pipeline quality independently of the agent.
+
+### Agent Pipeline Metrics
+
+| Stage | Metric(s) | What is measured | Status |
+|-------|-----------|------------------|--------|
+| 2 Planning | **Plan Quality** | Does the brief cover the right area? Are hypotheses relevant? | Concept — **TBD** mechanism |
+| 3 Examination | **Retrieval Recall** (agent-level) | Whether `bug_hash` appears in `tool_trace[].args.commit_id` from examine tools | Implemented (V3 compatible) |
+| 4 Attribution | **Hit@k**, **MRR**, **D3 Attribution Quality** | Final ranked suspect list vs ground truth; causal mechanism quality | Implemented |
+| 4 Attribution (post) | **D6 Evidence Grounding** | Whether evidence quotes appear in suspect diffs | Implemented |
+
+### Metric disambiguation: two levels of Retrieval Recall
+
+| Metric | Pipeline | Question | Computation |
+|--------|----------|----------|-------------|
+| **Retrieval Recall@100** (input) | Input Pipeline | Is `bug_hash` in the `CandidateSet`? | `1 if bug_hash in candidate_set.commit_ids else 0` |
+| **Retrieval Recall** (agent) | Agent Pipeline | Did the agent examine `bug_hash` via a tool call? | `1 if bug_hash in tool_trace[].args.commit_id else 0` |
+
+A case can have Retrieval Recall@100 = 1 (bug was in candidates) but agent Retrieval Recall = 0 (agent never examined it). This distinguishes input quality from agent examination quality.
+
+### Plan Quality (concept — TBD)
+
+Plan Quality measures whether the `InvestigationBrief` produced in Stage 2 targets the right area of the codebase. Possible approaches:
+- Does the plan mention files touched by `bug_hash`?
+- Do hypotheses relate to the actual bug mechanism?
+- Is the examination plan efficient (targets few candidates that include ground truth)?
+
+**Mechanism TBD** — to be resolved in `mechanism-design` task. May require LLM judge or could be a deterministic overlap metric.
+
+### V3 compatibility note
+
+The V3 stage-to-metric mapping (7 advisory stages) is superseded by the above. Agent-level Retrieval Recall computation (`tool_trace[].args.commit_id`) remains identical in V4 — only the stage numbering changes.
 
 ---
 
@@ -74,11 +104,11 @@ mrr = mean(mrr_case for all cases)
 
 **Range:** [0, 1]. MRR = 1.0 means every case had `bug_hash` at rank 1.
 
-### Retrieval Recall
+### Retrieval Recall (agent-level)
 
-**What it measures:** Whether the agent ever *fetched* the bug-introducing commit via an examine tool (commit in `tool_trace[].args`), regardless of whether it ranked it as a suspect.
+**What it measures:** Whether the agent ever *examined* the bug-introducing commit via a tool call (commit in `tool_trace[].args`), regardless of whether it ranked it as a suspect.
 
-**Agentic loop stages:** Primarily stages 3–4 (Examine, Refine). Stage 2 search listing alone does not satisfy retrieval recall.
+**V4 pipeline stage:** Stage 3 (Examination). The agent examines candidates from the `CandidateSet` provided by the input pipeline.
 
 **Computation:**
 ```
@@ -86,9 +116,22 @@ commit_ids = {tool_trace[i].args.commit_id for all tool calls where commit_id pr
 retrieval_recall = 1 if bug_hash[:12] in {cid[:12] for cid in commit_ids}, else 0
 ```
 
-**Not counted:** SHAs appearing only in search tool **result text** (e.g. output of `search_commits_by_file`) — only `args.commit_id` on tool trace records matters.
+**Not counted:** SHAs appearing only in tool **result text** — only `args.commit_id` on tool trace records matters.
 
-**Why it matters:** Separates examine/refine quality from ranking quality. If retrieval recall is high but Hit@5 is low, the agent fetched the right commit but did not rank it — a reasoning problem. If retrieval recall is low, the agent never called an examine tool on `bug_hash` — a search or examine strategy problem.
+**Why it matters:** Separates examination quality from ranking quality. If agent retrieval recall is high but Hit@5 is low, the agent examined the right commit but did not rank it — a reasoning problem. If agent retrieval recall is low but Retrieval Recall@100 is high, the candidate set contained ground truth but the agent never examined it — a planning/strategy problem.
+
+### Retrieval Recall@100 (input pipeline)
+
+**What it measures:** Whether the input pipeline's `CandidateSet` contains the ground truth `bug_hash`. Measures retrieval quality independently of the agent.
+
+**V4 pipeline stage:** Stage 1 (Candidate Retrieval).
+
+**Computation:**
+```
+retrieval_recall_100 = 1 if bug_hash[:12] in {c.commit_id[:12] for c in candidate_set.commits}, else 0
+```
+
+**Why it matters:** Foundational metric for V4. If `bug_hash` is not in the candidate set, the agent cannot succeed regardless of reasoning quality. A low Retrieval Recall@100 indicates an input pipeline failure, not an agent failure. Target: **TBD** — to be calibrated in `retrieval-spike` task.
 
 ### D6 Evidence Grounding
 
@@ -191,7 +234,8 @@ These thresholds are **provisional** — they will be calibrated after the first
 | **MRR** | >= 0.15 | >= 0.30 |
 | **D3 Attribution** | >= 0.20 | >= 0.40 |
 | **D6 Evidence** | >= 0.60 | >= 0.60 |
-| **Retrieval Recall** | >= 0.40 | >= 0.60 |
+| **Retrieval Recall (agent)** | >= 0.40 | >= 0.60 |
+| **Retrieval Recall@100 (input)** | **TBD** — after `retrieval-spike` | **TBD** — target >= 0.80 |
 
 **GATE:** The agent must exceed all gates to be considered minimally functional.
 
@@ -228,13 +272,13 @@ These thresholds are **provisional** — they will be calibrated after the first
 
 | Limitation | Impact | Mitigation |
 |------------|--------|------------|
-| SZZ noise in `bug_hash` labels | Format changes and refactoring labeled as bug-introducing. Hit@1 unreliable. | Hit@5 as primary metric; manual review planned (task `gt-noise-analysis`). |
+| SZZ noise in `bug_hash` labels | Format changes and refactoring labeled as bug-introducing. Hit@1 unreliable. | Hit@5 as primary metric; gt-noise-analysis done (35% noise rate). |
+| Retrieval Recall@100 ceiling | If input pipeline can't get `bug_hash` in top 100, agent fails at foundation | `retrieval-spike` task will empirically test strategies |
 | Tool output truncation (8K chars) | Large diffs or blame output may lose relevant lines | Truncation appends a notice; agent can request specific line ranges via `get_blame` |
-| Retrieval Recall args-only | Only `tool_trace[].args.commit_id` counts; search result SHAs ignored | Documented in Stage-to-Metric Mapping; agent must call examine tools on suspects |
-| Tool trace truncation (500 chars) | Trace record truncated; full results still sent to LLM | Does not affect retrieval recall (uses args, not result text) |
-| No D3 judge | Cannot evaluate reasoning quality in V3 today | Rubric defined above; implementation planned (task `d3-llm-judge`) |
-| Advisory phases | Agent may ignore the suggested 5-phase strategy entirely | Acceptable — the agent is measured on outcomes, not process |
-| Single-LLM architecture | No multi-agent debate, no separate planning model | Simplicity first; reconsider if Hit@5 plateaus |
+| Agent Retrieval Recall args-only | Only `tool_trace[].args.commit_id` counts; search result SHAs ignored | Agent examines from CandidateSet — V4 reduces this gap |
+| Plan Quality not yet measurable | Cannot evaluate whether the InvestigationBrief targets the right area | Metric concept defined above; mechanism TBD |
+| Skills mechanism undefined | Cannot leverage past investigations for improvement yet | To be resolved in `mechanism-design` task |
+| Single-LLM architecture | No multi-agent debate, no separate planning model | Harness governance provides structure; multi-agent TBD if needed |
 | No re-ranking | Evidence scores don't change suspect order | Phase B deferred until forensics justify it |
 
 ---
@@ -243,6 +287,8 @@ These thresholds are **provisional** — they will be calibrated after the first
 
 | Document | Content |
 |----------|---------|
-| [system-specification.md](system-specification.md) | Pipeline stages, LLM boundary, agentic loop, tools |
+| [system-specification.md](system-specification.md) | Three pipelines, agent framework, LLM boundary, tools |
+| [agent-loop.md](agent-loop.md) | Agent loop stages 2-3-4, completion criteria, tracing |
 | [datasets.md](datasets.md) | ApacheJIT data, ground truth chain |
 | [glossary.md](glossary.md) | Term definitions |
+| [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) | V4 architecture decision record |

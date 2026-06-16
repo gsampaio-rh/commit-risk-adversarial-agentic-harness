@@ -1,15 +1,17 @@
 {
   "project": "exp19b-bug-attribution-agent",
-  "phase": "v3-prompt-v2-done",
+  "phase": "v4-architecture-redesign",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-16T16:00:00Z",
+  "updated": "2026-06-16T18:05:00Z",
   "schema_version": 5,
   "_archive": "V2 state archived to .harness/state-v2-archive.json. V2 final: D1=0.72 D3=0.31 (n=50), JIRA injection brought D3=0.35 on n=20.",
-  "vision": "Build a bug attribution agent: given a JIRA bug report (title + description), autonomously search a git repository to identify the commit that introduced the bug. The agent uses git tools (log, blame, diff, show) with temporal bounds, producing a ranked list of suspect commits with evidence-grounded causal explanations. Evaluated via Hit@k, MRR, and attribution quality metrics against ApacheJIT ground truth.",
-  "direction": "PROMPT V2 SUCCESS: Hit@5=0.50 (10/20), MRR=0.304 — 43% improvement over V1 (0.35). Key improvements: min 3 suspects requirement, causal chain guidance, 2-phase search strategy. 4 new hits (SPARK-946, HDFS-7734, GROOVY-8416, IGNITE-1787), 1 regression (FLINK-3602). Evidence grounding 0.61. Exceeds target threshold (Hit@5=0.40). Next: scale to n=50, implement D3 LLM judge.",
+  "vision": "Build a plan-driven bug attribution agent with internal governance. The system separates concerns into three pipelines: (1) Input Pipeline — deterministic extraction and candidate retrieval at zero LLM cost; (2) Agent Pipeline — LLM plans, examines, and attributes within an InvestigationBrief, governed by an investigation harness with rules and skills; (3) Evaluation Pipeline — oracle scores output. The agent receives a CandidateSet (not raw repo access), operates within completion criteria (not just budget), produces structured InvestigationTraces for learning, and improves over time via skills derived from traces. Evaluated via Hit@k, MRR, D3, D6, and Retrieval Recall against ApacheJIT ground truth.",
+  "direction": "ARCHITECTURE V4: Redesign from fully-agentic (LLM searches + reasons) to Retrieve-then-Reason (scripts retrieve, LLM reasons). V3 achieved Hit@5=0.50 but hits a ceiling because 25-30% of LLM budget is wasted on mechanical search. V4 introduces: (1) input pipeline with deterministic retrieval, (2) investigation harness governing the LLM, (3) InvestigationBrief as completion criteria, (4) structured traces for learning. ADR at .harness/docs/topology-debate.md. Next: resolve mechanism-design + retrieval-spike, then implement.",
   "invariants": {
-    "temporal_bound": "Agent sees repo up to COMMIT_B~1 (parent of earliest fix commit). COMMIT_B diff/content/message are NOT visible. JIRA ticket (title + description) is the input -- temporally valid (created before fix).",
-    "llm_reasons_scripts_verify": "LLM owns search strategy, candidate selection, and attribution reasoning. Scripts own evidence grounding (verifying quotes against diffs) and report assembly.",
+    "temporal_bound": "Temporal bound (COMMIT_B~1) constrains the ENTIRE system — input pipeline retrieval and agent tools. In eval mode, bound comes from fix_hash. In production mode (future), from bug report date or HEAD.",
+    "llm_reasons_scripts_retrieve": "Scripts own retrieval (candidate set assembly) and evidence verification. LLM owns planning, examination reasoning, and attribution. The LLM never searches from scratch — it receives a curated CandidateSet.",
+    "agent_is_governed": "The investigation harness governs the LLM. The LLM does not self-govern. The harness manages state, transitions, and completion criteria. Budget is a hard stop, not the primary exit signal.",
+    "observable_by_design": "Every investigation produces a structured InvestigationTrace. No investigation is a black box. Traces are the substrate for skill emergence.",
     "ground_truth": "GroundTruthGraph provides bug_hash from commit_links.csv. SZZ-based labeling has known noise -- Hit@5 is primary metric, not Hit@1."
   },
   "cost_budget": {
@@ -516,6 +518,41 @@
       "priority": 11,
       "depends_on": ["eval-n50"],
       "note": "Regression guard. Runs baselines (free) + agent (budget-capped) on every significant change."
+    },
+    {
+      "id": "topology-debate",
+      "name": "Architecture V4: topology debate — resolve agent boundary, pipeline views, naming, governance model",
+      "type": "debate",
+      "status": "verified",
+      "priority": 1,
+      "depends_on": [],
+      "note": "ADR at .harness/docs/topology-debate.md. Resolves: three pipelines (input/agent/eval), agent boundary at Stage 2, InvestigationBrief naming, temporal model expansion, fallback paths. Unlocks all V4 doc rewrites and implementation.",
+      "deliverables": [
+        ".harness/docs/topology-debate.md (ADR)",
+        "docs/system-specification.md (rewrite)",
+        "docs/agent-loop.md (rewrite)",
+        "docs/evaluation-framework.md (update)",
+        "AGENTS.md (update)",
+        "docs/glossary.md (update)"
+      ]
+    },
+    {
+      "id": "mechanism-design",
+      "name": "Architecture V4: mechanism design — rule format, skill mechanism, trace schema, prompt assembly, completion thresholds",
+      "type": "debate",
+      "status": "pending",
+      "priority": 2,
+      "depends_on": ["topology-debate"],
+      "note": "Implementation-level decisions. Open questions: (1) Rules: hard gates vs soft guidance vs hybrid — WHERE do rules live as artifacts, WHAT format, WHO creates/maintains; (2) Skills: RAG few-shot vs rule extraction vs hybrid — WHERE stored, HOW retrieved, WHO curates; (3) Prompt assembly: how does the harness BUILD the LLM prompt from rules + skills + stage instructions + candidate data; (4) Trace schema: fields, granularity, storage format, output directory; (5) Completion criteria threshold values; (6) Brief validation: what makes a brief valid, minimum hypotheses; (7) Artifact ownership: who creates rules, who approves skills, lifecycle of each governance artifact."
+    },
+    {
+      "id": "retrieval-spike",
+      "name": "Architecture V4: retrieval spike — empirically test retrieval strategies for recall@100",
+      "type": "spike",
+      "status": "pending",
+      "priority": 2,
+      "depends_on": ["topology-debate"],
+      "note": "Empirical research. Questions: (1) Which git retrieval strategies achieve best recall@100 on n=20? (2) Optimal candidate set size (50 vs 100 vs 200)? (3) Does Level 2 extraction improve retrieval over Level 1? (4) Time-window bounding effect on precision? Can run in parallel with mechanism-design."
     }
   ]
 }

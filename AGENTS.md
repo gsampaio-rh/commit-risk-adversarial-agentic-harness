@@ -1,24 +1,37 @@
 # Agents Guide — Bug Attribution Agent
 
-This project builds an agentic attribution harness that, given a JIRA bug report (title + description), autonomously searches a git repository to identify the commit that introduced the bug, producing evidence-grounded attribution reports. It is developed by Cursor agents using an adversarial harness workflow.
+This project builds a bug attribution system: given a JIRA bug report (title + description), identify the commit that introduced the bug in a git repository, producing evidence-grounded attribution reports. It is developed by Cursor agents using an adversarial harness workflow.
 
 ## Reading Order
 
-1. **This file** — entry point, key invariants, task policy
-2. [docs/system-specification.md](docs/system-specification.md) — pipeline stages, LLM boundary, agentic loop (7 stages), tools, data structures, temporal model
-3. [docs/evaluation-framework.md](docs/evaluation-framework.md) — system-level vs output-quality metrics, D3 rubric, baselines, thresholds
-4. [docs/glossary.md](docs/glossary.md) — all project-specific terms and definitions
-5. [docs/datasets.md](docs/datasets.md) — ApacheJIT data, ground truth chain, bug→commit mappings
+1. **This file** — entry point, key invariants, current code layout, task policy
+2. [docs/system-specification.md](docs/system-specification.md) — V4 target architecture (three pipelines, agent framework, data structures, LLM boundary)
+3. [docs/agent-loop.md](docs/agent-loop.md) — agent loop (stages 2-3-4), completion criteria, tracing
+4. [docs/evaluation-framework.md](docs/evaluation-framework.md) — metrics, stage-to-metric mapping, baselines, thresholds
+5. [docs/glossary.md](docs/glossary.md) — all project-specific terms and definitions
+6. [docs/datasets.md](docs/datasets.md) — ApacheJIT data, ground truth chain, bug→commit mappings
 
 ## Key Invariants
 
-**Temporal bound enforcement:** The agent may only access repository state up to `COMMIT_B~1` (the parent of the earliest fix commit). The JIRA ticket is input and is temporally valid. No commits at or after the fix window may enter investigation context. Full rules in [docs/system-specification.md](docs/system-specification.md#temporal-model).
+**Temporal bound enforcement:** The temporal bound (COMMIT_B~1) constrains the entire system — both the input pipeline (retrieval) and agent tools. In eval mode, bound comes from `fix_hash`. Full rules in [docs/system-specification.md](docs/system-specification.md#temporal-model).
 
-**Oracle isolation:** Ground truth data (buggy commit labels, fix commits, chain linkage, eval-only metadata) must NEVER enter investigation context. The agent sees the JIRA report and commit-time repository information only. Enforced by temporal bounds, context allowlists, and dedicated tests.
+**LLM reasons, scripts retrieve:** Scripts own retrieval (candidate set assembly) and evidence verification. The LLM owns planning, examination reasoning, and attribution. The LLM never searches from scratch — it receives a curated CandidateSet. (V3 code still has LLM-driven search; V4 target moves search to scripts.)
 
-**LLM reasons, scripts verify:** The LLM drives multi-turn search, hypothesis formation, and commit selection via tool use. Deterministic scripts verify evidence grounding, score attribution quality, and enforce report schema. Scripts do not own search strategy or final attribution decisions.
+**Agent is governed:** The investigation harness governs the LLM. The LLM does not self-govern. The harness manages state, transitions, and completion criteria. Budget is a hard stop, not the primary exit signal.
 
-**Attribution evaluation:** Hit@k, MRR, attribution quality (D3), evidence grounding (D6), and retrieval recall. Rubrics and gate thresholds in [docs/evaluation-framework.md](docs/evaluation-framework.md).
+**Observable by design:** Every investigation produces a structured InvestigationTrace. No investigation is a black box. Traces are the substrate for skill emergence.
+
+**Oracle isolation:** Ground truth data (buggy commit labels, fix commits, chain linkage, eval-only metadata) must NEVER enter investigation context. The agent sees the JIRA report and repository information only.
+
+**Attribution evaluation:** Hit@k, MRR, D3 attribution quality, D6 evidence grounding, and retrieval recall. Rubrics and thresholds in [docs/evaluation-framework.md](docs/evaluation-framework.md).
+
+## Architecture Status
+
+The **target architecture (V4)** is documented in [docs/system-specification.md](docs/system-specification.md). It introduces three pipelines (Input / Agent / Evaluation), an investigation harness, InvestigationBrief-driven completion, and structured traces.
+
+The **current implementation (V3)** uses a single-agent loop where the LLM performs both search and reasoning within a budget-limited multi-turn conversation. V3 achieved Hit@5=0.50, MRR=0.304.
+
+See [.harness/docs/topology-debate.md](.harness/docs/topology-debate.md) for the ADR that defines V4, and [.harness/docs/exp19b-retrospective.md](.harness/docs/exp19b-retrospective.md) for V2/V3 lessons learned.
 
 ## Workflow
 
@@ -35,7 +48,7 @@ Pending tasks live in `.harness/state.json` under `tasks[]`. Pick the task with 
 
 Before starting a new task: check if a contract exists, read the last 5 breadcrumbs, and verify no uncommitted work from a prior session.
 
-## Package Layout
+## Package Layout (Current Code)
 
 ```
 src/commit_investigator/
@@ -45,7 +58,9 @@ src/commit_investigator/
 └── infra/             # llm, git_context, smart_diff (shared)
 ```
 
-## Pipeline
+This is the V3 layout. V4 will add packages for retrieval, harness governance, and trace storage — but those do not exist yet. Only describe what's on disk.
+
+## Pipeline (Current V3 Implementation)
 
 ```
 ProblemStatement (input) → Attribution Agent (multi-turn, tool-use) → Evidence Scorer → BugAttributionReport
@@ -58,4 +73,14 @@ ProblemStatement (input) → Attribution Agent (multi-turn, tool-use) → Eviden
 | Evidence scoring | `agent/evidence_tagger.py` (inside `investigate()`) | Script |
 | Evaluation | `eval/eval_metrics.py` | Oracle |
 
-Full three-stage pipeline specification in [docs/system-specification.md](docs/system-specification.md).
+## Pipeline (V4 Target)
+
+See [docs/system-specification.md](docs/system-specification.md) for the full target:
+
+```
+Input Pipeline: Extraction → Retrieval → CandidateSet
+Agent Pipeline: Planning → Examination → Attribution → BugAttributionReport
+Evaluation Pipeline: Scoring (Hit@k, MRR, D3, D6)
+```
+
+The agent receives `CandidateSet` + `ProblemStatement`, not raw repo access. The investigation harness governs the LLM through Stages 2-3-4 with an InvestigationBrief defining completion criteria.
