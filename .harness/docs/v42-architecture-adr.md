@@ -21,7 +21,7 @@ V3 (fully agentic, full repo access) achieved Hit@5=0.50. V4 metadata-only achie
 ```
 Phase 0:  Retrieval (existing, zero LLM) → CandidateSet@100
 Phase 1a: Script pre-score (zero LLM) → ScoredShortlist@15
-Phase 1b: LLM triage (1 call, one-shot) → 3 must-examine + 4 watchlist
+Phase 1b: Deterministic triage (zero LLM) → 3 must-examine + 4 watchlist
 Phase 2:  Scoped investigation (multi-turn ReAct, scoped tools) → Ranked suspects
 Phase 2b: Watchlist expansion (conditional, fresh context) → Merged final result
 ```
@@ -57,20 +57,24 @@ Phase 2b: Watchlist expansion (conditional, fresh context) → Merged final resu
 - Pre-implementation gate: measure Recall@15 on n=20 oracle before locking weights
 - Rationale: Anchors triage with deterministic signals. LLM triage cannot veto top-3 by pre-score.
 
-### Phase 1b: LLM Triage (new, 1 call)
+### Phase 1b: Deterministic Triage (revised — zero LLM)
 
-- Owner: Harness + LLM
-- Input: Bug report + 15 candidates with metadata + diff_summary (~300 chars each)
+- Owner: Script (deterministic)
+- Input: ScoredShortlist (15 candidates from Phase 1a)
 - Output: TriageResult — 3 must-examine + 4 watchlist (fixed tier sizes)
-- Constraint: Top 3 by pre_score MUST appear in must_examine (harness-enforced)
-- Fallback: Invalid LLM output → must_examine = top 3 by pre_score, watchlist = next 4
-- Gate: Triage Recall@7 >= 0.80 on retrievable cases before approving cheap model
-- Risk mitigation: Phase 1a pins top-3 regardless of LLM output
+- Rule: must_examine = top 3 by pre_score; watchlist = next 4 by pre_score
+- LLM cost: Zero
+
+> **Post-gate revision (2026-06-17):** The triage smoke test (n=5 tested, 11/11 retrievable confirmed) showed deterministic top-7 by pre_score achieves TriageRecall@7 = 1.00. Even llama3.1:8b (local, free) added zero value over the deterministic baseline. Phase 1b is therefore implemented as a pure script phase — no LLM call.
+>
+> **Caveat:** This result is based on n=20 ApacheJIT eval cases with multi-hash SZZ ground truth (which increases the target set). Deterministic triage may underperform on datasets where GT has weaker retrieval signals (low file_overlap, single strategy).
+>
+> **Reintroduction trigger:** If TriageRecall@7 drops below 0.80 on a new or expanded dataset (n≥50), reintroduce LLM triage as an optional enhancement. The TriageResult data structure and tier sizes are preserved to make this a drop-in change.
 
 ### Phase 2: Scoped Investigation (revised)
 
 - Owner: Harness + LLM
-- Input: Bug report + must-examine candidates (SHA + 1-line triage rationale) + scoped tools
+- Input: Bug report + must-examine candidates (SHA + pre-score rank) + scoped tools
 - Tools: get_commit_diff, get_commit_message, get_blame, get_file_at_commit
 - Scope: Full CandidateSet (existing design, not just must-examine)
 - Budget: 15 tool calls (soft), 8 turns
@@ -130,24 +134,24 @@ Phase 2b: Watchlist expansion (conditional, fresh context) → Merged final resu
 ### Provider
 
 - **Primary:** OpenAI-compatible API (native chat completions, tool_calls, multi-turn)
-- **Phase-aware routing:** `TRIAGE_MODEL` + `INVESTIGATION_MODEL` env vars
+- **Model config:** `INVESTIGATION_MODEL` env var (triage is deterministic, no model needed)
 - **Cursor SDK:** Dropped for multi-turn eval. Bridge unreliable for sustained workloads.
 - **Fail-fast:** No silent degradation to Ollama/Mock during gated eval runs
 
 ### Model Selection
 
-- Start with same model for triage + investigation (e.g., claude-sonnet-4 or gpt-4o)
-- Defer cheap triage (haiku/mini) until Triage Recall@7 ≥ 0.80 is proven
-- Compliance spike required: test ```tool block format on chosen model before n=20
+- Triage is deterministic (zero LLM) — no model selection needed for Phase 1b
+- Investigation model: any OpenAI-compatible (e.g., claude-sonnet-4, gpt-4o, or local Ollama)
+- Compliance spike: test ```tool block format on chosen investigation model before n=20
 
 ### Cost Estimate (revised)
 
 | Phase | Model | Calls | Est. tokens | Est. cost |
 |-------|-------|-------|-------------|-----------|
-| 1b | same as Phase 2 | 1 | ~8K | $0.01 |
+| 1b | deterministic | 0 | 0 | $0.00 |
 | 2 | sonnet-4 / gpt-4o | 3-8 | ~40-80K | $0.05-0.10 |
 | 2b | same | 2-4 | ~20-40K | $0.02-0.05 |
-| **Total/case** | | **6-13** | **~70-120K** | **$0.10-0.15** |
+| **Total/case** | | **5-12** | **~60-120K** | **$0.07-0.15** |
 
 ## Data Structures (New)
 
@@ -179,8 +183,7 @@ class ScoredShortlist:
 class TriageResult:
     must_examine: list[TriagedCandidate]  # exactly 3
     watchlist: list[TriagedCandidate]     # exactly 4
-    raw_llm_response: str                 # trace only
-    model_used: str
+    method: str = "deterministic"         # "deterministic" or "llm" (future)
 ```
 
 ### TriagedCandidate
@@ -191,7 +194,7 @@ class TriagedCandidate:
     scored: ScoredCandidate
     tier: Literal["must_examine", "watchlist"]
     triage_rank: int          # 1-based within tier
-    rationale: str            # 1-line LLM explanation
+    rationale: str            # e.g. "Rank 1 by pre-score (0.667)" — deterministic
 ```
 
 ### Suspect (unified, replaces SuspectCommit + dict suspects)
@@ -255,10 +258,11 @@ All recall metrics are eval-only (require ground_truth_sha). Must never leak int
 | must_examine ∩ watchlist = ∅ | Harness validation at Phase 1b output |
 | must_examine ⊆ ScoredShortlist | Harness validation |
 | watchlist ⊆ ScoredShortlist | Harness validation |
-| Top 3 by pre_score ∈ must_examine | Harness-enforced, LLM cannot veto |
+| must_examine = top 3 by pre_score | Deterministic assignment (Phase 1b) |
+| watchlist = next 4 by pre_score | Deterministic assignment (Phase 1b) |
 | pre_score ∈ [0, 1] | Phase 1a validation |
 | commit_id = full 40-char SHA | Normalized at retrieval |
-| Phase 1b = exactly 1 LLM call | Harness-enforced |
+| Phase 1b = zero LLM calls | Deterministic (post-gate revision) |
 | Phase 2 tools scoped to CandidateSet | build_scoped_tools() unchanged |
 | Temporal bound propagated to all phases | Via ScoredShortlist.temporal_bound |
 | ≥1 get_commit_diff per must_examine SHA | Phase 2 exit condition |
@@ -268,9 +272,9 @@ All recall metrics are eval-only (require ground_truth_sha). Must never leak int
 
 Before writing V4.2 code:
 
-1. **Recall@15 ablation:** Run pre-score formula on n=20 with oracle. Does GT land in top 15? Test weight sensitivity.
-2. **Provider compliance spike:** Test ```tool block parsing on GPT-4o / Sonnet via OpenAI-compatible endpoint. n=3 cases.
-3. **Triage smoke test:** One-shot triage prompt on 3 cases — does LLM rank GT in top 7 when GT is in shortlist?
+1. **Recall@15 ablation:** Run pre-score formula on n=20 with oracle. Does GT land in top 15? Test weight sensitivity. **PASSED** — Recall@15=0.846 (11/13). Weights flat-insensitive.
+2. **Provider compliance spike:** Test ```tool block parsing on OpenAI-compatible endpoint. **DEFERRED** — no API key available. Ollama (OpenAI-compatible) tested via triage smoke.
+3. **Triage smoke test:** One-shot triage prompt on 3-5 cases — does LLM rank GT in top 7? **PASSED** — TriageRecall@7=1.00 (5/5). Key finding: deterministic top-7 by pre_score is sufficient; LLM adds zero measurable value. Phase 1b revised to zero-LLM.
 
 ## Compatibility
 

@@ -17,9 +17,9 @@ The agent loop is the reasoning core. It receives a `ScoredShortlist` + `Problem
                         │ ScoredShortlist (15 candidates)
                         ▼
 ┌──────────────────────────────────────────────────────┐
-│  Phase 1b: LLM TRIAGE (1 call, one-shot)             │
-│  15 candidates + bug report → 3 must-examine + 4 watch│
-│  Constraint: top-3 pre-score pinned in must-examine   │
+│  Phase 1b: DETERMINISTIC TRIAGE (zero LLM)            │
+│  must_examine = top 3, watchlist = next 4 by pre-score│
+│  Fixed tier sizes: 3 + 4 = 7                          │
 └───────────────────────┬──────────────────────────────┘
                         │ TriageResult
                         ▼
@@ -73,27 +73,26 @@ Scoring signals:
 
 ---
 
-## Phase 1b: LLM Triage (1 call)
+## Phase 1b: Deterministic Triage (zero LLM)
 
-**Harness controls:** prompt assembly, output parsing, SHA validation, tier enforcement.
-**LLM controls:** reasoning about which candidates are most suspicious.
+**Script controls everything.** No LLM call — tier assignment is purely by pre-score rank.
 
 | Aspect | Detail |
 |--------|--------|
-| **Turns** | 1 (one-shot, no multi-turn) |
-| **Tool budget** | 0 (no tools — metadata-only reasoning) |
-| **Input context** | Bug report + 15 candidates (SHA, message, date, files, signal, pre_score, diff_summary ~300 chars) |
-| **Output format** | Structured JSON: `{"must_examine": [...], "watchlist": [...]}` |
-| **Validation** | All SHAs ⊆ ScoredShortlist; must_examine = 3; watchlist = 4; must_examine ∩ watchlist = ∅ |
-| **Constraint** | Top 3 by pre_score MUST appear in must_examine (harness-enforced, LLM cannot veto) |
-| **Fallback** | Invalid JSON or empty must_examine → must_examine = top 3 by pre_score, watchlist = next 4 |
+| **LLM cost** | Zero |
+| **Input** | ScoredShortlist (15 candidates from Phase 1a) |
+| **Output** | TriageResult: 3 must-examine + 4 watchlist |
+| **Rule** | must_examine = shortlist[:3], watchlist = shortlist[3:7] |
+| **Rationale field** | Template: `"Rank {n} by pre-score ({score:.3f})"` |
+
+> **Why no LLM?** The triage smoke test (2026-06-17) showed deterministic top-7 achieves TriageRecall@7 = 1.00 on all retrievable cases. Even llama3.1:8b added zero value over the deterministic baseline. See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md) post-gate revision for reintroduction trigger.
 
 ### Handoff to Phase 2
 
-Phase 2 receives a **compressed handoff**, not the full triage transcript:
-- SHA + 1-line triage rationale per candidate
-- Retrieval rank and signal type
-- No raw LLM chain-of-thought from triage
+Phase 2 receives:
+- SHA + pre-score rank per must-examine candidate
+- Retrieval signal type and file overlap
+- No LLM reasoning (triage is deterministic)
 
 ---
 
@@ -114,7 +113,7 @@ The system prompt contains:
 2. Tool descriptions (scoped examination tools only)
 3. Output format (`` ```suspects `` block with JSON)
 4. Bug report (title + description, truncated to 3000 chars)
-5. Must-examine candidates (3 SHAs + 1-line triage rationale each)
+5. Must-examine candidates (3 SHAs + pre-score rank each)
 
 ### Turn-by-turn execution
 
@@ -213,7 +212,7 @@ The V4.1 implementation runs a single multi-turn loop with 20 candidates in the 
 | Aspect | V4.1 | V4.2 |
 |--------|------|------|
 | Candidates in prompt | 20 | 3 must-examine (+ 4 watchlist in 2b) |
-| Triage | None (LLM triages implicitly) | Explicit Phase 1a + 1b |
+| Triage | None (LLM triages implicitly) | Deterministic Phase 1a + 1b (zero LLM) |
 | Budget | 15 calls, 8 turns | 15 + 8 overflow, 8 + 4 turns |
 | Context | Full message accumulation | Harness-managed rolling summary |
 | Exit conditions | suspects + 1 tool call | suspects + diff on must-examine |

@@ -2,7 +2,7 @@
 
 Given a JIRA bug report (title + description) and a temporally-bounded git repository, this system identifies the commit that most likely **introduced** the bug. It produces a ranked list of suspect commits with causal mechanisms and evidence quotes, evaluated against SZZ-derived ground truth.
 
-> **Architecture status:** The **target architecture is V4.2** (Revised Hierarchical Pipeline) — separates narrowing from deep investigation via a 4-phase pipeline: retrieval → script pre-score → LLM triage → scoped investigation (+ conditional watchlist expansion). V4.1 (Scoped Tools) is the current implementation. See [.harness/docs/v42-architecture-adr.md](../.harness/docs/v42-architecture-adr.md) for the V4.2 decision, [.harness/docs/architecture-constraints.md](../.harness/docs/architecture-constraints.md) for codified NFRs, [.harness/docs/scoped-tools-adr.md](../.harness/docs/scoped-tools-adr.md) for the V4→V4.1 pivot.
+> **Architecture status:** The **target architecture is V4.2** (Revised Hierarchical Pipeline) — separates narrowing from deep investigation via a 4-phase pipeline: retrieval → script pre-score → deterministic triage → scoped investigation (+ conditional watchlist expansion). V4.1 (Scoped Tools) is the current implementation. See [.harness/docs/v42-architecture-adr.md](../.harness/docs/v42-architecture-adr.md) for the V4.2 decision, [.harness/docs/architecture-constraints.md](../.harness/docs/architecture-constraints.md) for codified NFRs, [.harness/docs/scoped-tools-adr.md](../.harness/docs/scoped-tools-adr.md) for the V4→V4.1 pivot.
 
 ---
 
@@ -15,14 +15,14 @@ The system consists of three pipelines with distinct ownership and clear boundar
 │  INPUT PIPELINE (infrastructure)         │
 │  Phase 0:  Extraction                    │
 │  Phase 1a: Retrieval + Script Pre-Score  │
+│  Phase 1b: Deterministic Triage          │
 │  Owner: Scripts / eval harness           │
 │  LLM cost: Zero                          │
 └──────────────┬───────────────────────────┘
-               │ ScoredShortlist + ProblemStatement
+               │ TriageResult + ProblemStatement
                ▼
 ┌──────────────────────────────────────────┐
 │  AGENT PIPELINE (governed LLM)           │
-│  Phase 1b: LLM Triage (1 call)          │
 │  Phase 2:  Scoped Investigation (ReAct)  │
 │  Phase 2b: Watchlist Expansion (cond.)   │
 │  Owner: Investigation Harness + LLM      │
@@ -43,15 +43,15 @@ The system consists of three pipelines with distinct ownership and clear boundar
 
 | Pipeline | Phases | Owner | LLM involvement | The agent sees... |
 |----------|--------|-------|-----------------|-------------------|
-| Input | 0 (Extraction) + 1a (Retrieval + Pre-Score) | Scripts / eval harness | Zero (optional LLM for Level 2 extraction) | Nothing — this is input preparation |
-| Agent | 1b (Triage) + 2 (Investigation) + 2b (Watchlist expansion) | Investigation harness (harness governs LLM) | Full — all LLM budget spent here | ScoredShortlist + ProblemStatement |
+| Input | 0 (Extraction) + 1a (Pre-Score) + 1b (Deterministic Triage) | Scripts / eval harness | Zero (optional LLM for Level 2 extraction) | Nothing — this is input preparation |
+| Agent | 2 (Investigation) + 2b (Watchlist expansion) | Investigation harness (harness governs LLM) | Full — all LLM budget spent here | TriageResult + ProblemStatement |
 | Evaluation | Scoring against ground truth | Oracle (eval harness) | Zero (except D3 LLM judge) | Nothing — scores are oracle-only |
 
 ---
 
-## Input Pipeline (Stages 0–1)
+## Input Pipeline (Stages 0–1b)
 
-The input pipeline prepares everything the agent needs to begin reasoning. It is infrastructure — not part of the agent's cognitive loop.
+The input pipeline prepares everything the agent needs to begin reasoning. It is infrastructure — not part of the agent's cognitive loop. All stages are deterministic (zero LLM cost).
 
 ### Stage 0 — Extraction
 
@@ -86,29 +86,32 @@ Retrieval uses deterministic git operations to assemble a candidate set:
 
 All retrieval respects the temporal bound — only commits reachable from `COMMIT_B~1`.
 
+### Stage 1b — Deterministic Triage
+
+| Aspect | Detail |
+|--------|--------|
+| **Owner** | Script (deterministic, zero LLM) |
+| **Input** | `ScoredShortlist` (top 15 from Phase 1a) |
+| **Output** | `TriageResult`: 3 must-examine + 4 watchlist |
+| **Rule** | must_examine = top 3 by pre_score; watchlist = next 4 |
+| **Module** | TBD — part of Phase 1 narrowing module |
+
+Triage assigns fixed tiers by pre-score rank. No LLM call — the triage smoke test showed deterministic top-7 achieves TriageRecall@7 = 1.00 on all retrievable cases. See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md) for reintroduction trigger if a larger dataset requires LLM-assisted triage.
+
 ---
 
 ## Agent Pipeline — V4.2 Revised Hierarchical (Target)
 
-The agent receives a `ScoredShortlist` + `ProblemStatement` from the input pipeline and produces a ranked suspect list. It uses a **4-phase pipeline** that separates narrowing (triage) from deep investigation (scoped ReAct loop). See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md).
+The agent receives a `TriageResult` + `ProblemStatement` from the input pipeline and produces a ranked suspect list. It uses scoped investigation with conditional watchlist expansion. See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md).
 
-### Phase 1b: LLM Triage (1 call, one-shot)
-
-| Aspect | Detail |
-|--------|--------|
-| **Owner** | Harness (prompt assembly, output parsing, validation) |
-| **Input** | Bug report + 15 candidates with metadata + diff_summary |
-| **Output** | `TriageResult`: 3 must-examine + 4 watchlist |
-| **Budget** | 1 LLM call, 0 tools |
-| **Constraint** | Top 3 by pre_score MUST appear in must_examine (harness-enforced) |
-| **Fallback** | Invalid LLM output → must_examine = top 3 by pre_score, watchlist = next 4 |
+> **Note:** Phase 1b (triage) is deterministic and lives in the Input Pipeline. The Agent Pipeline starts at Phase 2.
 
 ### Phase 2: Scoped Investigation (multi-turn ReAct)
 
 | Aspect | Detail |
 |--------|--------|
 | **Owner** | `ScopedInvestigator` (harness) + LLM |
-| **Input** | Bug report + must-examine candidates (SHA + 1-line triage rationale) + scoped tools |
+| **Input** | Bug report + must-examine candidates (SHA + pre-score rank) + scoped tools |
 | **Output** | Ranked suspects with confidence, mechanism, evidence quotes |
 | **Budget** | 15 tool calls (soft), 8 turns |
 | **Context** | Harness-managed: rolling summary (≤2K tokens) + last-turn tool results |
@@ -320,7 +323,7 @@ All tools wrap `GitContextProvider` methods. Available during Stage 3 (Examinati
 |--------|------------------------|----------------------|---------------|
 | Agent receives | Full repo access | 20 candidates + scoped tools | 7 triaged candidates + scoped tools |
 | Search | LLM via tools (5-8 calls) | Scripts (zero LLM) | Scripts (zero LLM) |
-| Narrowing | None (LLM searches) | None (all 20 in prompt) | Script pre-score + LLM triage |
+| Narrowing | None (LLM searches) | None (all 20 in prompt) | Script pre-score + deterministic triage |
 | Governance | Budget-only (30/15) | Budget (15/8) + SHA validation | Phase-aware budget + nudge ladder |
 | Best result | Hit@5=0.50, MRR=0.304 | TBD | Target: Hit@5 >= 0.40 |
 

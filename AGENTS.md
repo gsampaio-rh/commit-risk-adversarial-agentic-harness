@@ -27,9 +27,9 @@ This project builds a bug attribution system: given a JIRA bug report (title + d
 
 ## Architecture Status
 
-The **target architecture is V4.2** (Revised Hierarchical Pipeline): separates narrowing from deep investigation via a 4-phase pipeline — script pre-score → LLM triage → scoped investigation → conditional watchlist expansion. The **current implementation is V4.1** (Scoped Tools), which passes 20 candidates into a single loop.
+The **target architecture is V4.2** (Revised Hierarchical Pipeline): separates narrowing from deep investigation via a 4-phase pipeline — script pre-score → deterministic triage → scoped investigation → conditional watchlist expansion. The **current implementation is V4.1** (Scoped Tools), which passes 20 candidates into a single loop.
 
-V4.2 was decided via research-grounded builder/evaluator debates. Key change: Phase 1a (script pre-score) narrows 100→15, Phase 1b (LLM triage) narrows 15→7 (3 must-examine + 4 watchlist), Phase 2 investigates deeply with scoped tools.
+V4.2 was decided via research-grounded builder/evaluator debates. Key change: Phase 1a (script pre-score) narrows 100→15, Phase 1b (deterministic triage) narrows 15→7 (3 must-examine + 4 watchlist) using pre-score rank (zero LLM), Phase 2 investigates deeply with scoped tools.
 
 V3 (fully agentic) achieved Hit@5=0.50, MRR=0.304. V4 metadata-only achieved Hit@5=0.062. V4.2 targets Hit@5 ≥ 0.40.
 
@@ -68,7 +68,7 @@ src/commit_investigator/
 ```
 Input: Extraction → Retrieval → CandidateSet@100
 Phase 1a: Script pre-score → ScoredShortlist@15 (zero LLM)
-Phase 1b: LLM triage → 3 must-examine + 4 watchlist (1 LLM call)
+Phase 1b: Deterministic triage → 3 must-examine + 4 watchlist (zero LLM)
 Phase 2: Scoped investigation (multi-turn ReAct) → Ranked Suspects
 Phase 2b: Watchlist expansion (conditional) → Merged final
 Evaluation: 5-stage funnel (Recall@100→@15→@7→Exam→Hit@5)
@@ -78,12 +78,12 @@ Evaluation: 5-stage funnel (Recall@100→@15→@7→Exam→Hit@5)
 |-------|--------|-------|
 | Extraction | `extraction/problem_extractor.py` | Script |
 | Retrieval + pre-score | `retrieval/pipeline.py` → `retrieval/retriever.py` | Script |
-| LLM triage | TBD (V4.2 implementation) | Harness + LLM |
+| Deterministic triage | TBD (V4.2 implementation) | Script |
 | Scoped investigation | `harness/scoped_runner.py` + `agent/tools.py` | LLM + scoped tools |
 | Watchlist expansion | TBD (V4.2 implementation) | Harness + LLM |
 | Evaluation | TBD (V4.2 implementation) | Oracle |
 
-The agent receives `ScoredShortlist` + `ProblemStatement`, not raw repo access. Tools are scoped to CandidateSet SHAs.
+The agent receives `TriageResult` + `ProblemStatement`, not raw repo access. Tools are scoped to CandidateSet SHAs.
 
 ## Results Directory (gitignored)
 

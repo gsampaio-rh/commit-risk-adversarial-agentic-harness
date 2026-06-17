@@ -4,8 +4,8 @@
 
 | Term | Definition |
 |------|------------|
-| **Input Pipeline** | Phase 0 + Phase 1a: deterministic extraction, candidate retrieval, and script pre-scoring at zero LLM cost. Produces `ScoredShortlist` + `ProblemStatement` for the agent. |
-| **Agent Pipeline (V4.2)** | Phases 1b-2-2b: LLM triage → scoped investigation → conditional watchlist expansion. Separates narrowing from deep investigation. |
+| **Input Pipeline** | Phases 0 + 1a + 1b: deterministic extraction, candidate retrieval, script pre-scoring, and deterministic triage at zero LLM cost. Produces `TriageResult` + `ProblemStatement` for the agent. |
+| **Agent Pipeline (V4.2)** | Phases 2 + 2b: scoped investigation → conditional watchlist expansion. All LLM budget spent here. |
 | **Evaluation Pipeline** | Oracle scoring: compares suspect list against ground truth. The agent never sees these results. 5-stage funnel: Recall@100→@15→@7→Exam→Hit@5. |
 
 ## V4.2 Revised Hierarchical Pipeline
@@ -13,14 +13,14 @@
 | Term | Definition |
 |------|------------|
 | **Phase 1a: Script Pre-Score** | Deterministic scoring of CandidateSet using file_overlap, signal_count, and retrieval_rank. Produces `ScoredShortlist` (top 15). Zero LLM cost. |
-| **Phase 1b: LLM Triage** | One-shot LLM call that ranks 15 candidates into 3 must-examine + 4 watchlist. Top 3 by pre_score are harness-pinned (LLM cannot veto). |
+| **Phase 1b: Deterministic Triage** | Deterministic tier assignment: must_examine = top 3 by pre_score, watchlist = next 4. Zero LLM cost. (Originally designed as LLM triage; simplified after smoke test showed deterministic top-7 achieves TriageRecall@7=1.00.) |
 | **Phase 2: Scoped Investigation** | Multi-turn ReAct loop with scoped tools. Examines must-examine candidates. Budget: 15 calls, 8 turns. |
 | **Phase 2b: Watchlist Expansion** | Conditional phase triggered when Phase 2 produces no suspects, low confidence, or no evidence. Fresh context with watchlist candidates. Budget: 8 calls, 4 turns. |
 | **ScoredShortlist** | Top 15 candidates from Phase 1a, sorted by composite pre_score. Includes temporal_bound and scoring_weights for reproducibility. |
 | **ScoredCandidate** | Wrapper around `CandidateCommit` adding `pre_score` and `file_overlap` from Phase 1a scoring. |
 | **TriageResult** | Output of Phase 1b: 3 `TriagedCandidate` in must_examine + 4 in watchlist. Fixed tier sizes. |
-| **TriagedCandidate** | A `ScoredCandidate` with tier assignment (must_examine/watchlist), triage_rank, and 1-line LLM rationale. |
-| **Script-Anchored Triage** | Design constraint: LLM triage cannot override retrieval's top 3 by pre_score. Harness pins them in must_examine regardless of LLM output. |
+| **TriagedCandidate** | A `ScoredCandidate` with tier assignment (must_examine/watchlist), triage_rank, and rationale (template: "Rank N by pre-score (X.XXX)"). |
+| **Script-Anchored Triage** | Design constraint (strengthened): triage is fully deterministic — tier assignment is a pure function of pre_score rank. No LLM involvement. |
 | **Nudge Ladder** | 4-tier state-based nudge system: idle turn 1 (gentle), idle turn 2 (budget warning), idle turn 3 (force conclude), suspects without diff (reject). |
 | **InvestigationExitReason** | Enum tracking why an investigation ended: normal, budget_exhausted, max_turns, forced_conclude, stall, provider_error, empty_candidates, watchlist_expansion_exhausted, watchlist_skipped. |
 | **Harness-Managed Context** | Context model where the harness maintains a rolling working summary (≤2K tokens) + last-turn tool results, rather than unbounded message accumulation. |
@@ -41,7 +41,7 @@
 |------|------------|
 | **Phase 0: Extraction** | Input pipeline. Transforms raw JIRA text into structured `ProblemStatement`. Regex-based (Level 1) or LLM-assisted (Level 2, TBD). |
 | **Phase 1a: Retrieval + Pre-Score** | Input pipeline. Deterministic git commands assemble `CandidateSet`, then script pre-score produces `ScoredShortlist` (top 15). Zero LLM cost. |
-| **Phase 1b: LLM Triage** | Agent pipeline. One-shot LLM ranking of 15 candidates into tiered list (3 must-examine + 4 watchlist). |
+| **Phase 1b: Deterministic Triage** | Input pipeline. Deterministic tier assignment from ScoredShortlist: top 3 = must-examine, next 4 = watchlist. Zero LLM. |
 | **Phase 2: Scoped Investigation** | Agent pipeline. Multi-turn ReAct loop with scoped tools on must-examine candidates. |
 | **Phase 2b: Watchlist Expansion** | Agent pipeline. Conditional expansion when Phase 2 confidence is low or no suspects found. |
 
@@ -74,7 +74,7 @@
 | **MRR** | Mean Reciprocal Rank: average of `1/rank` across cases. 0 if `bug_hash` not found. |
 | **Retrieval Recall@100** (input pipeline) | Is `bug_hash` in the `CandidateSet`? Measures input pipeline quality. |
 | **Pre-score Recall@15** (Phase 1a) | Is `bug_hash` in the `ScoredShortlist`? Measures pre-score quality. V4.2 funnel metric. |
-| **Triage Recall@7** (Phase 1b) | Is `bug_hash` in must_examine ∪ watchlist? Measures triage quality. V4.2 funnel metric. |
+| **Triage Recall@7** (Phase 1b) | Is `bug_hash` in top 7 by pre_score? Measures triage quality. Deterministic — no LLM dropout. V4.2 funnel metric. |
 | **Examination Recall** (Phase 2) | Did the agent call `get_commit_diff` on `bug_hash`? Measures examination quality. |
 
 ## Evaluation — Output-Quality Metrics
@@ -104,7 +104,7 @@
 | **Scoped, not unbounded** | Agent's tools restricted to CandidateSet SHAs. No full-repo search. |
 | **Observable by design** | Every investigation produces a structured trace. No black boxes. |
 | **Separate narrowing from investigation** | V4.2 principle: triage (Phase 1a/1b) and deep investigation (Phase 2) are separate phases with separate contexts. |
-| **Script-anchored, not LLM-vetoed** | Harness pins retrieval's top candidates into must-examine regardless of LLM triage output. |
+| **Script-anchored, not LLM-vetoed** | Triage is fully deterministic: top 3 by pre_score are must-examine, next 4 are watchlist. No LLM can override ranking. |
 | **Baselines** | Zero-LLM deterministic methods (git-blame-naive, file-history-recency, random) that establish the performance floor. |
 
 ## Related

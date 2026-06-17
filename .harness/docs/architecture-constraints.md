@@ -47,17 +47,17 @@ No phase may simultaneously triage AND deeply investigate. Triage (metadata reas
 
 Each phase starts with a fresh, bounded context. Tool results are compressed before re-injection. No unbounded message accumulation.
 
-- Phase 1b: One-shot (no accumulation)
+- Phase 1b: Deterministic (no LLM context)
 - Phase 2: Harness-managed rolling summary (≤2K tokens) + last-turn tool results
 - Phase 2b: Fresh context (no Phase 2 message history)
 
 **Evidence:** AgentSZZ's 3-layer compression achieves 30% token reduction with zero accuracy loss. Accumulated context degrades quality (observed in V3 cursor-sdk-multi-turn eval).
 
-### C3: Script-Anchored Triage
+### C3: Fully Script-Anchored Triage
 
-LLM triage cannot veto retrieval's top candidates. The top 3 candidates by deterministic pre-score MUST appear in must-examine regardless of LLM output. LLM triage adds value by reordering and selecting watchlist, not by overriding retrieval.
+Triage is entirely deterministic: must_examine = top 3 by pre_score, watchlist = next 4. No LLM call. Tier assignment is a pure function of pre-score rank.
 
-**Evidence:** V4 metadata-only achieved Hit@5=0.062. Retrieval signals (blame, file_log) are more reliable than LLM metadata reasoning for candidate selection. LLM adds value for investigation, not for initial filtering.
+**Evidence:** Triage smoke test (2026-06-17) showed deterministic top-7 achieves TriageRecall@7 = 1.00 on all retrievable cases (11/11). LLM triage (tested with llama3.1:8b) added zero measurable value. Reintroduction trigger: TriageRecall@7 < 0.80 on dataset n≥50.
 
 ### C4: Fixed Tier Sizes
 
@@ -111,9 +111,9 @@ These measurements must be completed BEFORE writing V4.2 implementation code:
 
 | Gate | Pass condition | Method |
 |------|---------------|--------|
-| G1: Recall@15 | GT in top 15 by pre-score formula on ≥80% of retrievable cases | Run pre-score on n=20 oracle |
-| G2: Provider compliance | ```tool block parse rate ≥ 90% on chosen model | n=3 case spike on OpenAI-compatible endpoint |
-| G3: Triage smoke | LLM ranks GT in top 7 on ≥60% of retrievable cases | One-shot triage on n=3-5 cases |
+| G1: Recall@15 | GT in top 15 by pre-score formula on ≥80% of retrievable cases | Run pre-score on n=20 oracle | **PASSED** (0.846) |
+| G2: Provider compliance | ```tool block parse rate ≥ 90% on chosen model | n=3 case spike on OpenAI-compatible endpoint | **DEFERRED** (no API key) |
+| G3: Triage smoke | GT in top 7 on ≥60% of retrievable cases | One-shot triage on n=3-5 cases | **PASSED** (1.00, deterministic sufficient) |
 
 ---
 
@@ -121,7 +121,7 @@ These measurements must be completed BEFORE writing V4.2 implementation code:
 
 | Decision | Reason | When to revisit |
 |----------|--------|-----------------|
-| Cheap triage model (haiku/mini) | No TriageRecall@7 data yet | After G3 gate with strong model |
+| LLM-assisted triage | Deterministic top-7 achieves TriageRecall@7=1.00 | If TriageRecall@7 drops below 0.80 on dataset n≥50 |
 | Level 2 LLM-assisted extraction | Retrieval recall@100 meets gate (0.40 ≥ 0.35) | When recall@100 blocks Hit@5 |
 | Native Anthropic provider | OpenAI-compatible proxy works for now | If proxy shows tool-call compliance issues |
 | Rolling context summary implementation | Harness-managed context spec agreed, impl details deferred | During Phase 2 implementation |

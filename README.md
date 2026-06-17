@@ -14,7 +14,7 @@ Phase 0: Extraction → ProblemStatement
 Phase 1a: Retrieval + Script Pre-Score → ScoredShortlist (15 candidates)
     │
     ▼
-Phase 1b: LLM Triage → 3 must-examine + 4 watchlist
+Phase 1b: Deterministic Triage → 3 must-examine + 4 watchlist (zero LLM)
     │
     ▼
 Phase 2: Scoped Investigation (multi-turn ReAct, scoped tools)

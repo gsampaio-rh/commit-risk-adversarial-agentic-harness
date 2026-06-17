@@ -44,7 +44,7 @@ Recall@100 → Recall@15 → TriageRecall@7 → ExamRecall → Hit@5
 |-------|--------|----------|-------------|--------|
 | 0+1a | **Retrieval Recall@100** | Is `bug_hash` in CandidateSet? | `1 if bug_hash in candidate_set` | Calibrated (gate ≥ 0.35) |
 | 1a | **Pre-score Recall@15** | Is `bug_hash` in ScoredShortlist? | `1 if bug_hash in top_15_by_pre_score` | New — V4.2 |
-| 1b | **Triage Recall@7** | Is `bug_hash` in must_examine ∪ watchlist? | `1 if bug_hash in triaged_7` | New — V4.2 |
+| 1b | **Triage Recall@7** | Is `bug_hash` in must_examine ∪ watchlist? | `1 if bug_hash in top_7_by_pre_score` | Deterministic (zero LLM dropout) |
 | 2 | **Examination Recall** | Did agent call `get_commit_diff` on `bug_hash`? | `1 if bug_hash in diff_args` | Renamed from "Retrieval Recall (agent)" |
 | Final | **Hit@k**, **MRR** | Is `bug_hash` in top k suspects? | Standard ranking metrics | Implemented |
 
@@ -270,7 +270,7 @@ These thresholds are **provisional** — they will be calibrated after the first
 | Retrieval Recall@100 ceiling | If input pipeline can't get `bug_hash` in top 100, agent fails regardless of reasoning | Current: 0.40 (8/20). Level 2 extraction expected to reach 0.60. |
 | Tool output truncation (8K chars) | Large diffs or blame output may lose relevant lines | Truncation appends a notice; agent can request specific line ranges via `get_blame` |
 | Pre-score may drop GT | If GT ranks 16+ by pre_score, Recall@15 = 0 | Pre-implementation gate: measure Recall@15 on n=20 oracle before locking weights |
-| Triage may veto GT | LLM triage could exclude GT from must-examine + watchlist | Script-anchored triage: top 3 by pre_score are harness-pinned |
+| Triage may veto GT | Deterministic triage could exclude GT from must-examine + watchlist if GT ranks 8+ by pre_score | Script-anchored triage: top 3 by pre_score are must-examine, next 4 are watchlist — fully deterministic |
 | Provider-dependent tool format | ```tool block compliance varies by model | Compliance spike required before n=20 eval |
 | No V4.2 eval data yet | Funnel metrics are designed but unmeasured | Pre-implementation gates G1-G3 must pass before build |
 | Skills mechanism not integrated | Prompts don't inject investigation skills yet | Deferred to V4.2 — skills integration TBD |
