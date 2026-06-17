@@ -8,8 +8,9 @@ from typing import Any
 
 from commit_investigator.agent.tools import ToolRegistry
 from commit_investigator.extraction.problem_extractor import ProblemStatement
+from commit_investigator.harness.result import Suspect
 from commit_investigator.models.candidates import CandidateSet
-from commit_investigator.narrowing.models import TriageResult
+from commit_investigator.narrowing.models import TriagedCandidate, TriageResult
 
 
 def build_scoped_system_prompt(
@@ -117,6 +118,90 @@ def build_phase2_system_prompt(
         f"## Must-Examine Candidates ({len(triage.must_examine)} commits)\n"
         "These are the highest-priority candidates — examine ALL of them:\n"
         f"{must_examine}"
+    )
+
+
+def _format_candidates(candidates: list[TriagedCandidate]) -> str:
+    """Format a list of TriagedCandidates for prompt inclusion."""
+    lines: list[str] = []
+    for i, c in enumerate(candidates, 1):
+        files = ", ".join(c.files_changed[:5]) if c.files_changed else "(no files)"
+        lines.append(
+            f"  {i}. `{c.commit_id}` — \"{c.summary}\" "
+            f"[pre_score={c.pre_score:.3f}, file_overlap={c.file_overlap:.2f}] "
+            f"[{c.retrieval_signal}] [{c.date}]\n     files: {files}"
+        )
+    return "\n".join(lines)
+
+
+def build_phase2b_system_prompt(
+    problem: ProblemStatement,
+    triage: TriageResult,
+    best_suspect: Suspect | None,
+    registry: ToolRegistry,
+) -> str:
+    """Build V4.2 Phase 2b system prompt — watchlist candidates + P2 reference.
+
+    Fresh context (no Phase 2 history). Includes the Phase 2 best suspect
+    as a reference point for comparison.
+    """
+    tools = _format_tool_descriptions(registry)
+    watchlist = _format_candidates(triage.watchlist)
+    watchlist_shas = ", ".join(
+        f"`{c.commit_id[:12]}`" for c in triage.watchlist
+    )
+
+    reference_section = ""
+    if best_suspect and best_suspect.commit_id:
+        reference_section = (
+            f"\n## Phase 2 Best Suspect (reference)\n"
+            f"Previous investigation found: `{best_suspect.commit_id[:12]}` "
+            f"(confidence={best_suspect.confidence:.2f})\n"
+            f"Mechanism: {best_suspect.mechanism}\n"
+            f"Compare your findings against this suspect.\n"
+        )
+
+    return (
+        "You are a bug attribution agent. A prior investigation examined "
+        "high-priority candidates but produced weak results. Your task: "
+        "examine these WATCHLIST candidates to find which one INTRODUCED "
+        "the bug described below.\n\n"
+
+        "## Tools\n"
+        "To invoke a tool, output a fenced block:\n"
+        "```tool\n"
+        '{"tool": "<name>", "args": {<arguments>}}\n'
+        "```\n\n"
+        f"{tools}\n\n"
+
+        "## Strategy\n"
+        f"Examine each watchlist commit ({watchlist_shas}) "
+        "with `get_commit_diff`.\n"
+        "1. Call `get_commit_diff` on each watchlist SHA\n"
+        "2. For each diff, assess whether the change could CAUSE the symptoms\n"
+        "3. Use `get_blame` or `get_file_at_commit` for deeper analysis if needed\n"
+        "4. Conclude with a `suspects` block when you have evidence\n\n"
+
+        "## Output Format\n"
+        "When ready to conclude:\n"
+        "```suspects\n"
+        "[{\n"
+        '  "commit_id": "<full 40-char SHA>",\n'
+        '  "confidence": 0.85,\n'
+        '  "mechanism": "Explain HOW this commit caused the bug",\n'
+        '  "evidence_quotes": ["relevant diff lines or blame output"]\n'
+        "}]\n"
+        "```\n"
+        "Rank suspects by confidence. Use ONLY full SHAs from the candidate list.\n\n"
+
+        f"## Bug Report\n"
+        f"**Title:** {problem.title}\n\n"
+        f"**Description:**\n{problem.description[:3000]}\n\n"
+
+        f"## Watchlist Candidates ({len(triage.watchlist)} commits)\n"
+        f"{watchlist}"
+
+        f"{reference_section}"
     )
 
 

@@ -425,10 +425,61 @@
       "id": "v42-phase2b-watchlist",
       "name": "V4.2 build: Phase 2b watchlist expansion + merge",
       "type": "feature",
-      "status": "pending",
+      "status": "verified",
       "priority": 17,
       "depends_on": ["v42-phase2-revised-investigation"],
-      "scope": "Watchlist expansion trigger logic (no suspects OR confidence < 0.6 OR no evidence). Fresh context prompt with watchlist candidates. Merge algorithm (dedup, max confidence, quote union, mechanism longest). Phase2bResult. InvestigationResult with funnel metrics. Tests."
+      "scope": "Watchlist expansion trigger logic (no suspects OR confidence < 0.6 OR no evidence). Fresh context prompt with watchlist candidates. Merge algorithm (dedup, max confidence, quote union, mechanism longest). Phase2bResult. InvestigationResult with funnel metrics. Tests.",
+      "subtasks": [
+        {
+          "id": "p17-1-trigger-and-result",
+          "name": "Phase2bResult dataclass + trigger function",
+          "status": "completed",
+          "depends_on": [],
+          "scope": "Two additions: (1) Phase2bResult dataclass in harness/result.py — fields: suspects (list[Suspect]), tool_calls (int), turns (int), trigger_reason (str). Keep it next to Suspect and Phase2Result. (2) should_trigger_phase2b(phase2_result: Phase2Result) -> tuple[bool, str] pure function in harness/phase2b.py (new file). Returns (triggered, reason_string). Trigger conditions from spec: (a) no suspects in phase2_result, (b) max(confidence) < 0.6, (c) top suspect by confidence has empty evidence_quotes. If none triggered, returns (False, 'watchlist_skipped'). Reason strings: 'no_suspects', 'low_confidence', 'no_evidence'. Tests (~6): truth table covering each trigger individually, multiple triggers, all-clear skip, edge case confidence=0.6 exact.",
+          "files": [
+            "src/commit_investigator/harness/result.py",
+            "src/commit_investigator/harness/phase2b.py",
+            "tests/test_phase2b.py"
+          ],
+          "why_first": "Pure data + pure decision function with zero LLM dependency. Everything downstream (prompt, merge, orchestrator) depends on Phase2bResult shape and trigger semantics. Smallest possible unit to verify independently."
+        },
+        {
+          "id": "p17-2-merge-algorithm",
+          "name": "merge_suspects() pure function",
+          "status": "completed",
+          "depends_on": ["p17-1-trigger-and-result"],
+          "scope": "merge_suspects(phase2: list[Suspect], phase2b: list[Suspect]) -> list[Suspect] in harness/phase2b.py. Implements the 5-step merge from agent-loop.md §Merge Logic: (1) Deduplicate by full SHA — identify suspects appearing in both lists. (2) Duplicates: confidence = max(p2, p2b), evidence_quotes = union (deduplicated), mechanism = longer string. (3) New 2b-only suspects: insert below all Phase 2 suspects UNLESS confidence > top_p2_confidence + 0.15 (then insert at natural rank position). (4) Final rank: stable sort by (len(evidence_quotes) DESC, confidence DESC). Assign rank 1..N. (5) Cap at 5 suspects. Input suspects come with phase='investigation' (P2) or phase='watchlist_expansion' (P2b) — preserve phase on merge (P2 wins on dupes). Tests (~8): empty P2b list, empty P2 list, no overlap, full overlap (confidence/quote/mechanism merge), 2b suspect with confidence > top+0.15 promotion, cap at 5, stable sort tie-breaking, evidence_quotes dedup.",
+          "files": [
+            "src/commit_investigator/harness/phase2b.py",
+            "tests/test_phase2b.py"
+          ],
+          "why_first": "Pure function — no LLM, no I/O. The orchestrator needs merge_suspects() to produce final results. Testing independently ensures merge correctness before integration. Depends on p17-1 for Suspect type only."
+        },
+        {
+          "id": "p17-3-phase2b-prompt",
+          "name": "Phase 2b system prompt with watchlist + best suspect reference",
+          "status": "completed",
+          "depends_on": ["p17-1-trigger-and-result"],
+          "scope": "build_phase2b_system_prompt(problem: ProblemStatement, triage: TriageResult, best_suspect: Suspect | None, registry: ToolRegistry) -> str in harness/scoped_prompts.py. Fresh context prompt — NOT a continuation of Phase 2. Content: bug report (title + description[:3000]), watchlist candidates (4, formatted like _format_must_examine but using triage.watchlist), Phase 2 best suspect as reference context (SHA, confidence, mechanism — if available, otherwise omit section), tool descriptions, output format (same ```suspects block as Phase 2). Strategy section: examine watchlist candidates, compare against P2 best suspect, look for stronger causal evidence. Reuse _format_tool_descriptions() and adapt _format_must_examine() to accept a candidate list (or add _format_watchlist()). Tests (~4): prompt contains all watchlist SHAs, does NOT contain must-examine SHAs, includes best suspect reference when provided, omits reference section when best_suspect is None.",
+          "files": [
+            "src/commit_investigator/harness/scoped_prompts.py",
+            "tests/test_phase2b.py"
+          ],
+          "why_first": "Depends only on p17-1 for Suspect type. Parallel-safe with p17-2 (no code dependency between them). Prompt must exist before the orchestrator can wire investigation."
+        },
+        {
+          "id": "p17-4-orchestrator",
+          "name": "Phase 2b orchestrator: trigger -> investigate -> merge -> final result",
+          "status": "completed",
+          "depends_on": ["p17-1-trigger-and-result", "p17-2-merge-algorithm", "p17-3-phase2b-prompt"],
+          "scope": "run_phase2b(phase2_result: Phase2Result, problem: ProblemStatement, triage: TriageResult, candidate_set: CandidateSet, git: GitContextProvider, llm: LLMProvider) -> InvestigationResult in harness/phase2b.py. Flow: (1) Call should_trigger_phase2b() — if not triggered, return InvestigationResult with exit_reason=WATCHLIST_SKIPPED and Phase 2 suspects converted to Suspect objects. (2) If triggered: build a synthetic TriageResult with watchlist as must_examine (reuse RevisedScopedInvestigator with budget 8 tool calls / 4 turns). Extract best_suspect from Phase 2 result. Call build_phase2b_system_prompt(). (3) Run RevisedScopedInvestigator.investigate() with the synthetic triage + reduced budget. (4) Parse Phase2bResult from investigation output. (5) Call merge_suspects() to combine P2 + P2b suspects. (6) Build InvestigationResult with merged suspects (as dicts via to_dict()), combined tool trace, funnel metadata (phase2b_triggered, trigger_reason, phase2b_suspects_count, merge_stats). Exit reason: WATCHLIST_EXPANSION_EXHAUSTED if P2b hit budget, else keep P2b exit reason. Key design: reuse RevisedScopedInvestigator — pass watchlist candidates as must_examine in a synthetic TriageResult (empty watchlist). Do NOT duplicate investigator code. Tests (~7): skip path (trigger not met, exit_reason=watchlist_skipped), trigger path with MockLLMProvider (investigation runs, merge called), empty P2b suspects (merge degenerates to P2 only), budget enforcement (8 calls, 4 turns), InvestigationResult shape (suspects as dicts, metadata keys present), exit_reason propagation, integration with real TriageResult fixture.",
+          "files": [
+            "src/commit_investigator/harness/phase2b.py",
+            "tests/test_phase2b.py"
+          ],
+          "why_first": "Integration subtask — depends on all three prior subtasks. This is where trigger, prompt, investigator, and merge come together. Tested last because it exercises the full Phase 2b flow and requires mocking the LLM."
+        }
+      ]
     },
     {
       "id": "v42-funnel-metrics",

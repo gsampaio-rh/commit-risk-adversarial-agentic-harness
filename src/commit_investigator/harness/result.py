@@ -68,6 +68,16 @@ class Suspect:
 
 
 @dataclass
+class Phase2bResult:
+    """Phase 2b watchlist expansion output — per V4.2 ADR §Phase 2b."""
+
+    suspects: list[Suspect] = field(default_factory=list)
+    tool_calls: int = 0
+    turns: int = 0
+    trigger_reason: str = ""
+
+
+@dataclass
 class InvestigationResult:
     """Complete result of an investigation for eval scoring."""
 

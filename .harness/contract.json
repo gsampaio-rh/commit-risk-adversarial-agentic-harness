@@ -1,21 +1,27 @@
 {
-  "task_id": "p16-1-data-models",
-  "feature": "Suspect dataclass, InvestigationExitReason enum, revised InvestigationResult",
-  "problem": "V4.2 Phase 2 needs typed suspects (not raw dicts), explicit exit reasons, and backward-compatible adapters for existing eval infrastructure.",
-  "proposed_solution": "Add Suspect, InvestigationExitReason to result.py. Suspect.to_dict() produces the dict shape consumed by D3/D6 scoring. InvestigationResult gets exit_reason and elapsed_s fields. Suspects type stays list[dict] until p16-6 integration.",
+  "task_id": "v42-phase2b-watchlist",
+  "feature": "Phase 2b watchlist expansion with trigger, investigation, merge, and orchestration",
+  "problem": "Phase 2 investigates only 3 must-examine candidates. When results are weak (no suspects, low confidence, no evidence), the 4 watchlist candidates go uninvestigated, potentially missing the bug-introducing commit.",
+  "proposed_solution": "Conditional Phase 2b: trigger check on Phase 2 output, fresh-context investigation of watchlist candidates via RevisedScopedInvestigator reuse (synthetic TriageResult, reduced budget), 5-step merge algorithm combining P2+P2b suspects, final InvestigationResult.",
   "acceptance_criteria": [
-    "AC1: Suspect dataclass has all 7 fields (commit_id, rank, confidence, mechanism, evidence_quotes, phase, tools_used) with to_dict() and from_dict()",
-    "AC2: InvestigationExitReason enum has all 9 values from V4.2 ADR",
-    "AC3: Suspect.to_dict() output matches existing dict shape — keys commit_id, confidence, mechanism, evidence_quotes present",
-    "AC4: InvestigationResult has exit_reason (default None) and elapsed_s (default 0.0) fields, backward-compatible with existing usage",
-    "AC5: Round-trip serde: Suspect.from_dict(s.to_dict()) == s for representative instance",
-    "AC6: All existing tests pass without modification (backward compat)"
+    "AC1: Phase2bResult dataclass has suspects (list[Suspect]), tool_calls (int), turns (int), trigger_reason (str)",
+    "AC2: should_trigger_phase2b() returns (True, reason) for any of: no suspects, max_confidence < 0.6, no evidence_quotes on top suspect",
+    "AC3: should_trigger_phase2b() returns (False, 'watchlist_skipped') when all conditions clear",
+    "AC4: merge_suspects() deduplicates by SHA, takes max confidence, unions evidence_quotes, keeps longer mechanism",
+    "AC5: merge_suspects() caps output at 5 suspects, sorts by (grounded_quote_count DESC, confidence DESC)",
+    "AC6: merge_suspects() promotes 2b-only suspects above P2 when confidence > top_p2 + 0.15",
+    "AC7: build_phase2b_system_prompt() includes all watchlist SHAs and excludes must-examine SHAs",
+    "AC8: build_phase2b_system_prompt() includes Phase 2 best suspect as reference when available",
+    "AC9: run_phase2b() skips investigation and returns watchlist_skipped when trigger is false",
+    "AC10: run_phase2b() reuses RevisedScopedInvestigator with budget=8 calls, 4 turns when triggered"
   ],
   "edge_cases": [
-    "EC1: Suspect with empty evidence_quotes list serializes correctly",
-    "EC2: InvestigationExitReason values are string-compatible (str(reason) works for trace output)"
+    "EC1: Phase 2 produced suspects but all have confidence exactly 0.6 — should NOT trigger (boundary)",
+    "EC2: Phase 2 and 2b produce same SHA with different evidence — merge unions quotes without duplicates",
+    "EC3: Empty watchlist in TriageResult — Phase 2b returns watchlist_skipped immediately",
+    "EC4: Phase 2b produces no suspects — merge degenerates to Phase 2 only"
   ],
-  "verification_method": "pytest tests/ -x — all existing tests pass + new tests for Suspect, ExitReason, adapter shape",
+  "verification_method": "pytest tests/test_phase2b.py — all tests pass with zero regressions on full suite",
   "rubrics": ["code-quality"],
   "rubric_mode": "warn",
   "negotiation_rounds": 0,
