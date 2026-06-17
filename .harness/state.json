@@ -368,7 +368,7 @@
       "id": "v42-phase2-revised-investigation",
       "name": "V4.2 build: Phase 2 revised scoped investigation",
       "type": "feature",
-      "status": "verified",
+      "status": "committed",
       "priority": 16,
       "depends_on": ["v42-checkpoint-phase1"],
       "scope": "Revised ScopedInvestigator: must-examine only in prompt (not 20), 4-tier nudge ladder, must-examine gate (diff on each), context compression (cache dedup, 8K baseline), InvestigationExitReason enum. Unified Suspect type with adapter to SuspectCommit. Provider routing via get_provider() (Ollama or Cursor SDK). Tests.",
