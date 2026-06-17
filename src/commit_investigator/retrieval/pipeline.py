@@ -1,6 +1,6 @@
-"""V4 input pipeline entry — Stage 0 extraction + Stage 1 retrieval wired.
+"""Input pipeline entry — extraction + retrieval wired.
 
-prepare_investigation() is the single entry point for the V4 agent pipeline.
+prepare_investigation() is the single entry point for the agent pipeline.
 It runs extraction (zero LLM cost) and retrieval (git commands only) to produce
 the ProblemStatement + CandidateSet that the investigation harness consumes.
 """

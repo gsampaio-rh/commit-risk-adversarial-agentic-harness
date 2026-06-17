@@ -61,7 +61,7 @@ class LLMProvider(ABC):
 class MockLLMProvider(LLMProvider):
     """Mock provider for testing without an API key.
 
-    Returns empty V3-compatible responses (no tool calls, no suspects).
+    Returns empty responses (no tool calls, no suspects).
     """
 
     @property

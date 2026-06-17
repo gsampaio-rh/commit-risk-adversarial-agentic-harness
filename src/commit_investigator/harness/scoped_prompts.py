@@ -1,4 +1,4 @@
-"""Prompt assembly for V4.1 scoped investigation."""
+"""Prompt assembly for scoped investigation."""
 
 from __future__ import annotations
 

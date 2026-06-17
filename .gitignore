@@ -14,8 +14,7 @@ build/
 *.swo
 .DS_Store
 
-# Pipeline output
-output/
+# Pipeline output (local artifacts, not tracked)
 results/
 
 # Harness logs

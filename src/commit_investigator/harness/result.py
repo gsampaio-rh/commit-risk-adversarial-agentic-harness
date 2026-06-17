@@ -1,4 +1,4 @@
-"""V4 investigation result — data structure used by eval scoring."""
+"""Investigation result — data structure used by eval scoring."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from commit_investigator.harness.trace_writer import InvestigationTrace
 
 
 @dataclass
-class V4InvestigationResult:
+class InvestigationResult:
     """Complete result of an investigation for eval scoring."""
 
     issue_key: str

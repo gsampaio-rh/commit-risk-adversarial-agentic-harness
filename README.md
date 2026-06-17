@@ -63,7 +63,7 @@ Architecture decisions: [.harness/docs/](.harness/docs/)
 │   ├── retrieval/        # retriever.py, config.py, pipeline.py
 │   ├── models/           # candidates.py (CandidateSet, CandidateCommit)
 │   ├── agent/            # tools.py (build_scoped_tools, ToolRegistry)
-│   ├── harness/          # scoped_runner.py, scoped_prompts.py, v4_runner.py, trace_writer.py
+│   ├── harness/          # scoped_runner.py, scoped_prompts.py, result.py, trace_writer.py
 │   ├── eval/             # ground_truth.py, coverage.py
 │   └── infra/            # llm.py, git_context.py, smart_diff.py
 ├── data/apachejit/        # Train/test CSVs + replication zip (gitignored)

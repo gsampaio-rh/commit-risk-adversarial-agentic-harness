@@ -1,4 +1,4 @@
-"""Shared serialization helpers for V4 model dataclasses."""
+"""Shared serialization helpers for model dataclasses."""
 
 from __future__ import annotations
 

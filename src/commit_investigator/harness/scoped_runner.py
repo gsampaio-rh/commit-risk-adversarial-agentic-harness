@@ -1,4 +1,4 @@
-"""V4.1 Scoped Investigation — V4 retrieval + V3-style examination tools scoped to CandidateSet."""
+"""Scoped investigation — retrieval + examination tools scoped to CandidateSet."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from commit_investigator.harness.scoped_prompts import (
     parse_tool_calls,
 )
 from commit_investigator.harness.trace_writer import TraceWriter, build_scoped_trace
-from commit_investigator.harness.v4_runner import V4InvestigationResult
+from commit_investigator.harness.result import InvestigationResult
 from commit_investigator.infra.git_context import GitContextProvider, TemporalBoundViolation
 from commit_investigator.infra.llm import LLMMessage, LLMProvider
 from commit_investigator.models.candidates import CandidateSet
@@ -40,7 +40,7 @@ class ScopedInvestigationResult:
 
 
 class ScopedInvestigator:
-    """V4.1 bug attribution: scoped tools + multi-turn loop."""
+    """Bug attribution: scoped tools + multi-turn loop."""
 
     def __init__(
         self,
@@ -153,9 +153,9 @@ def run_scoped_investigation(
     llm: LLMProvider,
     *,
     traces_dir: str | Path = "results/traces",
-) -> V4InvestigationResult:
-    """Run V4.1 scoped investigation: retrieval + scoped agent."""
-    result = V4InvestigationResult(issue_key=issue_key)
+) -> InvestigationResult:
+    """Run scoped investigation: retrieval + scoped agent."""
+    result = InvestigationResult(issue_key=issue_key)
     retrieval_start = time.time()
 
     try:

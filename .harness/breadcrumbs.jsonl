@@ -34,3 +34,5 @@
 {"ts":"2026-06-17T15:05:00Z","role":"evaluator","type":"eval","feat":"repo-cleanup-v42-prep","msg":"FAIL 8/10 AC, 1/2 EC. Tests 174/174 pass. Blockers: AC7 stale refs in evaluation-framework.md (d3_judge.py, baselines.py, data/governance/skills/); EC1 smoke_test_data.py run_eval import undocumented. Issues: 11 orphaned pycache, run_scoped_eval.py refs in state.json.","result":"fail"}
 {"ts":"2026-06-17T15:12:00Z","role":"builder","type":"build","feat":"repo-cleanup-v42-prep","msg":"Retest1 fixes: evaluation-framework.md stale refs removed, smoke_test_data.py BROKEN warning added, README harness line + v4_runner.py, pycache purged (11 stale .pyc).","result":"pass"}
 {"ts":"2026-06-17T15:20:00Z","role":"evaluator","type":"eval","feat":"repo-cleanup-v42-prep","msg":"PASS retest1: 10/10 AC, 2/2 EC. 174 tests pass. AC7+EC1 fixed. Contract verified=true.","result":"pass"}
+{"ts":"2026-06-17T15:13:56","role":"builder","type":"checkpoint","feat":"repo-cleanup-v42-prep","msg":"Commit:  (153 files)"}
+{"ts":"2026-06-17T15:14:36","role":"builder","type":"checkpoint","feat":"repo-cleanup-v42-prep","msg":"Commit:  (2 files)"}

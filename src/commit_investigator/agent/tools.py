@@ -101,7 +101,7 @@ def _build_sha_validator(candidate_set: CandidateSet) -> Callable[[str], str | N
 def build_scoped_tools(
     git: GitContextProvider, candidate_set: CandidateSet
 ) -> ToolRegistry:
-    """Build examination-only tools scoped to a CandidateSet (V4.1).
+    """Build examination-only tools scoped to a CandidateSet.
 
     Only registers examination tools (diff, message, blame, file_at_commit).
     Tools that take commit_id reject SHAs not in the CandidateSet.

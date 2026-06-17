@@ -119,7 +119,7 @@ class ProblemStatement:
         """Format for injection into the attribution agent's system prompt.
 
         .. deprecated::
-            V3 format ('## Bug Report: ...'). V4 uses
+            Legacy format ('## Bug Report: ...'). Current uses
             ``governance.prompt_assembler.assemble_prompt()`` which renders
             Problem Statement in its own ADR-compliant Title/Description format.
             Do not call this method when using PromptAssembler.

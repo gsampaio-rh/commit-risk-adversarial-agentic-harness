@@ -58,7 +58,7 @@ src/commit_investigator/
 ├── retrieval/         # retriever, config, pipeline (input pipeline)
 ├── models/            # candidates (CandidateSet, CandidateCommit)
 ├── agent/             # tools (build_scoped_tools, ToolRegistry)
-├── harness/           # scoped_runner, scoped_prompts, v4_runner, trace_writer
+├── harness/           # scoped_runner, scoped_prompts, result, trace_writer
 ├── eval/              # ground_truth, coverage
 └── infra/             # llm, git_context, smart_diff (shared)
 ```
@@ -84,6 +84,17 @@ Evaluation: 5-stage funnel (Recall@100→@15→@7→Exam→Hit@5)
 | Evaluation | TBD (V4.2 implementation) | Oracle |
 
 The agent receives `ScoredShortlist` + `ProblemStatement`, not raw repo access. Tools are scoped to CandidateSet SHAs.
+
+## Results Directory (gitignored)
+
+```
+results/
+├── traces/              # Per-investigation JSON traces (written by TraceWriter)
+├── retrieval-spike/     # Retrieval strategy analysis data
+└── v4-checkpoints/      # Eval checkpoint results (retrieval recall, scoped eval)
+```
+
+All `results/` content is local, gitignored, and reproducible from scripts. New eval tasks should write under `results/`.
 
 ## Baselines
 

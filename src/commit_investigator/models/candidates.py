@@ -1,4 +1,4 @@
-"""CandidateSet and CandidateCommit — input pipeline output for V4 agent."""
+"""CandidateSet and CandidateCommit — input pipeline output for the agent."""
 
 from __future__ import annotations
 

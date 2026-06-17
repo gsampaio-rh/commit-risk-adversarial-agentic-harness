@@ -1,4 +1,4 @@
-"""Git-signal retrieval strategies for V4 candidate assembly."""
+"""Git-signal retrieval strategies for candidate assembly."""
 
 from __future__ import annotations
 

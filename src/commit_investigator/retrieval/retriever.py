@@ -1,4 +1,4 @@
-"""V4 deterministic retrieval — combined git-signal CandidateSet assembly."""
+"""Deterministic retrieval — combined git-signal CandidateSet assembly."""
 
 from __future__ import annotations
 

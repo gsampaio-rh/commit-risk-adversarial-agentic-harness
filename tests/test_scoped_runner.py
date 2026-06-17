@@ -17,7 +17,7 @@ from commit_investigator.harness.scoped_runner import (
     run_scoped_investigation,
 )
 from commit_investigator.harness.trace_writer import InvestigationTrace
-from commit_investigator.harness.v4_runner import V4InvestigationResult
+from commit_investigator.harness.result import InvestigationResult
 from commit_investigator.infra.llm import LLMResponse, MockLLMProvider
 from commit_investigator.models.candidates import CandidateCommit, CandidateSet
 from commit_investigator.retrieval import prepare_investigation
@@ -313,7 +313,7 @@ class TestRunScopedInvestigation:
                 traces_dir=tmp_path,
             )
 
-        assert isinstance(result, V4InvestigationResult)
+        assert isinstance(result, InvestigationResult)
         assert len(result.suspects) == 1
         assert isinstance(result.trace, InvestigationTrace)
         assert result.trace.temporal_bound == "abc123~1"
@@ -401,7 +401,7 @@ def test_run_scoped_investigation_e2e_real_repo(
         llm=_ToolThenSuspectsLLM(top_sha),
         traces_dir=tmp_path / "traces",
     )
-    assert isinstance(result, V4InvestigationResult)
+    assert isinstance(result, InvestigationResult)
     assert result.error is None
     assert len(result.suspects) >= 1
     assert result.suspects[0].get("commit_id")
