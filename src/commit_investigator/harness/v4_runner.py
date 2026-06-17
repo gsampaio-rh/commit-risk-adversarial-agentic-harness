@@ -111,6 +111,7 @@ def run_v4_investigation(
             top_confidence=outcome.top_confidence,
             degraded=outcome.degraded,
             degraded_reason=outcome.degraded_reason,
+            suspects=outcome.suspects[:5],
         ),
     )
 

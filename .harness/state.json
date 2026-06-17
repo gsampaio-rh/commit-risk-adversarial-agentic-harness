@@ -44,6 +44,19 @@
         "total_latency_min": 104,
         "within_budget": true,
         "note": "Cost is 10x cheaper than Ollama. Latency 5x higher due to Cursor agent overhead + bridge restarts."
+      },
+      "cursor_sdk_multi_turn": {
+        "cost_per_case_usd": 0.055,
+        "avg_tokens_per_case": 18000,
+        "avg_calls_per_case": 7.5,
+        "avg_latency_s": 718,
+        "total_cost_n6": 0.33,
+        "total_latency_min_n6": 72,
+        "within_budget": true,
+        "hit_at_5": 0.0,
+        "retrieval_recall": 0.5,
+        "n_completed": 6,
+        "note": "Agent.create() + agent.send() multi-turn. 3x faster than Agent.prompt(). Pipeline functional (suspects parsed). Hit@5=0 — attribution quality issue, not infra. ADR: .harness/docs/cursor-sdk-multi-turn.md"
       }
     }
   },
@@ -226,13 +239,14 @@
       "id": "v4-checkpoint-full-eval",
       "name": "V4 checkpoint: full n=20 eval — Hit@5, MRR, D6 vs V3 baselines",
       "type": "checkpoint",
-      "status": "pending",
+      "status": "evaluated",
       "priority": 8,
       "depends_on": ["v4-trace-and-eval-integration"],
       "scope": "Run full V4 pipeline on n=20 seed=42 eval cases using run_eval.py --agent-version v4. Measure Hit@1, Hit@3, Hit@5, MRR, D6 Evidence Grounding, Retrieval Recall@100. Compare to V3 best (Hit@5=0.50, MRR=0.304, D6=0.610). Report regressions and improvements per case. Write results to results/v4-checkpoints/full-eval-n20.json.",
       "gate": {"Hit@5": 0.40, "MRR": 0.20},
       "target": {"Hit@5": 0.50, "MRR": 0.30},
-      "note": "The V4 verdict. Did the retrieve-then-reason redesign match or beat fully-agentic V3? Gate is V3 target threshold; target is V3 actual best. If gate fails, architectural rethink needed."
+      "note": "GATE FAILED. Hit@5=0.062, MRR=0.062 (n=16, partial). Metadata-only attribution without diff access cannot match V3 tool-use (Hit@5=0.50). Key fix implemented: diff_summary added to CandidateCommit (top 20 get git show --stat + patch). Needs re-eval.",
+      "result": {"hit_at_5": 0.062, "mrr": 0.062, "retrieval_recall": 0.375, "n_tested": 16, "gate_passed": false, "hit_cases": ["AMQ-4338"]}
     },
     {
       "id": "spike-level2-extractor",

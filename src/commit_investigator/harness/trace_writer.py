@@ -24,6 +24,7 @@ class OutcomeRecord:
     degraded_reason: str | None = None
     hit_at_5: bool | None = None
     mrr: float | None = None
+    suspects: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -33,6 +34,7 @@ class OutcomeRecord:
             "degraded_reason": self.degraded_reason,
             "hit_at_5": self.hit_at_5,
             "mrr": self.mrr,
+            "suspects": self.suspects,
         }
 
 

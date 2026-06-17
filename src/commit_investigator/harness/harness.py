@@ -216,7 +216,11 @@ class InvestigationHarness:
                 return
 
     def _run_attribution(self, outcome: InvestigationOutcome) -> None:
-        """Stage 4: produce final suspect ranking."""
+        """Stage 4: produce final suspect ranking.
+
+        Includes a context bridge step that synthesizes examination findings
+        before asking for the final attribution ranking.
+        """
         self._state.current_stage = 4
 
         violations = self._check_hard_rules("attribution")
@@ -231,6 +235,11 @@ class InvestigationHarness:
             brief=self._brief,
             evidence=self._evidence,
         )
+
+        context_bridge = self._build_context_bridge()
+        if context_bridge:
+            prompt = context_bridge + "\n\n" + prompt
+
         response = self._llm.generate(prompt)
         self._update_budget(response)
         outcome.attribution_response = response
@@ -241,6 +250,45 @@ class InvestigationHarness:
             self._top_confidence = max(confidences) if confidences else 0.0
             outcome.top_confidence = self._top_confidence
 
+    def _build_context_bridge(self) -> str:
+        """Synthesize a concise summary of examination findings for attribution.
+
+        This helps the LLM focus on the key evidence rather than recalling
+        scattered details from earlier conversation turns.
+        """
+        if not self._evidence:
+            return ""
+
+        import re
+        sha_pattern = re.compile(r"[0-9a-f]{8,40}")
+        commit_mentions: dict[str, list[str]] = {}
+
+        for ev in self._evidence:
+            shas = sha_pattern.findall(ev[:200])
+            for sha in shas:
+                if len(sha) >= 8:
+                    short = sha[:12]
+                    if short not in commit_mentions:
+                        commit_mentions[short] = []
+                    snippet = ev[:150].replace("\n", " ")
+                    commit_mentions[short].append(snippet)
+
+        if not commit_mentions:
+            return ""
+
+        lines = ["## Examination Summary (Context Bridge)"]
+        lines.append(
+            "Below is a synthesis of evidence collected during examination. "
+            "Use this to inform your attribution ranking:"
+        )
+        for sha, snippets in list(commit_mentions.items())[:10]:
+            lines.append(f"- {sha}: {snippets[0][:100]}")
+
+        lines.append(
+            f"\nTop confidence reached during examination: {self._top_confidence:.2f}"
+        )
+        return "\n".join(lines)
+
     def _process_examination_response(self, response: LLMResponse) -> None:
         """Extract evidence, confidence, and state updates from a turn."""
         self._state.candidates_examined += 1
@@ -249,7 +297,8 @@ class InvestigationHarness:
 
         content = response.content
         if content and len(content) > 20:
-            self._evidence.append(content[:500])
+            summary = self._summarize_evidence(content)
+            self._evidence.append(summary)
             self._state.evidence_quotes_collected += 1
             confidence = self._extract_confidence_from_response(content)
             if confidence > self._top_confidence:
@@ -259,6 +308,18 @@ class InvestigationHarness:
             self._state.hypotheses_tested = min(
                 self._state.candidates_examined // 2, 3
             )
+
+    def _summarize_evidence(self, content: str) -> str:
+        """Keep more evidence context — up to 1000 chars with commit refs preserved."""
+        import re
+        sha_pattern = re.compile(r"[0-9a-f]{7,40}")
+        shas_found = sha_pattern.findall(content[:2000])
+
+        truncated = content[:1000]
+        if shas_found:
+            sha_prefix = f"[refs: {', '.join(shas_found[:3])}] "
+            return sha_prefix + truncated
+        return truncated
 
     def _extract_confidence_from_response(self, content: str) -> float:
         """Extract confidence signal from LLM examination output.
@@ -295,24 +356,50 @@ class InvestigationHarness:
         return self._registry.check_all(stage, context)
 
     def _parse_brief(self, content: str) -> InvestigationBrief | None:
-        """Attempt to parse InvestigationBrief from LLM JSON output."""
-        try:
-            data = json.loads(content)
-            return InvestigationBrief.from_dict(data)
-        except (json.JSONDecodeError, KeyError, TypeError):
-            return None
+        """Attempt to parse InvestigationBrief from LLM JSON output.
+
+        Handles raw JSON and JSON embedded in markdown code blocks.
+        """
+        for text in self._json_candidates(content):
+            try:
+                data = json.loads(text)
+                if isinstance(data, dict) and ("hypotheses" in data or "examination_plan" in data):
+                    return InvestigationBrief.from_dict(data)
+            except (json.JSONDecodeError, KeyError, TypeError):
+                continue
+        return None
 
     def _parse_suspects(self, content: str) -> list[dict[str, Any]]:
-        """Attempt to parse suspects from attribution response."""
-        try:
-            data = json.loads(content)
-            if isinstance(data, list):
-                return data
-            if isinstance(data, dict) and "suspects" in data:
-                return data["suspects"]
-        except (json.JSONDecodeError, TypeError):
-            pass
+        """Attempt to parse suspects from attribution response.
+
+        Handles: raw JSON, JSON in markdown code blocks, and JSON
+        embedded in natural language responses.
+        """
+        import re
+
+        for text in self._json_candidates(content):
+            try:
+                data = json.loads(text)
+                if isinstance(data, list):
+                    return data
+                if isinstance(data, dict) and "suspects" in data:
+                    return data["suspects"]
+            except (json.JSONDecodeError, TypeError):
+                continue
         return []
+
+    @staticmethod
+    def _json_candidates(content: str) -> list[str]:
+        """Extract potential JSON strings from content."""
+        import re
+        candidates = [content]
+        for block in re.findall(r"```(?:json)?\s*\n?(.*?)\n?```", content, re.DOTALL):
+            candidates.append(block.strip())
+        for match in re.finditer(r"\{[^{}]*\"suspects\"[^{}]*\[.*?\]\s*\}", content, re.DOTALL):
+            candidates.append(match.group(0))
+        for match in re.finditer(r"\[[\s\S]*?\{[\s\S]*?\"commit_id\"[\s\S]*?\}[\s\S]*?\]", content):
+            candidates.append(match.group(0))
+        return candidates
 
     def _default_criteria(self) -> "CompletionCriteria":
         from commit_investigator.models.investigation import CompletionCriteria

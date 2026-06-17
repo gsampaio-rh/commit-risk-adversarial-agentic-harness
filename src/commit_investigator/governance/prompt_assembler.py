@@ -22,36 +22,68 @@ STAGE_TITLES = {
 }
 TRUNCATION_CANDIDATE_CAP = 10
 
+_NO_TOOLS_NOTICE = (
+    "IMPORTANT: Do NOT use any tools (file read, grep, shell). "
+    "Reason ONLY from the information provided below. "
+    "Respond with the requested output format only — no file edits, no commands."
+)
+
 _SYSTEM_ROLES: dict[str, str] = {
     "planning": (
         "You are a bug attribution investigator in the Planning stage. "
         "Produce a structured InvestigationBrief with falsifiable hypotheses "
-        "and an examination plan."
+        "and an examination plan.\n\n" + _NO_TOOLS_NOTICE
     ),
     "examination": (
         "You are a bug attribution investigator in the Examination stage. "
-        "Examine candidate commits and collect evidence quotes that test "
-        "your hypotheses."
+        "Your goal is to identify WHICH specific commit from the candidate list "
+        "introduced the bug described in the problem statement. Examine commits by "
+        "analyzing their changes (files modified, code semantics) relative to the bug."
+        "\n\n" + _NO_TOOLS_NOTICE
     ),
     "attribution": (
         "You are a bug attribution investigator in the Attribution stage. "
-        "Rank suspect commits with confidence scores grounded in collected evidence."
+        "Based on evidence collected, rank commits by probability of having "
+        "INTRODUCED the bug. Focus on commits that CHANGED the specific code "
+        "or behavior described in the bug report.\n\n" + _NO_TOOLS_NOTICE
     ),
 }
 
 _STAGE_INSTRUCTIONS: dict[str, str] = {
     "planning": (
-        "Analyze the bug report and candidate commits below. Output JSON matching "
-        "InvestigationBrief schema: hypotheses, examination_plan, success_criteria, "
-        "strategy, max_effort. Each hypothesis must state what would confirm or falsify it."
+        "Analyze the bug report and candidate commits below. Your task is to identify "
+        "which commit INTRODUCED the bug. Output JSON matching InvestigationBrief schema: "
+        "hypotheses, examination_plan, success_criteria, strategy, max_effort.\n\n"
+        "Good hypotheses for bug attribution:\n"
+        "- 'Commit X introduced the bug because it modified [file/function] in a way "
+        "that could cause [symptom]' — confirm by checking the diff semantics\n"
+        "- 'The bug was introduced by a change to [component] between dates D1-D2' "
+        "— confirm by examining commits in that range\n\n"
+        "Each hypothesis must state what would CONFIRM it (evidence the commit's changes "
+        "match the bug) and what would FALSIFY it (the commit doesn't touch relevant code)."
     ),
     "examination": (
-        "Examine the listed candidates using the investigation brief. Collect evidence "
-        "quotes from commit diffs and messages that confirm or falsify each hypothesis."
+        "Examine the listed candidate commits. For each one you analyze:\n"
+        "- Check if its changed files/code overlap with the bug's affected area\n"
+        "- Check if the change semantics could INTRODUCE the described bug\n"
+        "- Note the commit date — the bug-introducing commit must predate the fix\n"
+        "- State your confidence (0-1) that THIS commit introduced the bug\n\n"
+        "Focus on commits with high retrieval signals (blame, file_log, pickaxe). "
+        "A commit that modified the exact file/function mentioned in the bug report "
+        "and changed relevant logic is a strong suspect."
     ),
     "attribution": (
-        "Rank the examined suspects by likelihood of introducing the bug. Assign a "
-        "confidence score between 0 and 1 to each suspect based on collected evidence."
+        "Based on ALL evidence collected during examination, produce your final ranking.\n\n"
+        "Output ONLY a JSON object with a 'suspects' array. Each element must have:\n"
+        "- commit_id: full 40-char SHA from the candidate list\n"
+        "- confidence: float 0.0 to 1.0\n"
+        "- rationale: WHY this commit likely introduced the bug (cite evidence)\n\n"
+        "Rank at least 3 suspects. The top suspect should be the commit whose changes "
+        "most directly could have caused the described bug behavior.\n\n"
+        "Example output:\n"
+        "{\"suspects\": [{\"commit_id\": \"abc123def456...\", \"confidence\": 0.85, "
+        "\"rationale\": \"Modified CqlPagingRecordReader.java with logic change that...\"}]}\n\n"
+        "IMPORTANT: Output raw JSON only — no markdown fences, no explanation outside the JSON."
     ),
 }
 
@@ -245,9 +277,8 @@ def _select_commits(
         if line_cap is not None:
             selected = selected[:line_cap]
     else:
-        selected = commits[:examined_count]
-        if line_cap is not None:
-            selected = selected[:line_cap]
+        limit = line_cap if line_cap is not None else max(examined_count, config.candidate_limit_stage2)
+        selected = commits[:limit]
 
     return selected
 
@@ -271,10 +302,30 @@ def _format_candidate_summary(
     header = "## Candidate Summary"
     if shown < total:
         header = f"## Candidate Summary (top {shown} of {total})"
-    lines = [
-        f'{c.rank}. {c.commit_id[:12]} — "{c.summary}" — {", ".join(c.files_changed)}'
-        for c in selected
-    ]
+    if stage == "attribution":
+        lines = []
+        for c in selected:
+            line = (
+                f'{c.rank}. {c.commit_id} — "{c.summary}" '
+                f'[signal: {c.retrieval_signal}] [{c.date}] '
+                f'files: {", ".join(c.files_changed[:5])}'
+            )
+            if c.diff_summary:
+                diff_lines = c.diff_summary[:300]
+                line += f"\n   DIFF: {diff_lines}"
+            lines.append(line)
+    else:
+        lines = []
+        for c in selected:
+            date_suffix = f" ({c.date})" if c.date else ""
+            line = (
+                f'{c.rank}. {c.commit_id[:12]} — "{c.summary}"{date_suffix} — '
+                f'{", ".join(c.files_changed)}'
+            )
+            if c.diff_summary and stage == "examination":
+                diff_lines = c.diff_summary[:300]
+                line += f"\n   DIFF: {diff_lines}"
+            lines.append(line)
     return f"{header}\n" + "\n".join(lines)
 
 

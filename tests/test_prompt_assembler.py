@@ -153,7 +153,7 @@ class TestSectionOrderAndOmission:
             "## Relevant Skills",
             "## Stage Instructions",
             "## Problem Statement",
-            "## Candidate Summary (top 2 of 5)",
+            "## Candidate Summary",
             "## Investigation Progress",
             "## Investigation Brief",
             "## Evidence Collected",
@@ -213,8 +213,8 @@ class TestSystemRoleAndInstructions:
         examination = assemble_prompt("examination", _problem(), CandidateSet())
         attribution = assemble_prompt("attribution", _problem(), CandidateSet())
         assert "InvestigationBrief" in planning and "JSON" in planning
-        assert "examine" in examination.lower() and "evidence" in examination.lower()
-        assert "rank" in attribution.lower() and "confidence" in attribution.lower()
+        assert "examine" in examination.lower() and "confidence" in examination.lower()
+        assert "suspects" in attribution.lower() and "confidence" in attribution.lower()
         assert planning != examination != attribution
 
 
@@ -266,11 +266,11 @@ class TestCandidateSummary:
 
     @patch("commit_investigator.governance.prompt_assembler.retrieve_skills", return_value=[])
     @patch("commit_investigator.governance.prompt_assembler.load_rules", return_value=([], []))
-    def test_attribution_examined_only(self, _load: object, _skills: object) -> None:
+    def test_attribution_shows_all_top_candidates(self, _load: object, _skills: object) -> None:
         state = InvestigationState(candidates_examined=3)
         prompt = assemble_prompt("attribution", _problem(), _candidate_set(10), investigation_state=state)
-        lines = [line for line in prompt.splitlines() if re.match(r"^\d+\. ", line)]
-        assert len(lines) == 3
+        lines = [line for line in prompt.splitlines() if re.match(r"^\d+\. [0-9a-f]", line)]
+        assert len(lines) == 10
 
     @patch("commit_investigator.governance.prompt_assembler.retrieve_skills", return_value=[])
     @patch("commit_investigator.governance.prompt_assembler.load_rules", return_value=([], []))
@@ -288,10 +288,10 @@ class TestCandidateSummary:
 
     @patch("commit_investigator.governance.prompt_assembler.retrieve_skills", return_value=[])
     @patch("commit_investigator.governance.prompt_assembler.load_rules", return_value=([], []))
-    def test_attribution_zero_examined_omits_summary(self, _load: object, _skills: object) -> None:
+    def test_attribution_zero_examined_still_shows_candidates(self, _load: object, _skills: object) -> None:
         state = InvestigationState(candidates_examined=0)
         prompt = assemble_prompt("attribution", _problem(), _candidate_set(5), investigation_state=state)
-        assert "## Candidate Summary" not in prompt
+        assert "## Candidate Summary" in prompt
 
 
 class TestProblemStatementSection:

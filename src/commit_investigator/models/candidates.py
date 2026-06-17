@@ -18,6 +18,7 @@ class CandidateCommit:
     summary: str
     files_changed: list[str] = field(default_factory=list)
     date: str = ""
+    diff_summary: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return instance_to_dict(self)
@@ -31,6 +32,7 @@ class CandidateCommit:
             summary=data["summary"],
             files_changed=list(data.get("files_changed", [])),
             date=data.get("date", ""),
+            diff_summary=data.get("diff_summary", ""),
         )
 
 

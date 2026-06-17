@@ -125,6 +125,19 @@ class GitContextProvider:
         result = self._run_git(["show", "--format=", "--patch", commit_id])
         return result if result is not None else None
 
+    def get_diff_summary(self, commit_id: str, max_lines: int = 15) -> str:
+        """Return a compact diff summary: stat + first N lines of patch."""
+        self._enforce_bound(commit_id)
+        stat = self._run_git(["show", "--format=", "--stat", commit_id])
+        patch = self._run_git(["show", "--format=", "--patch", "-U1", commit_id])
+        parts = []
+        if stat:
+            parts.append(stat.strip())
+        if patch:
+            lines = patch.splitlines()[:max_lines]
+            parts.append("\n".join(lines))
+        return "\n".join(parts) if parts else ""
+
     def get_commit_message(self, commit_id: str) -> str | None:
         """Return the full commit message. None if commit not found."""
         self._enforce_bound(commit_id)

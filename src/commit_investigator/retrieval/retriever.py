@@ -136,12 +136,18 @@ def _summary_for(candidate: MergedCandidate, git: GitContextProvider) -> str:
     return full_message.splitlines()[0]
 
 
+DIFF_SUMMARY_TOP_N = 20
+
+
 def _to_candidate_commit(
     candidate: MergedCandidate,
     rank: int,
     git: GitContextProvider,
 ) -> CandidateCommit:
     touched = git.get_touched_files(candidate.commit_id)
+    diff_summary = ""
+    if rank <= DIFF_SUMMARY_TOP_N:
+        diff_summary = git.get_diff_summary(candidate.commit_id, max_lines=10)
     return CandidateCommit(
         commit_id=candidate.commit_id,
         rank=rank,
@@ -149,6 +155,7 @@ def _to_candidate_commit(
         summary=_summary_for(candidate, git),
         files_changed=list(touched) if touched else [],
         date=candidate.date,
+        diff_summary=diff_summary,
     )
 
 

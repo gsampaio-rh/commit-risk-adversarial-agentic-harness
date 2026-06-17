@@ -1,9 +1,11 @@
 {
   "feature": "v4-input-pipeline",
-  "phase": "accepted",
+  "phase": "verified",
+  "verified": true,
+  "verified_at": "2026-06-17T04:24:00Z",
   "description": "Wire Stage 0 (extraction) + Stage 1 (retrieval) into a single prepare_investigation() entry point for the V4 agent pipeline",
   "acceptance_criteria": [
-    "AC1: retrieval/pipeline.py exports prepare_investigation(jira_issue_or_raw, repo_path, temporal_bound, project) → tuple[ProblemStatement, CandidateSet]",
+    "AC1: retrieval/pipeline.py exports prepare_investigation(jira_issue_or_raw, repo_path, temporal_bound, project) → RetrievalResult",
     "AC2: prepare_investigation uses ProblemExtractor.from_jira_issue() when given JiraIssue, from_raw() when given raw title+description",
     "AC3: prepare_investigation calls retrieve_candidates() with GitContextProvider(repo_path, temporal_bound)",
     "AC4: When CandidateSet has < fallback_recency_threshold candidates, prepare_investigation re-runs with widened RetrievalConfig (2x file_log/keyword/pickaxe limits) — brief-validation retry path",
@@ -12,8 +14,8 @@
     "AC7: Tests cover: normal path, widened-retry path, degraded mode (zero signals), JiraIssue input, raw input",
     "AC8: One end-to-end pytest using real repo (CASSANDRA-7570 via data/repos/cassandra) proving prepare_investigation returns non-empty CandidateSet — marked @pytest.mark.slow",
     "AC9: pipeline.py is exported from retrieval/__init__.py",
-    "AC10: All existing 330 tests + new tests pass with zero regressions",
-    "AC11: pipeline.py <= 150 lines"
+    "AC10: All existing 330 tests + new tests pass with zero regressions (actual: 372 pass)",
+    "AC11: pipeline.py <= 150 lines (actual: 124 lines)"
   ],
   "edge_cases": [
     "EC1: Repo not found raises GitRepoNotFoundError (not swallowed)",
@@ -21,5 +23,10 @@
     "EC3: Empty title + empty description → ProblemStatement.is_empty=True, retrieval falls back to recency",
     "EC4: Real repo test skips if repo not cloned"
   ],
-  "verification_method": "pytest sensors + /evaluator adversarial review"
+  "verification_method": "pytest sensors + /evaluator adversarial review",
+  "evaluator_findings": [
+    "AC1 vs AC6 wording: AC1 originally said tuple, implementation correctly returns RetrievalResult per AC6 (non-blocking)",
+    "EC2 has no dedicated unit test (verified via code review + live spot-check)",
+    "EC3 recency-fallback path confirmed at runtime but not explicitly asserted in mocked test"
+  ]
 }
