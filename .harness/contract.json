@@ -1,28 +1,24 @@
 {
-  "task_id": "repo-cleanup-v42-prep",
-  "feature": "Repository cleanup: delete dead V3/V4 code, prune docs, update entry points",
-  "problem": "Repo has ~25K lines of dead code from V3/V4 that will confuse future development and bloat context",
-  "proposed_solution": "Delete dead source, tests, scripts, evals, fixtures. Clean docs. Update entry points.",
+  "task_id": "p16-1-data-models",
+  "feature": "Suspect dataclass, InvestigationExitReason enum, revised InvestigationResult",
+  "problem": "V4.2 Phase 2 needs typed suspects (not raw dicts), explicit exit reasons, and backward-compatible adapters for existing eval infrastructure.",
+  "proposed_solution": "Add Suspect, InvestigationExitReason to result.py. Suspect.to_dict() produces the dict shape consumed by D3/D6 scoring. InvestigationResult gets exit_reason and elapsed_s fields. Suspects type stays list[dict] until p16-6 integration.",
   "acceptance_criteria": [
-    "AC1: No source file imports deleted modules (orchestrator, evidence_tagger, governance, models.investigation, models.trace, harness.harness, brief_validator, completion, llm_protocol, eval_metrics, baselines, d3_judge, run_eval)",
-    "AC2: No test file imports deleted modules — all test imports resolve",
-    "AC3: All tests pass (pytest tests/ -x) with zero failures or import errors",
-    "AC4: Package layout in AGENTS.md matches actual filesystem (ls src/commit_investigator/*/)",
-    "AC5: README.md pipeline diagram reflects V4.2 architecture (not V3)",
-    "AC6: project_domain.mdc references V4.2 pipeline (not V3)",
-    "AC7: No doc file references deleted source files (orchestrator.py, harness.py, eval_metrics.py, etc.)",
-    "AC8: __init__.py files export only symbols that exist in their respective packages",
-    "AC9: Superseded ADRs have SUPERSEDED banners (mechanism-design, topology-debate, cursor-sdk-multi-turn)",
-    "AC10: tools.py contains only scoped tools (build_scoped_tools) — no V3 build_attribution_tools"
+    "AC1: Suspect dataclass has all 7 fields (commit_id, rank, confidence, mechanism, evidence_quotes, phase, tools_used) with to_dict() and from_dict()",
+    "AC2: InvestigationExitReason enum has all 9 values from V4.2 ADR",
+    "AC3: Suspect.to_dict() output matches existing dict shape — keys commit_id, confidence, mechanism, evidence_quotes present",
+    "AC4: InvestigationResult has exit_reason (default None) and elapsed_s (default 0.0) fields, backward-compatible with existing usage",
+    "AC5: Round-trip serde: Suspect.from_dict(s.to_dict()) == s for representative instance",
+    "AC6: All existing tests pass without modification (backward compat)"
   ],
   "edge_cases": [
-    "EC1: smoke_test_data.py imports select_eval_cases from deleted run_eval — this is a known issue (script needs V4.2 update), should be documented not fixed",
-    "EC2: v4_runner.py retains V4InvestigationResult dataclass (used by scoped_runner) but run_v4_investigation is deleted"
+    "EC1: Suspect with empty evidence_quotes list serializes correctly",
+    "EC2: InvestigationExitReason values are string-compatible (str(reason) works for trace output)"
   ],
-  "verification_method": "Grep for dangling imports, verify filesystem matches docs, run pytest, inspect __init__.py exports, check ADR banners",
-  "rubrics": ["code-quality", "organization"],
+  "verification_method": "pytest tests/ -x — all existing tests pass + new tests for Suspect, ExitReason, adapter shape",
+  "rubrics": ["code-quality"],
   "rubric_mode": "warn",
   "negotiation_rounds": 0,
-  "phase": "verified",
+  "phase": "evaluating",
   "verified": true
 }

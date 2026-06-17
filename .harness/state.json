@@ -368,10 +368,58 @@
       "id": "v42-phase2-revised-investigation",
       "name": "V4.2 build: Phase 2 revised scoped investigation",
       "type": "feature",
-      "status": "pending",
+      "status": "verified",
       "priority": 16,
       "depends_on": ["v42-checkpoint-phase1"],
-      "scope": "Revised ScopedInvestigator: must-examine only in prompt (not 20), 4-tier nudge ladder, must-examine gate (diff on each), context compression (cache dedup, 8K baseline), InvestigationExitReason enum. Unified Suspect type with adapter to SuspectCommit. Provider routing via get_provider() (Ollama or Cursor SDK). Tests."
+      "scope": "Revised ScopedInvestigator: must-examine only in prompt (not 20), 4-tier nudge ladder, must-examine gate (diff on each), context compression (cache dedup, 8K baseline), InvestigationExitReason enum. Unified Suspect type with adapter to SuspectCommit. Provider routing via get_provider() (Ollama or Cursor SDK). Tests.",
+      "subtasks": [
+        {
+          "id": "p16-1-data-models",
+          "name": "Suspect dataclass, InvestigationExitReason enum, revised InvestigationResult",
+          "status": "completed",
+          "scope": "New Suspect dataclass (commit_id, rank, confidence, mechanism, evidence_quotes, phase, tools_used) with to_dict/from_dict. InvestigationExitReason enum (normal, budget_exhausted, max_turns, forced_conclude, stall, provider_error, empty_candidates, watchlist_expansion_exhausted, watchlist_skipped). Extend InvestigationResult to hold list[Suspect], exit_reason, elapsed_s. Adapter method Suspect.to_suspect_dict() for backward compat with existing evaluate_attribution() / D3 / D6 paths that consume list[dict]. Unit tests: construction, defaults, round-trip serde, adapter output shape.",
+          "files": ["src/commit_investigator/harness/result.py", "tests/test_scoped_runner.py"],
+          "why_first": "Pure data — everything downstream depends on Suspect and ExitReason types. Zero logic risk."
+        },
+        {
+          "id": "p16-2-revised-prompt",
+          "name": "Phase 2 system prompt: must-examine only (3 SHAs, not 20)",
+          "status": "completed",
+          "depends_on": ["p16-1-data-models"],
+          "scope": "Rewrite build_scoped_system_prompt() to accept TriageResult instead of CandidateSet. Prompt includes only 3 must-examine SHAs with pre-score rank, file overlap, and retrieval signal. Output format updated to require Suspect fields (mechanism, evidence_quotes). Strategy section emphasizes: examine each must-examine via get_commit_diff, look for causal mechanism, conclude with suspects. CandidateSet still passed separately to build_scoped_tools (tool scope unchanged). Tests: prompt contains all 3 must-examine SHAs, does NOT contain watchlist SHAs, includes tool descriptions, bug report present.",
+          "files": ["src/commit_investigator/harness/scoped_prompts.py", "tests/test_scoped_runner.py"]
+        },
+        {
+          "id": "p16-3-nudge-and-gate",
+          "name": "4-tier nudge ladder + per-SHA must-examine gate",
+          "status": "completed",
+          "depends_on": ["p16-1-data-models"],
+          "scope": "NudgeState tracker: counts consecutive idle turns, tracks which must-examine SHAs have been diffed (set of SHAs where get_commit_diff returned non-error). 4-tier nudge logic: (1) idle turn 1 → directive to diff first unexamined must-examine SHA, (2) idle turn 2 → budget warning + conclude prompt, (3) idle turn 3 → return forced_conclude signal, (4) suspects submitted without any diff → rejection message. Must-examine gate: suspects accepted only if diff_examined set intersects must_examine_shas (at least 1 diff on a must-examine SHA). Pure functions/small class, no LLM dependency. Tests: nudge text content per tier, gate accept/reject logic, SHA tracking on tool execution.",
+          "files": ["src/commit_investigator/harness/scoped_runner.py", "tests/test_scoped_runner.py"]
+        },
+        {
+          "id": "p16-4-context-compression",
+          "name": "Tool call cache dedup + compressed context assembly",
+          "status": "completed",
+          "depends_on": ["p16-1-data-models"],
+          "scope": "ToolCallCache: keyed by (tool_name, frozenset(args.items())). Duplicate call returns 'Already examined — see previous result for {tool}({args})' without re-executing. Context assembly: instead of appending full message history, build per-turn context as [system_prompt + rolling_summary (<=2K chars) + last_turn_tool_results]. Rolling summary: after each tool turn, harness appends 1-line summary of what was learned (extracted from tool results, not LLM-generated — e.g. 'Diffed {sha}: {files_changed_count} files, {lines_added}+ {lines_removed}-'). Tests: cache hit/miss, duplicate detection, context size bounded, rolling summary accumulation.",
+          "files": ["src/commit_investigator/harness/scoped_runner.py", "tests/test_scoped_runner.py"]
+        },
+        {
+          "id": "p16-5-provider-routing",
+          "name": "Phase-aware get_provider() with INVESTIGATION_MODEL env var",
+          "status": "completed",
+          "scope": "Add INVESTIGATION_MODEL env var support: if set, overrides model selection for Phase 2 investigation (e.g. INVESTIGATION_MODEL=llama3.1:8b routes to Ollama with that model). get_provider() gains optional phase parameter — 'investigation' checks INVESTIGATION_MODEL first. Fail-fast mode: when EVAL_STRICT=1, get_provider() raises if no real provider available (never falls back to Mock). Tests: env var routing, fail-fast raises, default behavior unchanged.",
+          "files": ["src/commit_investigator/infra/llm.py", "tests/test_scoped_runner.py"]
+        },
+        {
+          "id": "p16-6-revised-investigator",
+          "name": "Rewrite ScopedInvestigator.investigate() integrating all components",
+          "status": "completed",
+          "depends_on": ["p16-2-revised-prompt", "p16-3-nudge-and-gate", "p16-4-context-compression", "p16-5-provider-routing"],
+          "scope": "Rewrite ScopedInvestigator to accept TriageResult + ProblemStatement + CandidateSet (for tool scope). investigate() loop: build prompt from must-examine, dispatch tools via registry (with cache dedup), track per-SHA diffs, apply nudge ladder, enforce must-examine gate on suspect submission, assemble compressed context per turn, record InvestigationExitReason on every exit path. Returns revised ScopedInvestigationResult with list[Suspect] (not list[dict]), exit_reason, tool_trace, metadata. Update run_scoped_investigation() to wire TriageResult from narrow_candidates(). Update build_scoped_trace() to include exit_reason and must_examine_coverage. Preserve V4.1 test compatibility — existing tests updated to new signatures. Integration test: MockLLMProvider walks through tool→diff→suspects flow with nudge activation, cache hit, and exit reason validation."
+        }
+      ]
     },
     {
       "id": "v42-phase2b-watchlist",

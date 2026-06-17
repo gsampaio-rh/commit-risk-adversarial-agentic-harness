@@ -283,11 +283,40 @@ def try_local_ollama_provider() -> LLMProvider | None:
     return OpenAIProvider(api_key="ollama", base_url=base_url, model=model)
 
 
-def get_provider(prefer_real: bool = True) -> LLMProvider:
+class ProviderUnavailableError(RuntimeError):
+    """Raised in fail-fast mode when no real provider is available."""
+
+
+def get_provider(
+    prefer_real: bool = True,
+    *,
+    phase: str | None = None,
+    fail_fast: bool | None = None,
+) -> LLMProvider:
     """Factory: return real provider if available, otherwise mock.
 
     Priority: CURSOR_API_KEY → OPENAI_API_KEY (+ OPENAI_BASE_URL) → local Ollama → Mock.
+
+    Phase-aware routing:
+      phase="investigation" → checks INVESTIGATION_MODEL env var first.
+        If set, routes to Ollama with that model (e.g. INVESTIGATION_MODEL=llama3.1:8b).
+
+    Fail-fast mode (EVAL_STRICT=1 or fail_fast=True):
+      Raises ProviderUnavailableError instead of falling back to MockLLMProvider.
     """
+    strict = fail_fast
+    if strict is None:
+        strict = os.environ.get("EVAL_STRICT", "").lower() in ("1", "true", "yes")
+
+    if phase == "investigation":
+        inv_model = os.environ.get("INVESTIGATION_MODEL")
+        if inv_model:
+            base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
+            try:
+                return OpenAIProvider(api_key="ollama", base_url=base_url, model=inv_model)
+            except Exception:
+                logger.warning("INVESTIGATION_MODEL=%s but Ollama provider failed", inv_model)
+
     if prefer_real:
         cursor_key = os.environ.get("CURSOR_API_KEY")
         if cursor_key:
@@ -302,5 +331,11 @@ def get_provider(prefer_real: bool = True) -> LLMProvider:
         local = try_local_ollama_provider()
         if local is not None:
             return local
+
+    if strict:
+        raise ProviderUnavailableError(
+            "No real LLM provider available and EVAL_STRICT=1. "
+            "Set CURSOR_API_KEY, OPENAI_API_KEY, or start Ollama."
+        )
 
     return MockLLMProvider()
