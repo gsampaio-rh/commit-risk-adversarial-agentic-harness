@@ -2,11 +2,11 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v4-architecture-redesign",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-17T03:55:00Z",
+  "updated": "2026-06-17T11:43:00Z",
   "schema_version": 5,
   "_archive": "V2 state archived to .harness/state-v2-archive.json. V2 final: D1=0.72 D3=0.31 (n=50), JIRA injection brought D3=0.35 on n=20.",
   "vision": "Build a plan-driven bug attribution agent with internal governance. The system separates concerns into three pipelines: (1) Input Pipeline — deterministic extraction and candidate retrieval at zero LLM cost; (2) Agent Pipeline — LLM plans, examines, and attributes within an InvestigationBrief, governed by an investigation harness with rules and skills; (3) Evaluation Pipeline — oracle scores output. The agent receives a CandidateSet (not raw repo access), operates within completion criteria (not just budget), produces structured InvestigationTraces for learning, and improves over time via skills derived from traces. Evaluated via Hit@k, MRR, D3, D6, and Retrieval Recall against ApacheJIT ground truth.",
-  "direction": "ARCHITECTURE V4: Build the three-pipeline system. All research spikes and ADRs complete (topology-debate, mechanism-design, retrieval-spike). Build pipeline: P1 core models → P2/P3 governance+retrieval (parallel) → P4/P5 assembler+input (parallel) → P6 harness → P7 trace+eval. Optional P8: Level 2 extractor.",
+  "direction": "ARCHITECTURE V4.2: Revised Hierarchical Pipeline. Separates narrowing from deep investigation: script pre-score (100→15) → LLM triage (15→7: 3 must-examine + 4 watchlist) → scoped investigation (ReAct) → conditional watchlist expansion. Research-grounded via builder/evaluator debates on topology, loop, models, contracts. ADR: .harness/docs/v42-architecture-adr.md. NFRs: .harness/docs/architecture-constraints.md. Pre-implementation gates: Recall@15, provider compliance, triage smoke.",
   "invariants": {
     "temporal_bound": "Temporal bound (COMMIT_B~1) constrains the ENTIRE system — input pipeline retrieval and agent tools. In eval mode, bound comes from fix_hash. In production mode (future), from bug report date or HEAD.",
     "llm_reasons_scripts_retrieve": "Scripts own retrieval (candidate set assembly) and evidence verification. LLM owns planning, examination reasoning, and attribution. The LLM never searches from scratch — it receives a curated CandidateSet.",
@@ -249,14 +249,122 @@
       "result": {"hit_at_5": 0.062, "mrr": 0.062, "retrieval_recall": 0.375, "n_tested": 16, "gate_passed": false, "hit_cases": ["AMQ-4338"]}
     },
     {
+      "id": "v4-scoped-tools",
+      "name": "V4.1: Scoped Tools — retrieval + V3-style examination tools restricted to CandidateSet",
+      "type": "feature",
+      "status": "verified",
+      "priority": 9,
+      "depends_on": ["v4-checkpoint-full-eval"],
+      "scope": "build_scoped_tools() in tools.py, ScopedInvestigator in harness/scoped_runner.py, run_scoped_eval.py script, tests. Scoped tools enforce CandidateSet SHA validation + temporal bound. V3-style multi-turn loop with tool dispatch. Budget: 15 tool calls, 8 turns.",
+      "note": "Verified: 8/8 AC, 4/4 EC, 22 tests, 391 total pass. ADR: .harness/docs/scoped-tools-adr.md. Eval blocked by Cursor SDK bridge — V4.2 addresses provider strategy.",
+      "gate": {"Hit@5_3cases": "> 0"},
+      "target": {"Hit@5_n20": 0.40, "MRR_n20": 0.20}
+    },
+    {
+      "id": "v42-architecture-debate",
+      "name": "V4.2 architecture debate — research-grounded topology, loop, model, contract decisions",
+      "type": "decision",
+      "status": "committed",
+      "priority": 10,
+      "depends_on": ["v4-scoped-tools"],
+      "scope": "4 builder/evaluator debates: (1) pipeline topology → Option C' (revised hierarchical), (2) agentic loop → harness-managed context, nudge ladder, global budget, (3) model/provider → OpenAI-compatible primary, phase-aware routing, (4) phase contracts → fixed 3+4 tiers, unified Suspect, 5-stage funnel. Outputs: v42-architecture-adr.md, architecture-constraints.md, updated docs, next tasks.",
+      "note": "Completed 2026-06-17. All 4 debates resolved. ADR: .harness/docs/v42-architecture-adr.md. NFRs: .harness/docs/architecture-constraints.md."
+    },
+    {
+      "id": "v42-gate-recall15",
+      "name": "V4.2 pre-implementation gate: Recall@15 ablation",
+      "type": "checkpoint",
+      "status": "pending",
+      "priority": 11,
+      "depends_on": ["v42-architecture-debate"],
+      "scope": "Run pre-score formula (0.5·file_overlap + 0.3·norm(signal_count) + 0.2·(1-norm(best_rank))) on n=20 eval cases with oracle. Measure Recall@15 per case. Must pass: GT in top 15 on >=80% of retrievable cases (>=6/8 where Recall@100=true). Test weight sensitivity.",
+      "gate": {"recall_15_of_retrievable": 0.80}
+    },
+    {
+      "id": "v42-gate-provider-compliance",
+      "name": "V4.2 pre-implementation gate: provider + tool-block compliance",
+      "type": "checkpoint",
+      "status": "pending",
+      "priority": 12,
+      "depends_on": ["v42-architecture-debate"],
+      "scope": "Fix provider priority chain (OpenAI first for eval, add DISABLE_CURSOR_SDK). Run n=3 scoped eval on OpenAI-compatible endpoint (gpt-4o or sonnet via proxy). Measure: (1) tool-block compliance rate >= 90%, (2) multi-turn ReAct loop completes without provider errors. Implement get_provider(phase=...) or explicit injection.",
+      "gate": {"tool_block_compliance": 0.90, "provider_errors": 0}
+    },
+    {
+      "id": "v42-gate-triage-smoke",
+      "name": "V4.2 pre-implementation gate: triage smoke test",
+      "type": "checkpoint",
+      "status": "pending",
+      "priority": 13,
+      "depends_on": ["v42-gate-recall15"],
+      "scope": "One-shot triage prompt on n=3-5 cases where Recall@15=true. Measure: does LLM rank GT in top 7 (must_examine ∪ watchlist) on >= 60% of cases? Test with same model as investigation (no cheap model yet).",
+      "gate": {"triage_recall_7_of_tested": 0.60}
+    },
+    {
+      "id": "v42-phase1a-prescore",
+      "name": "V4.2 build: Phase 1a script pre-score module",
+      "type": "feature",
+      "status": "pending",
+      "priority": 14,
+      "depends_on": ["v42-gate-recall15"],
+      "scope": "New module implementing ScoredCandidate, ScoredShortlist, and pre-score formula. Input: CandidateSet + ProblemStatement. Output: ScoredShortlist (top 15). Formula weights from gate ablation. Tests with fixture data."
+    },
+    {
+      "id": "v42-phase1b-triage",
+      "name": "V4.2 build: Phase 1b LLM triage",
+      "type": "feature",
+      "status": "pending",
+      "priority": 15,
+      "depends_on": ["v42-phase1a-prescore", "v42-gate-triage-smoke"],
+      "scope": "TriageResult, TriagedCandidate data structures. One-shot triage prompt. Harness validation (SHA subset, tier sizes, top-3 pinning). Fallback logic. JSON output parsing. Tests with MockLLMProvider."
+    },
+    {
+      "id": "v42-phase2-revised-investigation",
+      "name": "V4.2 build: Phase 2 revised scoped investigation",
+      "type": "feature",
+      "status": "pending",
+      "priority": 16,
+      "depends_on": ["v42-phase1b-triage", "v42-gate-provider-compliance"],
+      "scope": "Revised ScopedInvestigator: must-examine only in prompt (not 20), 4-tier nudge ladder, must-examine gate (diff on each), context compression (cache dedup, 8K baseline), InvestigationExitReason enum. Unified Suspect type with adapter to SuspectCommit. Phase-aware provider routing. Tests."
+    },
+    {
+      "id": "v42-phase2b-watchlist",
+      "name": "V4.2 build: Phase 2b watchlist expansion + merge",
+      "type": "feature",
+      "status": "pending",
+      "priority": 17,
+      "depends_on": ["v42-phase2-revised-investigation"],
+      "scope": "Watchlist expansion trigger logic (no suspects OR confidence < 0.6 OR no evidence). Fresh context prompt with watchlist candidates. Merge algorithm (dedup, max confidence, quote union, mechanism longest). Phase2bResult. InvestigationResult with funnel metrics. Tests."
+    },
+    {
+      "id": "v42-funnel-metrics",
+      "name": "V4.2 build: 5-stage funnel evaluation metrics",
+      "type": "feature",
+      "status": "pending",
+      "priority": 18,
+      "depends_on": ["v42-phase2b-watchlist"],
+      "scope": "Extend InvestigationTrace with pre_score_recall_15, triage_recall_7, exam_recall, phase2b_triggered. Extend eval_metrics to compute funnel. Updated run_scoped_eval.py to report funnel per case. Adapter from Suspect to BugAttributionReport for D3/D6 compatibility."
+    },
+    {
+      "id": "v42-checkpoint-eval",
+      "name": "V4.2 checkpoint: full n=20 eval with funnel metrics",
+      "type": "checkpoint",
+      "status": "pending",
+      "priority": 19,
+      "depends_on": ["v42-funnel-metrics"],
+      "scope": "Run full V4.2 pipeline on n=20 seed=42. Report Hit@5, MRR, and full funnel breakdown. Compare to V3 (Hit@5=0.50) and V4.1.",
+      "gate": {"Hit@5": 0.40, "MRR": 0.20},
+      "target": {"Hit@5": 0.50, "MRR": 0.30}
+    },
+    {
       "id": "spike-level2-extractor",
       "name": "Level 2 LLM-assisted hint extraction for retrieval",
       "type": "feature",
       "status": "pending",
-      "priority": 9,
-      "depends_on": ["v4-retrieval-module"],
+      "priority": 20,
+      "depends_on": ["v42-checkpoint-eval"],
       "scope": "LLM-synthesized extraction hints (files, symbols, keywords) to complement Level 1 regex extraction. Expected to lift recall@100 from 0.45 toward 0.60 target. Deferred from retrieval-spike — see .harness/docs/retrieval-spike-findings.md §Level2.",
-      "note": "Optional enhancement. Level 1 meets gate (0.35) but not target (0.60)."
+      "note": "Optional enhancement. Level 1 meets gate (0.35) but not target (0.60). Deferred until V4.2 pipeline proves Hit@5 viability."
     }
   ]
 }

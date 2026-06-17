@@ -1,49 +1,71 @@
 # Glossary
 
-## Three Pipelines (V4 Architecture)
+## Architecture (V4.2 — Target)
 
 | Term | Definition |
 |------|------------|
-| **Input Pipeline** | Stages 0-1: deterministic extraction and candidate retrieval at zero LLM cost. Produces `CandidateSet` + `ProblemStatement` for the agent. Not part of the agent's reasoning loop. |
-| **Agent Pipeline** | Stages 2-3-4: the LLM plans, examines, and attributes, governed by the investigation harness. Receives `CandidateSet` as input, produces `BugAttributionReport`. |
-| **Evaluation Pipeline** | Oracle scoring: compares `BugAttributionReport` against ground truth. The agent never sees these results. |
+| **Input Pipeline** | Phase 0 + Phase 1a: deterministic extraction, candidate retrieval, and script pre-scoring at zero LLM cost. Produces `ScoredShortlist` + `ProblemStatement` for the agent. |
+| **Agent Pipeline (V4.2)** | Phases 1b-2-2b: LLM triage → scoped investigation → conditional watchlist expansion. Separates narrowing from deep investigation. |
+| **Evaluation Pipeline** | Oracle scoring: compares suspect list against ground truth. The agent never sees these results. 5-stage funnel: Recall@100→@15→@7→Exam→Hit@5. |
 
-## Agent Framework
-
-| Term | Definition |
-|------|------------|
-| **Investigation Harness** | The non-LLM orchestration layer that governs the agent's lifecycle. Manages state, enforces transitions, evaluates completion criteria, and controls when the LLM is invoked. The LLM does not self-govern. |
-| **Investigation Rules** | Codified quality constraints. **Hybrid:** hard gates (harness) + soft guidance (prompt). YAML in `data/governance/rules/`. See [mechanism-design ADR §Q1](../.harness/docs/mechanism-design.md#2-q1--rules-mechanism). |
-| **Investigation Skills** | Learned strategies augmenting planning. **Hybrid:** keyword retrieval + manual curation. Markdown in `data/governance/skills/`. See [mechanism-design ADR §Q2](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism). |
-| **InvestigationBrief** | Structured output of Stage 2 (Planning). Contains hypotheses, examination plan, success criteria, and strategy. Defines what "done" means for this investigation. Named "brief" (not "contract") to avoid collision with `.harness/contract.json`. |
-| **InvestigationState** | Harness-managed state tracking: current stage, candidates examined, hypotheses tested, evidence collected, re-plan count, budget usage. |
-| **InvestigationTrace** | Full structured record of one investigation: hypotheses formed/tested, candidates examined/eliminated, evidence collected, strategy decisions, outcome. The substrate from which skills emerge. |
-| **CompletionCriteria** | Conditions that define when an investigation is "done": evidence threshold, hypothesis coverage, confidence gate, brief satisfaction. Budget is a hard stop, not the primary criterion. |
-| **CandidateSet** | Ranked set of 50-100 commits produced by the input pipeline's retrieval stage. The agent's examination is scoped to this set — it does not search the full repo. |
-| **CandidateCommit** | One entry in a `CandidateSet`: commit SHA, retrieval rank, retrieval signal (why retrieved), summary, files changed. |
-
-## Pipeline Stages
+## V4.2 Revised Hierarchical Pipeline
 
 | Term | Definition |
 |------|------------|
-| **Stage 0: Extraction** | Input pipeline. Transforms raw JIRA text into structured `ProblemStatement` with extracted files, symbols, keywords. Regex-based (Level 1) or LLM-assisted (Level 2, TBD). |
-| **Stage 1: Retrieval** | Input pipeline. Deterministic git commands that assemble `CandidateSet` from `ProblemStatement` signals. Zero LLM cost. Respects temporal bound. |
-| **Stage 2: Planning** | Agent pipeline. LLM produces `InvestigationBrief` with hypotheses and examination plan. Governed by harness. |
-| **Stage 3: Examination** | Agent pipeline. LLM examines candidates via tools, testing hypotheses from the brief. Governed by harness + rules. |
-| **Stage 4: Attribution** | Agent pipeline. LLM produces final ranked suspect list with causal mechanisms. Evidence scoring (script) runs post-attribution. |
+| **Phase 1a: Script Pre-Score** | Deterministic scoring of CandidateSet using file_overlap, signal_count, and retrieval_rank. Produces `ScoredShortlist` (top 15). Zero LLM cost. |
+| **Phase 1b: LLM Triage** | One-shot LLM call that ranks 15 candidates into 3 must-examine + 4 watchlist. Top 3 by pre_score are harness-pinned (LLM cannot veto). |
+| **Phase 2: Scoped Investigation** | Multi-turn ReAct loop with scoped tools. Examines must-examine candidates. Budget: 15 calls, 8 turns. |
+| **Phase 2b: Watchlist Expansion** | Conditional phase triggered when Phase 2 produces no suspects, low confidence, or no evidence. Fresh context with watchlist candidates. Budget: 8 calls, 4 turns. |
+| **ScoredShortlist** | Top 15 candidates from Phase 1a, sorted by composite pre_score. Includes temporal_bound and scoring_weights for reproducibility. |
+| **ScoredCandidate** | Wrapper around `CandidateCommit` adding `pre_score` and `file_overlap` from Phase 1a scoring. |
+| **TriageResult** | Output of Phase 1b: 3 `TriagedCandidate` in must_examine + 4 in watchlist. Fixed tier sizes. |
+| **TriagedCandidate** | A `ScoredCandidate` with tier assignment (must_examine/watchlist), triage_rank, and 1-line LLM rationale. |
+| **Script-Anchored Triage** | Design constraint: LLM triage cannot override retrieval's top 3 by pre_score. Harness pins them in must_examine regardless of LLM output. |
+| **Nudge Ladder** | 4-tier state-based nudge system: idle turn 1 (gentle), idle turn 2 (budget warning), idle turn 3 (force conclude), suspects without diff (reject). |
+| **InvestigationExitReason** | Enum tracking why an investigation ended: normal, budget_exhausted, max_turns, forced_conclude, stall, provider_error, empty_candidates, watchlist_expansion_exhausted, watchlist_skipped. |
+| **Harness-Managed Context** | Context model where the harness maintains a rolling working summary (≤2K tokens) + last-turn tool results, rather than unbounded message accumulation. |
+
+## V4.1 Scoped Tools (Current Implementation)
+
+| Term | Definition |
+|------|------------|
+| **ScopedInvestigator** | Multi-turn loop in `harness/scoped_runner.py`. Assembles system prompt with 20 candidates + tool descriptions, dispatches tool calls, parses suspects. V4.1 architecture — predecessor to V4.2. |
+| **Scoped Tools** | Examination tools registered via `build_scoped_tools()` in `agent/tools.py`. SHA-taking tools validate against `CandidateSet` before execution. Includes `get_commit_diff`, `get_commit_message`, `get_file_at_commit`, `get_blame`. |
+| **SHA Validator** | `_build_sha_validator()` — builds a closure that checks 12-char SHA prefixes against the CandidateSet. Returns error message for out-of-set SHAs, `None` for valid ones. |
+| **CandidateSet** | Ranked set of 50-100 commits produced by the input pipeline's retrieval stage. The agent's tools are scoped to this set — it does not search the full repo. |
+| **CandidateCommit** | One entry in a `CandidateSet`: commit SHA, retrieval rank, retrieval signal (why retrieved), summary, files changed, optional `diff_summary`. |
+
+## V4 (Historical)
+
+| Term | Definition |
+|------|------------|
+| **Investigation Harness (V4)** | 3-stage state machine (Planning → Examination → Attribution). Superseded by V4.1, then V4.2. Code in `harness/harness.py`. |
+| **InvestigationBrief** | Structured output of V4 Stage 2 (Planning). Not used in V4.1 or V4.2. |
+| **CompletionCriteria** | V4 conditions for when an investigation is "done". V4.2 uses exit reason enum + must-examine gate. |
+
+## Pipeline Phases
+
+| Term | Definition |
+|------|------------|
+| **Phase 0: Extraction** | Input pipeline. Transforms raw JIRA text into structured `ProblemStatement`. Regex-based (Level 1) or LLM-assisted (Level 2, TBD). |
+| **Phase 1a: Retrieval + Pre-Score** | Input pipeline. Deterministic git commands assemble `CandidateSet`, then script pre-score produces `ScoredShortlist` (top 15). Zero LLM cost. |
+| **Phase 1b: LLM Triage** | Agent pipeline. One-shot LLM ranking of 15 candidates into tiered list (3 must-examine + 4 watchlist). |
+| **Phase 2: Scoped Investigation** | Agent pipeline. Multi-turn ReAct loop with scoped tools on must-examine candidates. |
+| **Phase 2b: Watchlist Expansion** | Agent pipeline. Conditional expansion when Phase 2 confidence is low or no suspects found. |
 
 ## Data Structures
 
 | Term | Definition |
 |------|------------|
-| **ProblemStatement** | Structured bug report (title + description + extraction signals). Input to the agent pipeline. Only `title` and `description` are sent to the LLM; extraction fields and metadata are used by the input pipeline and harness. |
-| **SuspectCommit** | Candidate bug-introducing commit with rank, confidence, mechanism, and evidence quotes. Produced by the LLM in Stage 4. |
-| **BugAttributionReport** | Final pipeline output: ranked suspects, reasoning summary, tool trace, metadata (evidence scores, cost, model), and investigation trace. |
-| **Attribution Agent** | The governed LLM system that plans, examines, and attributes (Stages 2-3-4). Operates within an `InvestigationBrief`, governed by the investigation harness. |
-| **Evidence Scorer** | Script that verifies evidence quotes against commit diffs via exact, normalized, and fuzzy matching. Runs post-attribution in Stage 4. |
-| **ProblemExtractor** | Input pipeline infrastructure that builds `ProblemStatement` from JIRA tickets. Level 1: regex pass-through. Level 2: LLM-assisted extraction (TBD). |
+| **ProblemStatement** | Structured bug report (title + description + extraction signals). Input to the agent pipeline. Only `title` and `description` are sent to the LLM. |
+| **Suspect** | Unified suspect type (replaces `SuspectCommit` + dict suspects). Includes commit_id, rank, confidence, mechanism, evidence_quotes, phase, tools_used. |
+| **SuspectCommit** | Legacy suspect type from V3. Adapter provided for eval compatibility. |
+| **BugAttributionReport** | Final pipeline output: ranked suspects, reasoning summary, tool trace, metadata, investigation trace. |
+| **InvestigationResult** | V4.2 eval-facing result: issue_key, suspects, exit_reason, retrieval_recall, trace, elapsed_s. |
+| **Evidence Scorer** | Script that verifies evidence quotes against commit diffs via exact, normalized, and fuzzy matching. |
+| **ProblemExtractor** | Input pipeline infrastructure that builds `ProblemStatement` from JIRA tickets. |
 | **GitContextProvider** | Temporally-bounded git access layer wrapping `git` CLI. All tools and retrieval route through this. |
-| **ToolRegistry** | Registry of examination tools available in Stage 3. Tools are text-based (markdown fences), not native function calling. |
+| **ToolRegistry** | Registry of examination tools. `build_scoped_tools()` creates registries scoped to CandidateSet. Tools are text-based (markdown fences), not native function calling. |
 
 ## Temporal Model
 
@@ -60,42 +82,44 @@
 |------|------------|
 | **Hit@k** | Binary metric: is the ground truth `bug_hash` in the agent's top k suspects? Primary: Hit@5. |
 | **MRR** | Mean Reciprocal Rank: average of `1/rank` across cases. 0 if `bug_hash` not found. |
-| **Retrieval Recall@100** (input pipeline) | Is `bug_hash` in the `CandidateSet`? Measures input pipeline quality independently of the agent. |
-| **Retrieval Recall** (agent) | Did the agent examine `bug_hash` via a tool call during Stage 3? Measures agent examination quality. |
+| **Retrieval Recall@100** (input pipeline) | Is `bug_hash` in the `CandidateSet`? Measures input pipeline quality. |
+| **Pre-score Recall@15** (Phase 1a) | Is `bug_hash` in the `ScoredShortlist`? Measures pre-score quality. V4.2 funnel metric. |
+| **Triage Recall@7** (Phase 1b) | Is `bug_hash` in must_examine ∪ watchlist? Measures triage quality. V4.2 funnel metric. |
+| **Examination Recall** (Phase 2) | Did the agent call `get_commit_diff` on `bug_hash`? Measures examination quality. |
 
 ## Evaluation — Output-Quality Metrics
 
 | Term | Definition |
 |------|------------|
 | **D6 Evidence Grounding** | Script-computed: fraction of evidence quotes grounded in actual commit diffs. Measures hallucination rate. |
-| **D3 Attribution Quality** | LLM-judge (0-4 scale): does the causal mechanism correctly explain how the suspect introduced the bug? Implemented in `eval/d3_judge.py`. |
-| **Plan Quality** | Deterministic **Plan Overlap Score** (eval-only): overlap between examination plan files and bug_hash files. Threshold ≥ 0.30. See [mechanism-design ADR §9](../.harness/docs/mechanism-design.md#9-plan-quality-metric-ac12). |
+| **D3 Attribution Quality** | LLM-judge (0-4 scale): does the causal mechanism correctly explain how the suspect introduced the bug? |
+| **5-Stage Funnel** | Recall@100 → Recall@15 → TriageRecall@7 → ExamRecall → Hit@5. Localizes failures to specific pipeline phases. V4.2. |
 
 ## Dataset
 
 | Term | Definition |
 |------|------------|
-| **ApacheJIT** | Labeled commit dataset from 14 Apache projects (Keshavarz & Nagappan, MSR 2022). ~58K bug commits, ~38K fix commits. |
+| **ApacheJIT** | Labeled commit dataset from 14 Apache projects (Keshavarz & Nagappan, MSR 2022). |
 | **bug_hash** | SHA of bug-introducing commit. SZZ-derived — has known noise (35% estimated noise rate). |
 | **fix_hash** | SHA of the fixing commit. Sets the temporal bound. |
-| **ground truth chain** | `bug_hash → fix_hash → issue_key → JIRA metadata`. Eval-only — never enters investigation context. |
-| **SZZ** | Algorithm that traces fix commits back to bug-introducing commits via `git blame`. Foundational for ApacheJIT but produces noisy labels. |
-| **commit_links CSV** | Per-project files in the ApacheJIT replication zip mapping `fix_hash → bug_hash`. |
-| **GroundTruthGraph** | In-memory graph loaded from the replication zip. Provides chain lookup, project enumeration, and bug/fix relationships. |
+| **ground truth chain** | `bug_hash → fix_hash → issue_key → JIRA metadata`. Eval-only. |
+| **SZZ** | Algorithm tracing fix commits back to bug-introducing commits via `git blame`. |
+| **GroundTruthGraph** | In-memory graph from the replication zip. Chain lookup, project enumeration, bug/fix relationships. |
 
-## Architecture
+## Architecture Principles
 
 | Term | Definition |
 |------|------------|
-| **LLM reasons, scripts retrieve** | V4 design principle: scripts own retrieval (candidate assembly) and verification; LLM owns planning, reasoning, and attribution. |
-| **Plan-driven, not budget-driven** | The agent exits when the `InvestigationBrief` is satisfied, not when budget runs out. Budget is a hard stop safety net. |
-| **Harness governs LLM** | The investigation harness controls lifecycle, transitions, and completion. The LLM executes within boundaries set by the harness. |
-| **Observable by design** | Every investigation produces a structured trace. No investigation is a black box. |
+| **LLM reasons, scripts retrieve** | Scripts own retrieval and verification; LLM owns examination reasoning and attribution. |
+| **Scoped, not unbounded** | Agent's tools restricted to CandidateSet SHAs. No full-repo search. |
+| **Observable by design** | Every investigation produces a structured trace. No black boxes. |
+| **Separate narrowing from investigation** | V4.2 principle: triage (Phase 1a/1b) and deep investigation (Phase 2) are separate phases with separate contexts. |
+| **Script-anchored, not LLM-vetoed** | Harness pins retrieval's top candidates into must-examine regardless of LLM triage output. |
 | **Baselines** | Zero-LLM deterministic methods (git-blame-naive, file-history-recency, random) that establish the performance floor. |
 
 ## Related
 
-- [system-specification.md](system-specification.md) — three pipelines, agent framework, data structures, LLM boundary
-- [agent-loop.md](agent-loop.md) — agent loop stages 2-3-4, completion criteria, tracing
-- [evaluation-framework.md](evaluation-framework.md) — metrics, rubrics, thresholds
+- [system-specification.md](system-specification.md) — three pipelines, data structures, LLM boundary
+- [agent-loop.md](agent-loop.md) — V4.2 agent loop mechanics
+- [evaluation-framework.md](evaluation-framework.md) — metrics, 5-stage funnel, baselines
 - [datasets.md](datasets.md) — ApacheJIT data, ground truth chain

@@ -5,8 +5,8 @@ This project builds a bug attribution system: given a JIRA bug report (title + d
 ## Reading Order
 
 1. **This file** — entry point, key invariants, current code layout, task policy
-2. [docs/system-specification.md](docs/system-specification.md) — V4 target architecture (three pipelines, agent framework, data structures, LLM boundary)
-3. [docs/agent-loop.md](docs/agent-loop.md) — agent loop (stages 2-3-4), completion criteria, tracing
+2. [docs/system-specification.md](docs/system-specification.md) — V4.1 architecture (retrieval + scoped tools), data structures, LLM boundary
+3. [docs/agent-loop.md](docs/agent-loop.md) — V4.1 scoped investigation loop
 4. [docs/evaluation-framework.md](docs/evaluation-framework.md) — metrics, stage-to-metric mapping, baselines, thresholds
 5. [docs/glossary.md](docs/glossary.md) — all project-specific terms and definitions
 6. [docs/datasets.md](docs/datasets.md) — ApacheJIT data, ground truth chain, bug→commit mappings
@@ -15,9 +15,9 @@ This project builds a bug attribution system: given a JIRA bug report (title + d
 
 **Temporal bound enforcement:** The temporal bound (COMMIT_B~1) constrains the entire system — both the input pipeline (retrieval) and agent tools. In eval mode, bound comes from `fix_hash`. Full rules in [docs/system-specification.md](docs/system-specification.md#temporal-model).
 
-**LLM reasons, scripts retrieve:** Scripts own retrieval (candidate set assembly) and evidence verification. The LLM owns planning, examination reasoning, and attribution. The LLM never searches from scratch — it receives a curated CandidateSet. (V3 code still has LLM-driven search; V4 target moves search to scripts.)
+**LLM reasons, scripts retrieve:** Scripts own retrieval (candidate set assembly) and evidence verification. The LLM owns examination reasoning and attribution. The LLM never searches from scratch — it receives a curated CandidateSet and uses scoped tools restricted to that set.
 
-**Agent is governed:** The investigation harness governs the LLM. The LLM does not self-govern. The harness manages state, transitions, and completion criteria. Budget is a hard stop, not the primary exit signal.
+**Scoped tools:** V4.1 examination tools validate SHAs against the CandidateSet before execution. The LLM can diff, blame, and read files — but only for pre-retrieved candidates. Search tools are not registered.
 
 **Observable by design:** Every investigation produces a structured InvestigationTrace. No investigation is a black box. Traces are the substrate for skill emergence.
 
@@ -27,11 +27,13 @@ This project builds a bug attribution system: given a JIRA bug report (title + d
 
 ## Architecture Status
 
-The **target architecture (V4)** is documented in [docs/system-specification.md](docs/system-specification.md). It introduces three pipelines (Input / Agent / Evaluation), an investigation harness, InvestigationBrief-driven completion, and structured traces.
+The **target architecture is V4.2** (Revised Hierarchical Pipeline): separates narrowing from deep investigation via a 4-phase pipeline — script pre-score → LLM triage → scoped investigation → conditional watchlist expansion. The **current implementation is V4.1** (Scoped Tools), which passes 20 candidates into a single loop.
 
-The **current implementation (V3)** uses a single-agent loop where the LLM performs both search and reasoning within a budget-limited multi-turn conversation. V3 achieved Hit@5=0.50, MRR=0.304.
+V4.2 was decided via research-grounded builder/evaluator debates. Key change: Phase 1a (script pre-score) narrows 100→15, Phase 1b (LLM triage) narrows 15→7 (3 must-examine + 4 watchlist), Phase 2 investigates deeply with scoped tools.
 
-See [.harness/docs/topology-debate.md](.harness/docs/topology-debate.md) for the ADR that defines V4, and [.harness/docs/exp19b-retrospective.md](.harness/docs/exp19b-retrospective.md) for V2/V3 lessons learned.
+V3 (fully agentic) achieved Hit@5=0.50, MRR=0.304. V4 metadata-only achieved Hit@5=0.062. V4.2 targets Hit@5 ≥ 0.40.
+
+See [.harness/docs/v42-architecture-adr.md](.harness/docs/v42-architecture-adr.md) for V4.2 decision, [.harness/docs/architecture-constraints.md](.harness/docs/architecture-constraints.md) for NFRs, [.harness/docs/scoped-tools-adr.md](.harness/docs/scoped-tools-adr.md) for V4→V4.1 pivot.
 
 ## Workflow
 
@@ -53,34 +55,41 @@ Before starting a new task: check if a contract exists, read the last 5 breadcru
 ```
 src/commit_investigator/
 ├── extraction/        # problem_extractor, jira_client
-├── agent/             # orchestrator, tools, investigators, evidence_tagger
+├── retrieval/         # retriever, config, pipeline (V4 input pipeline)
+├── models/            # candidates (CandidateSet, CandidateCommit)
+├── agent/             # orchestrator (V3), tools (build_scoped_tools), evidence_tagger
+├── harness/           # scoped_runner (V4.1), harness (V4 historical), v4_runner, trace_writer
+├── governance/        # prompt_assembler
 ├── eval/              # eval_metrics, d3_judge, baselines, run_eval, ground_truth
 └── infra/             # llm, git_context, smart_diff (shared)
 ```
 
-This is the V3 layout. V4 will add packages for retrieval, harness governance, and trace storage — but those do not exist yet. Only describe what's on disk.
-
-## Pipeline (Current V3 Implementation)
+## Pipeline (V4.2 — Target)
 
 ```
-ProblemStatement (input) → Attribution Agent (multi-turn, tool-use) → Evidence Scorer → BugAttributionReport
+Input: Extraction → Retrieval → CandidateSet@100
+Phase 1a: Script pre-score → ScoredShortlist@15 (zero LLM)
+Phase 1b: LLM triage → 3 must-examine + 4 watchlist (1 LLM call)
+Phase 2: Scoped investigation (multi-turn ReAct) → Ranked Suspects
+Phase 2b: Watchlist expansion (conditional) → Merged final
+Evaluation: 5-stage funnel (Recall@100→@15→@7→Exam→Hit@5)
 ```
 
-| Stage | Module | Owner |
+| Phase | Module | Owner |
 |-------|--------|-------|
-| Eval setup | `eval/run_eval.py`, `extraction/problem_extractor.py` | Harness |
-| Commit search & attribution | `agent/orchestrator.py` | LLM + tools |
-| Evidence scoring | `agent/evidence_tagger.py` (inside `investigate()`) | Script |
+| Extraction | `extraction/problem_extractor.py` | Script |
+| Retrieval + pre-score | `retrieval/pipeline.py` → `retrieval/retriever.py` | Script |
+| LLM triage | TBD (V4.2 implementation) | Harness + LLM |
+| Scoped investigation | `harness/scoped_runner.py` + `agent/tools.py` | LLM + scoped tools |
+| Watchlist expansion | TBD (V4.2 implementation) | Harness + LLM |
 | Evaluation | `eval/eval_metrics.py` | Oracle |
 
-## Pipeline (V4 Target)
+The agent receives `ScoredShortlist` + `ProblemStatement`, not raw repo access. Tools are scoped to CandidateSet SHAs.
 
-See [docs/system-specification.md](docs/system-specification.md) for the full target:
+## Pipeline (V3 — Baseline)
 
 ```
-Input Pipeline: Extraction → Retrieval → CandidateSet
-Agent Pipeline: Planning → Examination → Attribution → BugAttributionReport
-Evaluation Pipeline: Scoring (Hit@k, MRR, D3, D6)
+ProblemStatement (input) → Attribution Agent (multi-turn, full repo tools) → Evidence Scorer → BugAttributionReport
 ```
 
-The agent receives `CandidateSet` + `ProblemStatement`, not raw repo access. The investigation harness governs the LLM through Stages 2-3-4 with an InvestigationBrief defining completion criteria.
+V3 code in `agent/orchestrator.py`. Hit@5=0.50, MRR=0.304. Used as baseline for V4.1 comparison.

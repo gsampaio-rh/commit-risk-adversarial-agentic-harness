@@ -5,6 +5,7 @@ from commit_investigator.harness.completion import CompletionEvaluator, Completi
 from commit_investigator.harness.harness import InvestigationHarness, InvestigationOutcome
 from commit_investigator.harness.llm_protocol import LLMProvider, LLMResponse
 from commit_investigator.harness.trace_writer import InvestigationTrace, TraceWriter
+from commit_investigator.harness.scoped_runner import run_scoped_investigation
 from commit_investigator.harness.v4_runner import V4InvestigationResult, run_v4_investigation
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "TraceWriter",
     "V4InvestigationResult",
     "ValidationResult",
+    "run_scoped_investigation",
     "run_v4_investigation",
 ]

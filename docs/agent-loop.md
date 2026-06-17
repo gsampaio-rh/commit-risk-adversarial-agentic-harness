@@ -1,276 +1,244 @@
-# Agent Loop — Bug Attribution (V4 Target)
+# Agent Loop — Bug Attribution (V4.2 Revised Hierarchical Pipeline)
 
-The agent loop is the reasoning core: Stages 2–3–4 of the system pipeline. It receives a `CandidateSet` + `ProblemStatement` from the input pipeline and produces a `BugAttributionReport`. The loop is governed by the **investigation harness** — the LLM does not self-govern.
+The agent loop is the reasoning core. It receives a `ScoredShortlist` + `ProblemStatement` from the input pipeline and produces ranked suspects via a multi-phase pipeline that separates narrowing from deep investigation.
 
-> **Architecture status:** This describes the V4 target. Current implementation (V3) runs a 7-stage advisory loop without explicit planning or governance. See [system-specification.md — Current Implementation](system-specification.md#current-implementation-v3--reference) for V3 details.
+> **Architecture status:** The **target architecture is V4.2** (Revised Hierarchical Pipeline). V4.1 (single scoped loop with 20 candidates) is the current implementation. See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md) for the decision, [architecture-constraints.md](../.harness/docs/architecture-constraints.md) for codified NFRs. V3's fully-agentic loop is preserved in `agent/orchestrator.py` for baseline comparison.
 
 ---
 
-## State Machine
+## V4.2 Pipeline Overview
 
 ```
-                    ┌─────────────────────────────────┐
-                    │         AGENT RECEIVES           │
-                    │  CandidateSet + ProblemStatement │
-                    └──────────────┬──────────────────┘
-                                   │
-                                   ▼
-                    ┌──────────────────────────────────┐
-                    │     STAGE 2: PLANNING            │
-                    │  Produce InvestigationBrief      │
-                    │  (hypotheses, plan, criteria)    │
-                    └──────────────┬───────────────────┘
-                                   │ brief valid?
-                                   │ yes ──────────────────────────┐
-                                   │                               │
-                                   ▼                               │
-                    ┌──────────────────────────────────┐           │
-                    │     STAGE 3: EXAMINATION         │           │
-                    │  Test hypotheses via tools       │           │
-                    │  Collect evidence                │           │
-                    └──────────────┬───────────────────┘           │
-                                   │                               │
-                         ┌─────────┴─────────┐                    │
-                         │ Harness evaluates  │                    │
-                         │ completion criteria│                    │
-                         └─────────┬─────────┘                    │
-                                   │                               │
-                    ┌──────────────┼──────────────┐               │
-                    │              │              │               │
-                    ▼              ▼              ▼               │
-              [satisfied]   [insufficient]  [exhausted]           │
-                    │              │              │               │
-                    │              │              │ re-plan       │
-                    │              │              │ (max 2)       │
-                    │              │              └───────────────┘
-                    │              │
-                    │              └──► continue Stage 3
-                    ▼
-                    ┌──────────────────────────────────┐
-                    │     STAGE 4: ATTRIBUTION         │
-                    │  Rank suspects, write report     │
-                    │  + Evidence Scoring (script)     │
-                    └──────────────┬───────────────────┘
-                                   │
-                                   ▼
-                    ┌──────────────────────────────────┐
-                    │     OUTPUT                       │
-                    │  BugAttributionReport            │
-                    │  + InvestigationTrace            │
-                    └─────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Phase 1a: SCRIPT PRE-SCORE (zero LLM)               │
+│  CandidateSet@100 → ScoredShortlist@15                │
+│  Formula: file_overlap + signal_count + retrieval_rank│
+└───────────────────────┬──────────────────────────────┘
+                        │ ScoredShortlist (15 candidates)
+                        ▼
+┌──────────────────────────────────────────────────────┐
+│  Phase 1b: LLM TRIAGE (1 call, one-shot)             │
+│  15 candidates + bug report → 3 must-examine + 4 watch│
+│  Constraint: top-3 pre-score pinned in must-examine   │
+└───────────────────────┬──────────────────────────────┘
+                        │ TriageResult
+                        ▼
+┌──────────────────────────────────────────────────────┐
+│  Phase 2: SCOPED INVESTIGATION (multi-turn ReAct)    │
+│  must-examine candidates + scoped tools               │
+│  Budget: 15 calls (soft), 8 turns                     │
+│  Must: ≥1 get_commit_diff per must-examine SHA        │
+└───────────────────────┬──────────────────────────────┘
+                        │
+              ┌─────────┴─────────┐
+              │ Phase 2b trigger?  │
+              │ • no suspects      │
+              │ • confidence < 0.6 │
+              │ • no evidence      │
+              └─────────┬─────────┘
+               yes      │      no
+         ┌──────────────┘      └──────┐
+         ▼                            ▼
+┌────────────────────┐    ┌──────────────────┐
+│ Phase 2b: WATCHLIST │    │  FINAL OUTPUT    │
+│ EXPANSION           │    │  Ranked suspects │
+│ Fresh context        │    └──────────────────┘
+│ Budget: 8 calls, 4t │
+└─────────┬───────────┘
+          │ Merge: dedup + max confidence + union quotes
+          ▼
+┌──────────────────────┐
+│  FINAL OUTPUT         │
+│  Merged ranked suspects│
+└──────────────────────┘
 ```
 
 ---
 
-## Stage 2: Planning
+## Phase 1a: Script Pre-Score (zero LLM)
+
+**Harness controls everything.** No agentic loop.
+
+| Aspect | Detail |
+|--------|--------|
+| **Input** | CandidateSet (50-100 commits) + ProblemStatement |
+| **Output** | ScoredShortlist (top 15 by composite score) |
+| **Formula** | `0.5·file_overlap + 0.3·norm(signal_count) + 0.2·(1 - norm(best_rank))` |
+| **Pre-implementation gate** | Recall@15 on n=20 oracle must validate weights |
+
+Scoring signals:
+- **file_overlap:** Overlap between commit's `files_changed` and ProblemStatement's `extracted_files`
+- **signal_count:** How many retrieval strategies found this commit (blame, file_log, keyword_grep, pickaxe)
+- **best_rank:** Original retrieval rank (normalized, inverted — lower rank = higher score)
+
+---
+
+## Phase 1b: LLM Triage (1 call)
+
+**Harness controls:** prompt assembly, output parsing, SHA validation, tier enforcement.
+**LLM controls:** reasoning about which candidates are most suspicious.
+
+| Aspect | Detail |
+|--------|--------|
+| **Turns** | 1 (one-shot, no multi-turn) |
+| **Tool budget** | 0 (no tools — metadata-only reasoning) |
+| **Input context** | Bug report + 15 candidates (SHA, message, date, files, signal, pre_score, diff_summary ~300 chars) |
+| **Output format** | Structured JSON: `{"must_examine": [...], "watchlist": [...]}` |
+| **Validation** | All SHAs ⊆ ScoredShortlist; must_examine = 3; watchlist = 4; must_examine ∩ watchlist = ∅ |
+| **Constraint** | Top 3 by pre_score MUST appear in must_examine (harness-enforced, LLM cannot veto) |
+| **Fallback** | Invalid JSON or empty must_examine → must_examine = top 3 by pre_score, watchlist = next 4 |
+
+### Handoff to Phase 2
+
+Phase 2 receives a **compressed handoff**, not the full triage transcript:
+- SHA + 1-line triage rationale per candidate
+- Retrieval rank and signal type
+- No raw LLM chain-of-thought from triage
+
+---
+
+## Phase 2: Scoped Investigation (multi-turn ReAct)
+
+**Harness controls:** tool dispatch, budget enforcement, turn counting, context management, exit conditions, temporal bound.
+**LLM controls:** which tools to call, reasoning about diffs/blame, suspect ranking.
 
 ### Entry conditions
-- Valid `CandidateSet` (>= 1 commit)
+- Valid `TriageResult` with 3 must-examine + 4 watchlist candidates
 - Valid `ProblemStatement` (title + description non-empty)
+- `GitContextProvider` with temporal bound set
 
-### What happens
-1. Harness assembles context: problem statement, candidate summaries, relevant skills
-2. LLM produces structured `InvestigationBrief`
-3. Harness validates brief structure (hypotheses present, plan non-empty, criteria defined)
-4. If invalid → harness re-runs input pipeline Stage 1 with widened retrieval, then re-invokes Stage 2 (max 1 retry). See [mechanism-design ADR §Q6](../.harness/docs/mechanism-design.md#7-q6--brief-validation).
+### System prompt assembly
 
-### Output: InvestigationBrief
+The system prompt contains:
+1. Agent role and strategy instructions
+2. Tool descriptions (scoped examination tools only)
+3. Output format (`` ```suspects `` block with JSON)
+4. Bug report (title + description, truncated to 3000 chars)
+5. Must-examine candidates (3 SHAs + 1-line triage rationale each)
 
-| Field | Description |
-|-------|-------------|
-| `hypotheses` | Falsifiable statements: "The bug was introduced by commit X because it changed Y which caused Z" |
-| `examination_plan` | Ordered list of commits/files to examine and what to look for in each |
-| `success_criteria` | When this investigation is complete (evidence threshold, hypothesis coverage) |
-| `strategy` | Overall approach rationale |
-| `max_effort` | Tool call budget for this investigation cycle |
+### Turn-by-turn execution
 
-### Exit conditions
-- Brief is structurally valid → advance to Stage 3
-- Brief invalid after retry → advance to Stage 3 with default brief (examine top 10 candidates)
+Each turn, the LLM responds with one of:
 
-### Skills integration
-If investigation skills are available, the harness retrieves top-3 skills by keyword overlap and injects them via `PromptAssembler`. See [mechanism-design ADR §Q2–Q3](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism).
+| Response type | Action |
+|---------------|--------|
+| `` ```tool `` block | Harness parses JSON, dispatches via `ToolRegistry.execute()`, returns compressed result |
+| `` ```suspects `` block | Harness parses suspects. Accepted only if diff_examined on ≥1 must-examine SHA. |
+| Neither | Nudge ladder activates |
 
-### Brief validation
-Minimum 2 hypotheses; all `InvestigationBrief` fields required. Invalid brief → 1 retry → default brief (examine top 10 candidates). See [mechanism-design ADR §Q6](../.harness/docs/mechanism-design.md#7-q6--brief-validation).
+### 4-Tier Nudge Ladder
 
----
+| State | Nudge |
+|-------|-------|
+| Idle turn 1 | `Call get_commit_diff on {must_examine[0]}. Output tool block only.` |
+| Idle turn 2 | `You have {N}/{budget} calls. Examine remaining must-examine SHAs or output suspects.` |
+| Idle turn 3 | Harness force-conclude: parse best-effort from tool cache + pre-score fallback |
+| Suspects without diff examined | `Suspects rejected: no diff examined. Call get_commit_diff before suspects.` |
 
-## Stage 3: Examination
+### Context management
 
-### Entry conditions
-- Valid `InvestigationBrief` from Stage 2
-- Budget not exceeded
+**Harness-managed context** (not unbounded message accumulation):
+- System prompt (stable across turns)
+- Rolling working summary (harness-maintained, ≤2K tokens)
+- Last-turn tool results only (compressed)
 
-### What happens
-1. Harness provides LLM with brief + candidate data
-2. LLM calls examination tools to test hypotheses
-3. After each turn, harness evaluates completion criteria
-4. LLM collects evidence (diff quotes, blame results, causal reasoning)
+### Context compression (AgentSZZ-inspired, 3 layers)
+
+1. **Cache deduplication:** Same (tool, args) → "Already examined" instead of re-executing
+2. **Formatted output:** Strip git metadata trailers, normalize whitespace
+3. **Structured extraction:** 8000-char baseline truncation, smart_diff for extracted_files relevance
 
 ### Tools available
 
-| Tool | Purpose |
-|------|---------|
-| `get_commit_diff` | Inspect what a candidate commit changed |
-| `get_commit_message` | Read the author's stated intent |
-| `get_file_at_commit` | See file state at a specific point |
-| `get_blame` | Trace line-level authorship |
-
-Tools are scoped to the `CandidateSet` — the LLM examines pre-retrieved candidates, not the full repo. All tools enforce the temporal bound.
-
-### Completion criteria evaluation (after each turn)
-
-Threshold values and degraded-mode behavior: [mechanism-design ADR §Q5](../.harness/docs/mechanism-design.md#6-q5--completion-threshold-values). The harness checks:
-
-| Criterion | Check | Action if met |
-|-----------|-------|---------------|
-| Evidence threshold | >= 3 grounded quotes collected | Advance to Stage 4 |
-| Hypothesis coverage | >= 2 hypotheses tested | Advance to Stage 4 |
-| Confidence gate | Top suspect confidence >= 0.60 | Advance to Stage 4 |
-| Brief satisfaction | All planned examinations done | Advance to Stage 4 |
-| Budget exceeded | Tool calls or tokens at limit | Force advance to Stage 4 (degraded) |
-| Hypotheses exhausted | All tested, none confirmed, brief unsatisfied | Loop back to Stage 2 |
-
-### Loop-back to Planning
-
-If all hypotheses are tested but the brief is not satisfied (insufficient evidence, no confident suspects), the harness can loop back to Stage 2 for re-planning:
-
-- **Max re-plans:** 2 (to prevent infinite loops)
-- **Re-plan context:** includes what was tried and what failed
-- **Budget carries over:** re-planning does not reset the budget
+| Tool | Purpose | SHA validation |
+|------|---------|---------------|
+| `get_commit_diff` | Inspect what a candidate changed | CandidateSet only |
+| `get_commit_message` | Read the author's stated intent | CandidateSet only |
+| `get_file_at_commit` | See file state at a specific point | CandidateSet only |
+| `get_blame` | Trace line-level authorship | None (temporal bound enforced) |
 
 ### Exit conditions
-- Completion criteria satisfied → advance to Stage 4
-- Budget hard stop → force advance to Stage 4
-- Re-plan limit reached → force advance to Stage 4
 
----
+| Condition | Exit reason | Behavior |
+|-----------|-------------|----------|
+| Suspects parsed + diff_examined on ≥1 must-examine | `normal` | Suspects returned |
+| Budget exhausted (15 tool calls) | `budget_exhausted` | Parse last response for suspects |
+| Max turns reached (8) | `max_turns` | Parse last response for suspects |
+| 3 consecutive idle turns | `forced_conclude` | Best-effort from tool cache |
+| Empty CandidateSet | `empty_candidates` | Return empty immediately |
+| LLM/provider failure | `provider_error` | Abort with structured error |
 
-## Stage 4: Attribution
-
-### Entry conditions
-- Stage 3 complete (satisfied or forced)
-
-### What happens
-1. Harness provides LLM with all evidence collected in Stage 3
-2. LLM produces ranked suspect list with mechanisms and quotes
-3. Evidence Scoring (script) runs unconditionally on output
-4. Report assembled with full metadata
-
-### Rules enforced
-
-Hard/soft rules from `data/governance/rules/`: [mechanism-design ADR §Q1](../.harness/docs/mechanism-design.md#2-q1--rules-mechanism).
-
-- Minimum 3 suspects (if fewer than 3 candidates examined, include all)
-- Each suspect must have a causal mechanism ("If X then Y")
-- Each suspect should have at least 1 evidence quote from a diff
-
-### Evidence Scoring (post-attribution script)
-After the LLM produces suspects, `score_suspect_evidence()` runs for each:
-1. Fetch commit diff
-2. Check each evidence quote against diff (exact → normalized → fuzzy)
-3. Compute `grounding_rate = grounded_quotes / total_quotes`
-4. Attach scores to `metadata["evidence_scores"]`
-
-Evidence scores are **metadata only** — they do not modify suspect rank or confidence.
-
-### Output
-- `BugAttributionReport` with ranked suspects, reasoning, tool trace, metadata
-- `InvestigationTrace` with full structured investigation record
-
----
-
-## Harness Governance
-
-The investigation harness is the non-LLM controller. It makes all lifecycle decisions:
-
-| Decision | Harness responsibility |
-|----------|----------------------|
-| When to invoke LLM | At each stage transition and turn |
-| What context to provide | Problem, candidates, skills, progress status |
-| When to stop | Completion criteria or budget |
-| When to re-plan | Hypotheses exhausted without satisfaction |
-| What to record | Every decision and its rationale in the trace |
-
-The LLM's role is **execution within boundaries**:
-- Generate hypotheses (Stage 2)
-- Call tools and reason about evidence (Stage 3)
-- Produce final attribution (Stage 4)
-
-The LLM does NOT decide:
-- When to stop investigating
-- Whether to re-plan
-- What stage to transition to
-- Whether evidence is "good enough"
-
----
-
-## Investigation Tracing
-
-Trace schema and storage: [mechanism-design ADR §Q4](../.harness/docs/mechanism-design.md#5-q4--trace-schema). Every step of the agent loop produces trace data. The harness records:
-
-### Per-stage trace data
-
-| Stage | Recorded |
-|-------|----------|
-| 2 (Planning) | Hypotheses formed, strategy chosen, skills consulted |
-| 3 (Examination) | Each tool call + result summary, hypothesis confirmed/rejected/abandoned, evidence quality |
-| 4 (Attribution) | Final ranking rationale, confidence distribution, evidence grounding scores |
-
-### Trace lifecycle
-
-```
-Investigation starts → trace initialized
-    Stage 2 → hypotheses + plan recorded
-    Stage 3 (turn N) → tool call + result + hypothesis update recorded
-    Stage 3 (completion check) → criteria evaluation recorded
-    Stage 4 → attribution rationale recorded
-    Evidence scoring → grounding results recorded
-Investigation ends → trace finalized with outcome
-```
-
-### What traces enable
-
-| Use case | How |
-|----------|-----|
-| Failure forensics | Why did we miss? Retrieval failure (not in candidates) or reasoning failure (examined but not ranked)? |
-| Retrieval diagnostics | Was ground truth in `CandidateSet`? At what rank? |
-| Skill emergence | Which strategies led to hits? Extract patterns. |
-| Cost optimization | Where is budget spent? Which stages are expensive? |
-| Debugging | Reproduce the exact investigation path for any case. |
-
----
-
-## Degradation Modes
-
-| Mode | Trigger | Behavior |
-|------|---------|----------|
-| Normal | Brief satisfied | Full quality attribution |
-| Degraded (budget) | Budget exceeded before satisfaction | Attribute with partial evidence, log in trace |
-| Degraded (re-plan limit) | 2 re-plans without satisfaction | Attribute with best available suspects |
-| Degraded (empty candidates) | CandidateSet has < 3 commits | Skip planning, examine all, attribute what's found; `outcome.degraded_reason="empty_candidates"` per [mechanism-design ADR §Q4](../.harness/docs/mechanism-design.md#5-q4--trace-schema) |
-
-All degradation is logged in `InvestigationTrace` and reported in `metadata`.
-
----
-
-## Resource Limits
+### Resource limits
 
 | Resource | Limit | Enforced by |
 |----------|-------|-------------|
-| Tool calls | 30 | Harness (budget hard stop) |
-| Tokens | 100,000 | Harness (budget hard stop) |
-| Cost | $0.50 USD | Harness (budget hard stop) |
-| Re-plans | 2 | Harness (loop-back counter) |
-| Brief retries | 1 | Harness (planning validation) |
+| Tool calls | 15 (soft) | Investigation harness |
+| Turns | 8 | Investigation harness |
+| Min tool calls before suspects | 1 get_commit_diff per must-examine | Investigation harness |
+| Global examination cap | ~23 (shared with Phase 2b) | Investigation harness |
+
+---
+
+## Phase 2b: Watchlist Expansion (conditional)
+
+**Trigger:** ANY of:
+- (a) Phase 2 produced no suspects
+- (b) max(confidence) < 0.6
+- (c) no evidence_quotes on top suspect
+
+**If not triggered:** Exit reason = `watchlist_skipped`, final result = Phase 2 output.
+
+| Aspect | Detail |
+|--------|--------|
+| **Input** | Fresh context: bug report + watchlist (4 candidates) + Phase 2 best suspect as reference |
+| **Budget** | 8 tool calls, 4 turns (separate from Phase 2) |
+| **Context** | Fresh — no Phase 2 message history carried over |
+| **Exit** | Same conditions as Phase 2 |
+| **Exit reason** | `watchlist_expansion_exhausted` if budget/turns hit |
+
+### Merge logic
+
+1. Deduplicate by full SHA
+2. Duplicates: confidence = max(Phase 2, Phase 2b); evidence_quotes = union; mechanism = longer
+3. New 2b-only suspects: insert below Phase 2 suspects unless confidence > top + 0.15
+4. Final rank: stable sort by (grounded_quote_count DESC, confidence DESC)
+5. Cap at 5 suspects
+
+---
+
+## V4.1 Scoped Investigation (Current Implementation)
+
+The V4.1 implementation runs a single multi-turn loop with 20 candidates in the system prompt. It is the predecessor to V4.2.
+
+| Aspect | V4.1 | V4.2 |
+|--------|------|------|
+| Candidates in prompt | 20 | 3 must-examine (+ 4 watchlist in 2b) |
+| Triage | None (LLM triages implicitly) | Explicit Phase 1a + 1b |
+| Budget | 15 calls, 8 turns | 15 + 8 overflow, 8 + 4 turns |
+| Context | Full message accumulation | Harness-managed rolling summary |
+| Exit conditions | suspects + 1 tool call | suspects + diff on must-examine |
+| Nudges | Single generic nudge | 4-tier state-based ladder |
+
+V4.1 code: `harness/scoped_runner.py`. Preserved for baseline comparison.
+
+---
+
+## V4 3-Stage Harness (Historical Reference)
+
+The V4 agent loop used a state machine with explicit stages:
+- **Stage 2 (Planning):** LLM produces `InvestigationBrief` with hypotheses and examination plan
+- **Stage 3 (Examination):** LLM examines candidates, harness evaluates completion criteria
+- **Stage 4 (Attribution):** LLM produces final suspect ranking
+
+Superseded by V4.1 (Hit@5=0.062 — metadata-only failed). Code in `harness/harness.py`.
 
 ---
 
 ## Related
 
 - [system-specification.md](system-specification.md) — full system (all three pipelines), data structures, LLM boundary
-- [evaluation-framework.md](evaluation-framework.md) — metrics, stage-to-metric mapping
+- [evaluation-framework.md](evaluation-framework.md) — metrics, 5-stage funnel
 - [glossary.md](glossary.md) — term definitions
-- [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) — ADR for V4 architecture
-- [.harness/docs/mechanism-design.md](../.harness/docs/mechanism-design.md) — ADR for governance mechanisms
+- [.harness/docs/v42-architecture-adr.md](../.harness/docs/v42-architecture-adr.md) — V4.2 architecture decision
+- [.harness/docs/architecture-constraints.md](../.harness/docs/architecture-constraints.md) — NFRs and invariants
+- [.harness/docs/scoped-tools-adr.md](../.harness/docs/scoped-tools-adr.md) — V4→V4.1 pivot

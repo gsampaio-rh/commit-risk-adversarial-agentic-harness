@@ -1,8 +1,8 @@
-# Evaluation Framework — Bug Attribution Agent (V4 Target)
+# Evaluation Framework — Bug Attribution Agent
 
 This document defines how the bug attribution system is measured. It separates **system-level metrics** (does the pipeline find the right commit?) from **output-quality metrics** (is the LLM's reasoning good?), and specifies baselines, thresholds, and known limitations.
 
-> **Architecture status:** This describes evaluation for the V4 target architecture (three pipelines: Input / Agent / Evaluation). Metric definitions and computation remain the same as V3 — what changes is the stage-to-metric mapping and the addition of input pipeline metrics.
+> **Architecture status:** Updated for V4.2 (Revised Hierarchical Pipeline). Includes the 5-stage evaluation funnel. See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md) for the architecture, [architecture-constraints.md](../.harness/docs/architecture-constraints.md) for NFRs.
 
 ## Two Levels of Evaluation
 
@@ -29,56 +29,43 @@ These metrics evaluate the quality of the LLM's output independent of whether it
 
 ---
 
-## Stage-to-Metric Mapping (V4 — Three Pipelines)
+## 5-Stage Evaluation Funnel (V4.2)
 
-This table maps the V4 pipeline stages to the metrics that measure them. See [system-specification.md](system-specification.md) for full stage details.
-
-### Input Pipeline Metrics
-
-| Stage | Metric | What is measured | Status |
-|-------|--------|------------------|--------|
-| 0 Extraction | **Extraction Signal Count** | Number of search signals produced (files, symbols, keywords) | Concept — not yet implemented |
-| 1 Retrieval | **Retrieval Recall@100** | Is `bug_hash` in the `CandidateSet`? | Calibrated — gate >= 0.35, target >= 0.60 ([retrieval-spike findings](../.harness/docs/retrieval-spike-findings.md)) |
-
-**Retrieval Recall@100** is the foundational metric for V4. If the input pipeline does not include `bug_hash` in the candidate set, the agent cannot succeed regardless of reasoning quality. This metric measures input pipeline quality independently of the agent.
-
-### Agent Pipeline Metrics
-
-| Stage | Metric(s) | What is measured | Status |
-|-------|-----------|------------------|--------|
-| 2 Planning | **Plan Quality** | Does the brief cover the right area? Are hypotheses relevant? | Plan Overlap Score (eval-only) — see [mechanism-design ADR §9](../.harness/docs/mechanism-design.md#9-plan-quality-metric-ac12) |
-| 3 Examination | **Retrieval Recall** (agent-level) | Whether `bug_hash` appears in `tool_trace[].args.commit_id` from examine tools | Implemented (V3 compatible) |
-| 4 Attribution | **Hit@k**, **MRR**, **D3 Attribution Quality** | Final ranked suspect list vs ground truth; causal mechanism quality | Implemented |
-| 4 Attribution (post) | **D6 Evidence Grounding** | Whether evidence quotes appear in suspect diffs | Implemented |
-
-### Metric disambiguation: two levels of Retrieval Recall
-
-| Metric | Pipeline | Question | Computation |
-|--------|----------|----------|-------------|
-| **Retrieval Recall@100** (input) | Input Pipeline | Is `bug_hash` in the `CandidateSet`? | `1 if bug_hash in candidate_set.commit_ids else 0` |
-| **Retrieval Recall** (agent) | Agent Pipeline | Did the agent examine `bug_hash` via a tool call? | `1 if bug_hash in tool_trace[].args.commit_id else 0` |
-
-A case can have Retrieval Recall@100 = 1 (bug was in candidates) but agent Retrieval Recall = 0 (agent never examined it). This distinguishes input quality from agent examination quality.
-
-### Plan Quality (Plan Overlap Score)
-
-Plan Quality measures whether the `InvestigationBrief` targets the right area of the codebase using a deterministic overlap metric (zero LLM cost).
-
-**Mechanism:** Script-computed Plan Overlap Score in eval mode:
+V4.2 introduces a 5-stage funnel that localizes failures to specific pipeline phases. Each stage measures whether ground truth survives that phase's narrowing.
 
 ```
-plan_overlap = |examination_plan_files ∩ bug_hash_files| / |bug_hash_files|
+Recall@100 → Recall@15 → TriageRecall@7 → ExamRecall → Hit@5
+  (input)     (pre-score)    (triage)       (investigation)  (attribution)
 ```
 
-Where `bug_hash_files` = files changed in the ground-truth bug commit (eval-only oracle). Extract file paths from each examination plan step's `file_path` or from `commit_id` → files via git.
+### Funnel Metrics
 
-**Threshold:** Plan Overlap ≥ 0.30 = plan targets correct area (binary per case).
+| Phase | Metric | Question | Computation | Status |
+|-------|--------|----------|-------------|--------|
+| 0+1a | **Retrieval Recall@100** | Is `bug_hash` in CandidateSet? | `1 if bug_hash in candidate_set` | Calibrated (gate ≥ 0.35) |
+| 1a | **Pre-score Recall@15** | Is `bug_hash` in ScoredShortlist? | `1 if bug_hash in top_15_by_pre_score` | New — V4.2 |
+| 1b | **Triage Recall@7** | Is `bug_hash` in must_examine ∪ watchlist? | `1 if bug_hash in triaged_7` | New — V4.2 |
+| 2 | **Examination Recall** | Did agent call `get_commit_diff` on `bug_hash`? | `1 if bug_hash in diff_args` | Renamed from "Retrieval Recall (agent)" |
+| Final | **Hit@k**, **MRR** | Is `bug_hash` in top k suspects? | Standard ranking metrics | Implemented |
 
-**Deferred:** LLM judge for plan quality — overlap metric sufficient at n=20 research scale. See [mechanism-design ADR §9](../.harness/docs/mechanism-design.md#9-plan-quality-metric-ac12).
+All funnel metrics are **eval-only** (require `ground_truth_sha`). They must never leak into investigation prompts (oracle isolation invariant).
 
-### V3 compatibility note
+### Failure localization examples
 
-The V3 stage-to-metric mapping (7 advisory stages) is superseded by the above. Agent-level Retrieval Recall computation (`tool_trace[].args.commit_id`) remains identical in V4 — only the stage numbering changes.
+| Funnel state | Diagnosis |
+|--------------|-----------|
+| Recall@100=0 | Retrieval failure — GT not in candidate set |
+| Recall@100=1, Recall@15=0 | Pre-score dropped GT — weight calibration needed |
+| Recall@15=1, TriageRecall@7=0 | Triage vetoed GT — LLM ranking failure or script-anchor bypass |
+| TriageRecall@7=1, ExamRecall=0 | Agent didn't examine GT despite it being in triaged set — strategy problem |
+| ExamRecall=1, Hit@5=0 | Agent examined GT but didn't rank it as suspect — reasoning problem |
+
+### Legacy metric disambiguation
+
+| V4.1 Metric | V4.2 Equivalent | Notes |
+|-------------|-----------------|-------|
+| Retrieval Recall@100 (input) | Retrieval Recall@100 | Unchanged |
+| Retrieval Recall (agent) | Examination Recall | Renamed for clarity in funnel context |
 
 ---
 
@@ -115,7 +102,7 @@ mrr = mean(mrr_case for all cases)
 
 **What it measures:** Whether the agent ever *examined* the bug-introducing commit via a tool call (commit in `tool_trace[].args`), regardless of whether it ranked it as a suspect.
 
-**V4 pipeline stage:** Stage 3 (Examination). The agent examines candidates from the `CandidateSet` provided by the input pipeline.
+**V4.1 pipeline stage:** Scoped investigation. The agent examines candidates from the `CandidateSet` via scoped tools.
 
 **Computation:**
 ```
@@ -131,7 +118,7 @@ retrieval_recall = 1 if bug_hash[:12] in {cid[:12] for cid in commit_ids}, else 
 
 **What it measures:** Whether the input pipeline's `CandidateSet` contains the ground truth `bug_hash`. Measures retrieval quality independently of the agent.
 
-**V4 pipeline stage:** Stage 1 (Candidate Retrieval).
+**Pipeline stage:** Stage 1 (Candidate Retrieval).
 
 **Computation:**
 ```
@@ -256,21 +243,21 @@ These thresholds are **provisional** — they will be calibrated after the first
 
 ### Per investigation
 
-| Resource | Limit | On exceed |
-|----------|-------|-----------|
-| Tool calls | 30 | Force conclude (mid-batch cutoff) |
-| Tokens | 100,000 | Force conclude (checked per turn) |
-| Cost | $0.50 USD | Force conclude (checked per turn) |
-| Turns | 15 | Loop exits |
+| Resource | V3 | V4.1 | V4.2 | On exceed |
+|----------|-----|------|------|-----------|
+| Tool calls | 30 | 15 | ~23 (15 + 8 overflow) | Force conclude |
+| Turns | 15 | 8 | 8 + 4 (2b) | Loop exits |
+| Tokens | 100,000 | — | ~70-120K est. | — |
+| Cost | $0.50 USD | — | ~$0.10-0.15 | — |
 
 ### Per eval run (n=20)
 
-| Resource | Estimate |
-|----------|----------|
-| Agent cost | $4-6 (20 cases x $0.20-0.30 avg) |
+| Resource | V4.2 Estimate |
+|----------|---------------|
+| Agent cost | $2-3 (20 cases × $0.10-0.15 avg) |
 | Baseline cost | $0.00 (zero LLM) |
 | JIRA API calls | 0 (pre-cached) |
-| Wall-clock time | 60-90 minutes |
+| Wall-clock time | 40-60 minutes |
 | Disk | ~8 GB (10 repos + ApacheJIT data) |
 
 ---
@@ -280,13 +267,13 @@ These thresholds are **provisional** — they will be calibrated after the first
 | Limitation | Impact | Mitigation |
 |------------|--------|------------|
 | SZZ noise in `bug_hash` labels | Format changes and refactoring labeled as bug-introducing. Hit@1 unreliable. | Hit@5 as primary metric; gt-noise-analysis done (35% noise rate). |
-| Retrieval Recall@100 ceiling | If input pipeline can't get `bug_hash` in top 100, agent fails at foundation | Retrieval spike achieved 0.45 with Level 1 extraction; Level 2 expected to reach 0.60 ([findings](../.harness/docs/retrieval-spike-findings.md)) |
+| Retrieval Recall@100 ceiling | If input pipeline can't get `bug_hash` in top 100, agent fails regardless of reasoning | Current: 0.40 (8/20). Level 2 extraction expected to reach 0.60. |
 | Tool output truncation (8K chars) | Large diffs or blame output may lose relevant lines | Truncation appends a notice; agent can request specific line ranges via `get_blame` |
-| Agent Retrieval Recall args-only | Only `tool_trace[].args.commit_id` counts; search result SHAs ignored | Agent examines from CandidateSet — V4 reduces this gap |
-| Plan Quality (eval-only) | Plan Overlap Score requires eval-mode oracle (`bug_hash` files) | Metric defined in [mechanism-design ADR §9](../.harness/docs/mechanism-design.md#9-plan-quality-metric-ac12); not available in production mode |
-| Skills mechanism undefined | Cannot leverage past investigations for improvement yet | Resolved in [mechanism-design ADR §Q2](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism) |
-| Single-LLM architecture | No multi-agent debate, no separate planning model | Harness governance provides structure; multi-agent TBD if needed |
-| No re-ranking | Evidence scores don't change suspect order | Phase B deferred until forensics justify it |
+| Pre-score may drop GT | If GT ranks 16+ by pre_score, Recall@15 = 0 | Pre-implementation gate: measure Recall@15 on n=20 oracle before locking weights |
+| Triage may veto GT | LLM triage could exclude GT from must-examine + watchlist | Script-anchored triage: top 3 by pre_score are harness-pinned |
+| Provider-dependent tool format | ```tool block compliance varies by model | Compliance spike required before n=20 eval |
+| No V4.2 eval data yet | Funnel metrics are designed but unmeasured | Pre-implementation gates G1-G3 must pass before build |
+| Skills mechanism not integrated | Prompts don't inject investigation skills yet | Skills in `data/governance/skills/` for future integration |
 
 ---
 
@@ -294,8 +281,9 @@ These thresholds are **provisional** — they will be calibrated after the first
 
 | Document | Content |
 |----------|---------|
-| [system-specification.md](system-specification.md) | Three pipelines, agent framework, LLM boundary, tools |
-| [agent-loop.md](agent-loop.md) | Agent loop stages 2-3-4, completion criteria, tracing |
+| [system-specification.md](system-specification.md) | Three pipelines, data structures, LLM boundary, tools |
+| [agent-loop.md](agent-loop.md) | V4.2 agent loop (phases 1b-2-2b) |
 | [datasets.md](datasets.md) | ApacheJIT data, ground truth chain |
 | [glossary.md](glossary.md) | Term definitions |
-| [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) | V4 architecture decision record |
+| [.harness/docs/v42-architecture-adr.md](../.harness/docs/v42-architecture-adr.md) | V4.2 architecture decision |
+| [.harness/docs/architecture-constraints.md](../.harness/docs/architecture-constraints.md) | NFRs and invariants |

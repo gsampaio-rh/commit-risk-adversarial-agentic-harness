@@ -1,0 +1,7 @@
+{
+  "task_id": "v4-scoped-tools",
+  "retest": 1,
+  "date": "2026-06-17",
+  "evaluator": "adversarial-harness",
+  "status": "pending_builder_rerun"
+}

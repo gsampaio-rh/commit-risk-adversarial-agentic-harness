@@ -1,0 +1,40 @@
+{
+  "task_id": "v4-scoped-tools",
+  "retest": 2,
+  "date": "2026-06-17",
+  "evaluator": "adversarial-harness",
+  "verdict": "PASS",
+  "summary": "All 8 ACs and 4 ECs verified after retest2 fixes.",
+  "sensors": {
+    "scoped_tests": "18/18 passed (112s incl. 3 slow E2E via run_scoped_investigation)",
+    "regression_tests": "387 passed (not slow), 10 deselected",
+    "scoped_runner_lines": 199
+  },
+  "acceptance_criteria": {
+    "AC1": {"status": "PASS", "evidence": "build_scoped_tools SHA validator + 5 tool tests"},
+    "AC2": {"status": "PASS", "evidence": "4 examination tools only, no search tools"},
+    "AC3": {"status": "PASS", "evidence": "max_tool_calls=15, max_turns=8; test_respects_max_tool_calls + test_respects_max_turns"},
+    "AC4": {"status": "PASS", "evidence": "run_scoped_investigation returns V4InvestigationResult with trace; exported from harness/__init__.py"},
+    "AC5": {"status": "PASS", "evidence": "Slow E2E parametrized: CASSANDRA-7570, SPARK-2583, SPARK-19033 via full run_scoped_investigation"},
+    "AC6": {"status": "PASS", "evidence": "387 non-slow + 18 scoped, zero regressions"},
+    "AC7": {"status": "PASS", "evidence": "GitContextProvider with manifest temporal_bound unchanged; test_temporal_bound_not_doubled"},
+    "AC8": {"status": "PASS", "evidence": "scoped_runner.py = 199 lines"}
+  },
+  "edge_cases": {
+    "EC1": {"status": "PASS", "evidence": "test_ec1_out_of_set_sha_continues_investigation"},
+    "EC2": {"status": "PASS", "evidence": "test_rejects_first_turn_suspects_without_diff + test_blame_alone_does_not_satisfy_diff_requirement"},
+    "EC3": {"status": "PASS", "evidence": "test_empty_candidate_set_returns_empty_suspects"},
+    "EC4": {"status": "PASS", "evidence": "test_nudges_when_no_tools_or_suspects + max_turns degraded exit"}
+  },
+  "retest2_fixes": [
+    "Slow E2E switched from ScopedInvestigator-only to full run_scoped_investigation path",
+    "Added test_respects_max_turns (AC3)",
+    "Added test_ec1_out_of_set_sha_continues_investigation (EC1)",
+    "Restored test_get_commit_message_scoped and test_get_file_at_commit_rejects_out_of_set",
+    "Restored test_accepts_short_sha_prefix"
+  ],
+  "residual_notes": [
+    "Hit@5 quality gate requires live LLM via scripts/run_scoped_eval.py (out of unit test scope)",
+    "V4InvestigationResult.outcome remains None (state-machine harness bypassed by design)"
+  ]
+}

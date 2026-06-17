@@ -1,32 +1,29 @@
 {
-  "feature": "v4-input-pipeline",
-  "phase": "verified",
-  "verified": true,
-  "verified_at": "2026-06-17T04:24:00Z",
-  "description": "Wire Stage 0 (extraction) + Stage 1 (retrieval) into a single prepare_investigation() entry point for the V4 agent pipeline",
+  "task_id": "v4-scoped-tools",
+  "feature": "V4.1 Scoped Tools — retrieval + V3-style examination tools restricted to CandidateSet",
+  "problem": "V4 harness (metadata-only, no diff access) achieved Hit@5=0.062 vs V3's 0.50. The proposed hybrid approach (raw repo access via SDK) violates temporal bound, oracle isolation, and llm_reasons_scripts_retrieve invariants.",
+  "proposed_solution": "Keep V4 deterministic retrieval (prepare_investigation). Replace the state machine harness with a V3-style multi-turn agentic loop using scoped tools: get_commit_diff, get_commit_message, get_blame, get_file_at_commit — all restricted to CandidateSet SHAs and enforced by GitContextProvider temporal bound.",
   "acceptance_criteria": [
-    "AC1: retrieval/pipeline.py exports prepare_investigation(jira_issue_or_raw, repo_path, temporal_bound, project) → RetrievalResult",
-    "AC2: prepare_investigation uses ProblemExtractor.from_jira_issue() when given JiraIssue, from_raw() when given raw title+description",
-    "AC3: prepare_investigation calls retrieve_candidates() with GitContextProvider(repo_path, temporal_bound)",
-    "AC4: When CandidateSet has < fallback_recency_threshold candidates, prepare_investigation re-runs with widened RetrievalConfig (2x file_log/keyword/pickaxe limits) — brief-validation retry path",
-    "AC5: prepare_investigation returns even if retry still produces few candidates (degraded mode, not error)",
-    "AC6: RetrievalResult dataclass wraps (ProblemStatement, CandidateSet, metadata dict with retry_triggered, strategies_used, total_raw)",
-    "AC7: Tests cover: normal path, widened-retry path, degraded mode (zero signals), JiraIssue input, raw input",
-    "AC8: One end-to-end pytest using real repo (CASSANDRA-7570 via data/repos/cassandra) proving prepare_investigation returns non-empty CandidateSet — marked @pytest.mark.slow",
-    "AC9: pipeline.py is exported from retrieval/__init__.py",
-    "AC10: All existing 330 tests + new tests pass with zero regressions (actual: 372 pass)",
-    "AC11: pipeline.py <= 150 lines (actual: 124 lines)"
+    "AC1: build_scoped_tools(git, candidate_set) rejects commit SHAs not in CandidateSet with clear error message",
+    "AC2: build_scoped_tools() registers only examination tools (get_commit_diff, get_commit_message, get_blame, get_file_at_commit) — no search tools",
+    "AC3: ScopedInvestigator produces suspects within budget (<=15 tool calls, <=8 turns)",
+    "AC4: run_scoped_investigation() wires retrieval + scoped investigator end-to-end, returns V4InvestigationResult-compatible output",
+    "AC5: On 3 test cases (CASSANDRA-7570, SPARK-2583, SPARK-19033), produces parseable suspects with >=1 suspect per case",
+    "AC6: All existing 372 tests + new tests pass with zero regressions",
+    "AC7: All tool calls go through GitContextProvider, temporal bound enforced",
+    "AC8: scoped_runner.py <= 200 lines"
   ],
   "edge_cases": [
-    "EC1: Repo not found raises GitRepoNotFoundError (not swallowed)",
-    "EC2: Invalid temporal_bound raises GitCommitNotFoundError",
-    "EC3: Empty title + empty description → ProblemStatement.is_empty=True, retrieval falls back to recency",
-    "EC4: Real repo test skips if repo not cloned"
+    "EC1: LLM requests SHA not in CandidateSet — tool returns error, investigation continues",
+    "EC2: LLM outputs suspects on first turn before any tool calls — rejected, must examine at least 1 diff",
+    "EC3: CandidateSet is empty — ScopedInvestigator returns empty suspects without crashing",
+    "EC4: LLM outputs no tool calls and no suspects — nudged to use tools, max retries before degraded exit"
   ],
-  "verification_method": "pytest sensors + /evaluator adversarial review",
-  "evaluator_findings": [
-    "AC1 vs AC6 wording: AC1 originally said tuple, implementation correctly returns RetrievalResult per AC6 (non-blocking)",
-    "EC2 has no dedicated unit test (verified via code review + live spot-check)",
-    "EC3 recency-fallback path confirmed at runtime but not explicitly asserted in mocked test"
-  ]
+  "verification_method": "pytest sensors (unit + integration tests), then run_scoped_eval.py on 3 cases to verify suspect parsing and Hit@5 > 0",
+  "rubrics": ["code-quality", "architecture"],
+  "rubric_mode": "warn",
+  "negotiation_rounds": 0,
+  "phase": "verified",
+  "verified": true,
+  "verified_at": "2026-06-17T12:17:00Z"
 }

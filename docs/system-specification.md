@@ -1,8 +1,8 @@
-# System Specification — Bug Attribution Agent (V4 Target Architecture)
+# System Specification — Bug Attribution Agent (V4.2 Target Architecture)
 
 Given a JIRA bug report (title + description) and a temporally-bounded git repository, this system identifies the commit that most likely **introduced** the bug. It produces a ranked list of suspect commits with causal mechanisms and evidence quotes, evaluated against SZZ-derived ground truth.
 
-> **Architecture status:** This document describes the **V4 target architecture**. The current implementation (V3) is summarized at the end. See [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) for the ADR that led to V4 and [.harness/docs/mechanism-design.md](../.harness/docs/mechanism-design.md) for governance mechanisms. Retrieval decisions marked **TBD** will be resolved in the `retrieval-spike` task.
+> **Architecture status:** The **target architecture is V4.2** (Revised Hierarchical Pipeline) — separates narrowing from deep investigation via a 4-phase pipeline: retrieval → script pre-score → LLM triage → scoped investigation (+ conditional watchlist expansion). V4.1 (Scoped Tools) is the current implementation. See [.harness/docs/v42-architecture-adr.md](../.harness/docs/v42-architecture-adr.md) for the V4.2 decision, [.harness/docs/architecture-constraints.md](../.harness/docs/architecture-constraints.md) for codified NFRs, [.harness/docs/scoped-tools-adr.md](../.harness/docs/scoped-tools-adr.md) for the V4→V4.1 pivot.
 
 ---
 
@@ -11,39 +11,40 @@ Given a JIRA bug report (title + description) and a temporally-bounded git repos
 The system consists of three pipelines with distinct ownership and clear boundaries:
 
 ```
-┌─────────────────────────────────────┐
-│  INPUT PIPELINE (infrastructure)    │
-│  Stage 0: Extraction                │
-│  Stage 1: Candidate Retrieval       │
-│  Owner: Scripts / eval harness      │
-│  LLM cost: Zero                     │
-└──────────────┬──────────────────────┘
-               │ CandidateSet + ProblemStatement
+┌──────────────────────────────────────────┐
+│  INPUT PIPELINE (infrastructure)         │
+│  Phase 0:  Extraction                    │
+│  Phase 1a: Retrieval + Script Pre-Score  │
+│  Owner: Scripts / eval harness           │
+│  LLM cost: Zero                          │
+└──────────────┬───────────────────────────┘
+               │ ScoredShortlist + ProblemStatement
                ▼
-┌─────────────────────────────────────┐
-│  AGENT PIPELINE (governed LLM)      │
-│  Stage 2: Planning                  │
-│  Stage 3: Examination               │
-│  Stage 4: Attribution               │
-│  Owner: Investigation Harness + LLM │
-│  LLM cost: Full budget              │
-└──────────────┬──────────────────────┘
-               │ BugAttributionReport
+┌──────────────────────────────────────────┐
+│  AGENT PIPELINE (governed LLM)           │
+│  Phase 1b: LLM Triage (1 call)          │
+│  Phase 2:  Scoped Investigation (ReAct)  │
+│  Phase 2b: Watchlist Expansion (cond.)   │
+│  Owner: Investigation Harness + LLM      │
+│  LLM cost: Full budget                   │
+└──────────────┬───────────────────────────┘
+               │ InvestigationResult
                ▼
-┌─────────────────────────────────────┐
-│  EVALUATION PIPELINE (oracle)       │
-│  Scoring: Hit@k, MRR, D3, D6       │
-│  Owner: Eval harness                │
-│  LLM cost: Zero (except D3 judge)  │
-└─────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│  EVALUATION PIPELINE (oracle)            │
+│  Scoring: Hit@k, MRR, D3, D6            │
+│  Funnel: Recall@100→@15→@7→Exam→Hit@5   │
+│  Owner: Eval harness                     │
+│  LLM cost: Zero (except D3 judge)       │
+└──────────────────────────────────────────┘
 ```
 
 ### Pipeline boundaries
 
-| Pipeline | Stages | Owner | LLM involvement | The agent sees... |
+| Pipeline | Phases | Owner | LLM involvement | The agent sees... |
 |----------|--------|-------|-----------------|-------------------|
-| Input | 0 (Extraction) + 1 (Retrieval) | Scripts / eval harness | Zero (optional LLM for Level 2 extraction) | Nothing — this is input preparation |
-| Agent | 2 (Planning) + 3 (Examination) + 4 (Attribution) | Agent framework (harness governs LLM) | Full — all LLM budget spent here | CandidateSet + ProblemStatement + skills |
+| Input | 0 (Extraction) + 1a (Retrieval + Pre-Score) | Scripts / eval harness | Zero (optional LLM for Level 2 extraction) | Nothing — this is input preparation |
+| Agent | 1b (Triage) + 2 (Investigation) + 2b (Watchlist expansion) | Investigation harness (harness governs LLM) | Full — all LLM budget spent here | ScoredShortlist + ProblemStatement |
 | Evaluation | Scoring against ground truth | Oracle (eval harness) | Zero (except D3 LLM judge) | Nothing — scores are oracle-only |
 
 ---
@@ -87,124 +88,87 @@ All retrieval respects the temporal bound — only commits reachable from `COMMI
 
 ---
 
-## Agent Pipeline (Stages 2–3–4)
+## Agent Pipeline — V4.2 Revised Hierarchical (Target)
 
-The agent receives `CandidateSet` + `ProblemStatement` as input and produces `BugAttributionReport` as output. It is governed by the **investigation harness** — the LLM does not self-govern.
+The agent receives a `ScoredShortlist` + `ProblemStatement` from the input pipeline and produces a ranked suspect list. It uses a **4-phase pipeline** that separates narrowing (triage) from deep investigation (scoped ReAct loop). See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md).
 
-### Agent Framework
+### Phase 1b: LLM Triage (1 call, one-shot)
 
-The agent operates inside a governed framework with three layers:
+| Aspect | Detail |
+|--------|--------|
+| **Owner** | Harness (prompt assembly, output parsing, validation) |
+| **Input** | Bug report + 15 candidates with metadata + diff_summary |
+| **Output** | `TriageResult`: 3 must-examine + 4 watchlist |
+| **Budget** | 1 LLM call, 0 tools |
+| **Constraint** | Top 3 by pre_score MUST appear in must_examine (harness-enforced) |
+| **Fallback** | Invalid LLM output → must_examine = top 3 by pre_score, watchlist = next 4 |
+
+### Phase 2: Scoped Investigation (multi-turn ReAct)
+
+| Aspect | Detail |
+|--------|--------|
+| **Owner** | `ScopedInvestigator` (harness) + LLM |
+| **Input** | Bug report + must-examine candidates (SHA + 1-line triage rationale) + scoped tools |
+| **Output** | Ranked suspects with confidence, mechanism, evidence quotes |
+| **Budget** | 15 tool calls (soft), 8 turns |
+| **Context** | Harness-managed: rolling summary (≤2K tokens) + last-turn tool results |
+
+### Phase 2b: Watchlist Expansion (conditional)
+
+| Aspect | Detail |
+|--------|--------|
+| **Trigger** | No suspects OR max_confidence < 0.6 OR no evidence_quotes on top suspect |
+| **Input** | Fresh context: bug report + watchlist candidates + Phase 2 best suspect summary |
+| **Budget** | 8 tool calls, 4 turns (separate from Phase 2) |
+| **Merge** | Dedup by SHA, confidence = max, evidence_quotes = union, re-rank by grounded quotes |
+
+### Scoped Tools
+
+Tools are registered via `build_scoped_tools()` in `agent/tools.py`. SHA-taking tools validate that the commit exists in the CandidateSet before execution.
+
+| Tool | Scope | SHA validation |
+|------|-------|---------------|
+| `get_commit_diff` | CandidateSet only | 12-char prefix match |
+| `get_commit_message` | CandidateSet only | 12-char prefix match |
+| `get_blame` | Any file | None (temporal bound handles safety) |
+| `get_file_at_commit` | CandidateSet only | 12-char prefix match |
+
+Search tools (`search_commits_by_file`, `search_commits_by_keyword`, `list_recent_commits`) are **not registered** — retrieval is done by the input pipeline.
+
+### V4.1 → V4.2 evolution
+
+V4.1 passed 20 candidates into a single system prompt, forcing simultaneous triage and investigation. V4.2 separates these: Phase 1a/1b narrows to 7 candidates, Phase 2 investigates deeply with fresh context. See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md) for the full decision and [scoped-tools ADR](../.harness/docs/scoped-tools-adr.md) for the V4→V4.1 pivot.
+
+## Agent Pipeline — V4 3-Stage Harness (Historical)
+
+> **Note:** The V4 3-stage harness below is superseded by V4.1. It is preserved for reference. Code: `harness/harness.py`.
+
+The V4 agent operated inside a governed framework with three layers:
 
 | Layer | Role | Mechanism |
 |-------|------|-----------|
 | **Investigation Harness** | Manages lifecycle, state, transitions, completion | Script-based orchestrator |
-| **Investigation Rules** | Constrains behavior, enforces quality | **Hybrid** — hard gates (harness) + soft guidance (prompt). YAML in `data/governance/rules/`. See [mechanism-design ADR §Q1](../.harness/docs/mechanism-design.md#2-q1--rules-mechanism). |
-| **Investigation Skills** | Augments strategy with learned patterns from traces | **Hybrid** — keyword retrieval + manual curation. Markdown in `data/governance/skills/`. See [mechanism-design ADR §Q2](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism). |
+| **Investigation Rules** | Constrains behavior, enforces quality | **Hybrid** — hard gates + soft guidance. YAML in `data/governance/rules/`. |
+| **Investigation Skills** | Augments strategy with learned patterns | **Hybrid** — keyword retrieval + manual curation. Markdown in `data/governance/skills/`. |
 
-### Stage 2 — Planning
-
-| Aspect | Detail |
-|--------|--------|
-| **Owner** | LLM (structured output), governed by harness |
-| **Input** | `CandidateSet` + `ProblemStatement` + relevant skills |
-| **Output** | `InvestigationBrief` |
-| **Contract** | Must state falsifiable hypotheses + completion criteria |
-
-The LLM produces a structured `InvestigationBrief` that defines:
-- Hypotheses to test (falsifiable statements about what caused the bug)
-- Examination plan (which commits/files to inspect and what to look for)
-- Success criteria (when the investigation is "done")
-- Strategy rationale
-
-The harness validates the brief structure before allowing transition to Stage 3. If the brief is invalid (no hypotheses, no plan), the harness re-invokes planning with broader context.
-
-### Stage 3 — Examination
-
-| Aspect | Detail |
-|--------|--------|
-| **Owner** | LLM + tools, governed by harness + rules |
-| **Input** | `InvestigationBrief` + candidate diffs/blame |
-| **Output** | Evidence collected, hypotheses confirmed/rejected |
-| **Contract** | Brief satisfaction: evidence quality threshold met |
-
-The LLM examines candidate commits according to the brief. Tools available:
-
-| Tool | Use case |
-|------|----------|
-| `get_commit_diff` | Inspect candidate changes |
-| `get_commit_message` | Read author intent |
-| `get_file_at_commit` | Read file state at commit |
-| `get_blame` | Trace line-level authorship |
-
-Tools are **scoped to the candidate set** — the LLM examines commits from `CandidateSet`, not the entire repository history. All tools enforce the temporal bound.
-
-After each examination turn, the harness evaluates completion criteria:
-- Evidence threshold met? → advance to Stage 4
-- Hypotheses exhausted but insufficient evidence? → loop back to Stage 2 (max 2 re-plans)
-- Budget exceeded? → forced advance to Stage 4 (degraded mode)
-
-### Stage 4 — Attribution
-
-| Aspect | Detail |
-|--------|--------|
-| **Owner** | LLM (conclude), governed by harness |
-| **Input** | Evidence collected + reasoning from Stage 3 |
-| **Output** | `BugAttributionReport` with ranked suspects |
-| **Contract** | Min 3 suspects, causal mechanism per suspect, grounded quotes |
-
-The LLM produces the final attribution: ranked suspect commits with confidence scores, causal mechanisms ("If X then Y"), and evidence quotes from examined diffs.
-
-After attribution, evidence scoring (script) runs unconditionally to attach grounding metadata.
+Stages: Planning (InvestigationBrief) → Examination (tool dispatch with completion criteria) → Attribution (ranked suspects). See [mechanism-design ADR](../.harness/docs/mechanism-design.md) for full details.
 
 ---
 
-## Agent Governance
+## Agent Governance (V4.2)
 
-### Investigation Harness
+V4.2 governance is phase-aware with explicit harness control:
 
-The harness is the non-LLM orchestration layer that controls the agent's lifecycle:
+- **Tool scoping:** `build_scoped_tools()` restricts SHA-taking tools to CandidateSet commits
+- **Temporal bound:** All tools go through `GitContextProvider._enforce_bound()`
+- **Script-anchored triage:** Top 3 by pre_score are harness-pinned into must_examine (LLM cannot veto)
+- **Budget limits:** Global cap ~23 (Phase 2: 15 soft, Phase 2b: 8 overflow)
+- **Minimum examination:** Must call `get_commit_diff` on each must_examine SHA before normal exit
+- **4-tier nudge ladder:** State-based nudges escalate from gentle to harness force-conclude
+- **Context compression:** Cache deduplication + formatted output + structured extraction (8000-char baseline)
+- **Fail-fast eval:** No silent degradation to weaker providers during gated runs
 
-- **State management**: Tracks current stage, progress metrics, what's been examined
-- **Transition enforcement**: Stage 3 requires valid brief; Stage 4 requires brief satisfaction or budget exhaustion
-- **Progress tracking**: "examined 12/20 candidates, 3 hypotheses tested, 1 confirmed"
-- **LLM control**: Decides when to invoke LLM, what context to provide, when to stop
-- **Completion evaluation**: Checks criteria after each examination turn
-
-### Investigation Rules
-
-Rules encode quality constraints. Examples:
-- "Never conclude with fewer than 3 suspects"
-- "Always examine parent commits in a change chain"
-- "For concurrency bugs, trace thread interactions across commits"
-- "If top suspect confidence < 0.6, continue examining"
-
-**Mechanism:** Hybrid — hard gates enforced by harness at stage transitions; soft rules injected via `PromptAssembler`. YAML files in `data/governance/rules/`, maintained by builder via git. See [mechanism-design ADR §Q1](../.harness/docs/mechanism-design.md#2-q1--rules-mechanism).
-
-### Investigation Skills
-
-Strategies that improve over time from investigation traces. Examples:
-- "For Spark serialization bugs, blame SerDe files first"
-- "When JIRA mentions NPE, pickaxe for null-check removal"
-- "Large repos: time-window filtering before file search"
-
-**Mechanism:** Hybrid — keyword retrieval over `ProblemStatement` signals; manual curation with harness-drafted skills from traces. Markdown in `data/governance/skills/`. See [mechanism-design ADR §Q2](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism).
-
----
-
-## Completion Criteria
-
-The agent knows what "done" means before starting. The harness evaluates after each examination turn:
-
-| Criterion | Description | Threshold |
-|-----------|-------------|-----------|
-| Evidence threshold | Grounded quotes across suspects | **3** (see [mechanism-design ADR §Q5](../.harness/docs/mechanism-design.md#6-q5--completion-threshold-values)) |
-| Hypothesis coverage | Alternative explanations tested | **2** |
-| Confidence gate | Top suspect confidence sufficient | **0.60** |
-| Brief satisfaction | All planned examinations completed or abandoned with reason | Boolean |
-| Budget (hard stop) | Total tool calls, tokens, or cost limit exceeded | 30 calls / 100K tokens / $0.50 |
-| Default max_effort | Examination tool call budget per brief | **18** |
-
-Budget is a **safety net**, not the primary exit signal. The agent exits when the brief is satisfied, not when tokens run out.
+See [architecture-constraints.md](../.harness/docs/architecture-constraints.md) for the full invariant and NFR list.
 
 ---
 
@@ -447,16 +411,16 @@ All tools wrap `GitContextProvider` methods. Available during Stage 3 (Examinati
 
 The V3 implementation (current code) uses a different architecture:
 
-| Aspect | V3 (current) | V4 (target) |
-|--------|--------------|-------------|
-| Agent receives | `ProblemStatement` + `GitContextProvider` (full repo access) | `CandidateSet` + `ProblemStatement` (pre-filtered) |
-| Search | LLM does search via tools (5-8 calls) | Scripts do retrieval (zero LLM) |
-| Planning | None — implicit in "Problem Analysis" advisory phase | Explicit `InvestigationBrief` with hypotheses |
-| Governance | Budget-only (30 calls, 100K tokens, 15 turns) | Harness + completion criteria + budget as safety net |
-| Exit signal | Budget exhaustion | Brief satisfaction (or budget hard stop) |
-| Tracing | `tool_trace` (partial, 500-char truncation) | Full `InvestigationTrace` |
-| Learning | None | Skills from traces ([mechanism-design ADR §Q2](../.harness/docs/mechanism-design.md#3-q2--skills-mechanism)) |
-| Best result | Hit@5=0.50, MRR=0.304 (n=20, prompt V2) | Target: Hit@5 >= 0.60 with lower cost |
+| Aspect | V3 | V4.1 (current) | V4.2 (target) |
+|--------|--------------|-------------|---------------|
+| Agent receives | Full repo access | 20 candidates + scoped tools | 7 triaged candidates + scoped tools |
+| Search | LLM via tools (5-8 calls) | Scripts (zero LLM) | Scripts (zero LLM) |
+| Narrowing | None (LLM searches) | None (all 20 in prompt) | Script pre-score + LLM triage |
+| Examination | Ad hoc tools | Scoped tools, single loop | Scoped tools, per-candidate focus |
+| Governance | Budget-only (30/15) | Budget (15/8) + SHA validation | Phase-aware budget + nudge ladder + script-anchored triage |
+| Exit signal | Budget exhaustion | Budget or suspects | Exit reason enum, must-examine gate |
+| Tracing | `tool_trace` (500-char) | `InvestigationTrace` JSON | 5-stage funnel metrics |
+| Best result | Hit@5=0.50, MRR=0.304 | TBD (eval blocked by SDK) | Target: Hit@5 ≥ 0.40 |
 
 V3 code lives in `src/commit_investigator/` with packages: `extraction/`, `agent/`, `eval/`, `infra/`. The V3 agentic loop runs 7 advisory stages (5 LLM + 2 script) inside `AgentOrchestrator.investigate()`. Full V3 details in the [exp19b retrospective](../.harness/docs/exp19b-retrospective.md).
 
@@ -466,10 +430,12 @@ V3 code lives in `src/commit_investigator/` with packages: `extraction/`, `agent
 
 | Document | Content |
 |----------|---------|
-| [agent-loop.md](agent-loop.md) | Detailed agent loop mechanics (stages 2-3-4) |
-| [evaluation-framework.md](evaluation-framework.md) | Metrics, stage-to-metric mapping, baselines |
+| [agent-loop.md](agent-loop.md) | V4.2 agent loop mechanics (phases 1b-2-2b) |
+| [evaluation-framework.md](evaluation-framework.md) | Metrics, 5-stage funnel, baselines |
 | [glossary.md](glossary.md) | Term definitions |
 | [datasets.md](datasets.md) | ApacheJIT data, ground truth chain |
-| [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) | Architecture Decision Record for V4 topology |
+| [.harness/docs/v42-architecture-adr.md](../.harness/docs/v42-architecture-adr.md) | V4.2 architecture decision record |
+| [.harness/docs/architecture-constraints.md](../.harness/docs/architecture-constraints.md) | NFRs and invariants |
+| [.harness/docs/scoped-tools-adr.md](../.harness/docs/scoped-tools-adr.md) | V4→V4.1 pivot |
+| [.harness/docs/topology-debate.md](../.harness/docs/topology-debate.md) | V4 topology ADR (historical) |
 | [.harness/docs/mechanism-design.md](../.harness/docs/mechanism-design.md) | Mechanism ADR: rules, skills, traces, thresholds |
-| [.harness/docs/exp19b-retrospective.md](../.harness/docs/exp19b-retrospective.md) | V2/V3 retrospective with scores and lessons |

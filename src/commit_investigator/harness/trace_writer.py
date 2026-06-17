@@ -131,3 +131,41 @@ class TraceWriter:
             encoding="utf-8",
         )
         return file_path
+
+
+def build_scoped_trace(
+    issue_key: str,
+    temporal_bound: str,
+    suspects: list[dict[str, Any]],
+    tool_trace: list[dict[str, Any]],
+    candidate_count: int,
+    recall_found: bool,
+    retrieval_ms: float,
+    agent_ms: float,
+) -> InvestigationTrace:
+    """Build an InvestigationTrace from scoped investigation tool records."""
+    examined = [
+        tc["args"].get("commit_id", "")
+        for tc in tool_trace
+        if tc.get("tool") == "get_commit_diff" and tc["args"].get("commit_id")
+    ]
+    top_confidence = max((s.get("confidence", 0.0) for s in suspects), default=0.0)
+    return InvestigationTrace(
+        issue_key=issue_key,
+        temporal_bound=temporal_bound,
+        candidate_set_size=candidate_count,
+        retrieval_recall_100=recall_found,
+        candidates_examined=examined,
+        examination_turns=[
+            TurnRecord(turn=i + 1, tool_calls=[{"tool": tc["tool"], "args": tc["args"]}])
+            for i, tc in enumerate(tool_trace)
+        ],
+        stage_timings={"retrieval": round(retrieval_ms, 1), "agent_total": round(agent_ms, 1)},
+        outcome=OutcomeRecord(
+            suspect_count=len(suspects),
+            top_confidence=top_confidence,
+            degraded=not suspects,
+            degraded_reason=None if suspects else "no_suspects",
+            suspects=suspects[:5],
+        ),
+    )

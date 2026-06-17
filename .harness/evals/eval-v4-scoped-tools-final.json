@@ -1,0 +1,31 @@
+{
+  "task_id": "v4-scoped-tools",
+  "retest": 3,
+  "date": "2026-06-17",
+  "evaluator": "adversarial-harness",
+  "verdict": "PASS",
+  "harness_note": "Retest limit (2) exceeded; this run closes remaining test-structure defect only.",
+  "root_cause": "test_parse_tool_calls and test_parse_suspects were accidentally nested inside _OosThenValidLLM class (lines 125-131), so they never executed as pytest tests.",
+  "fix": "Moved parsing tests to TestParsing class; added test_empty_candidate_set_rejects_all_shas and test_blame_does_not_validate_sha.",
+  "sensors": {
+    "scoped_tests": "22/22 passed (111s incl. 3 slow E2E)",
+    "regression_tests": "387 passed (not slow), 10 deselected",
+    "scoped_runner_lines": 199
+  },
+  "acceptance_criteria": {
+    "AC1": {"status": "PASS", "evidence": "7 tool tests incl. empty CandidateSet rejection"},
+    "AC2": {"status": "PASS", "evidence": "4 examination tools only"},
+    "AC3": {"status": "PASS", "evidence": "Budget 15/8 enforced and tested"},
+    "AC4": {"status": "PASS", "evidence": "V4InvestigationResult + InvestigationTrace written"},
+    "AC5": {"status": "PASS", "evidence": "3 slow E2E via run_scoped_investigation on contract cases"},
+    "AC6": {"status": "PASS", "evidence": "387 regression + 22 scoped"},
+    "AC7": {"status": "PASS", "evidence": "temporal_bound passed unchanged"},
+    "AC8": {"status": "PASS", "evidence": "199 lines"}
+  },
+  "edge_cases": {
+    "EC1": {"status": "PASS", "evidence": "test_ec1_out_of_set_sha_continues_investigation"},
+    "EC2": {"status": "PASS", "evidence": "diff gate before suspects"},
+    "EC3": {"status": "PASS", "evidence": "empty CandidateSet tests at tool + investigator level"},
+    "EC4": {"status": "PASS", "evidence": "nudge + max_turns degraded exit"}
+  }
+}
