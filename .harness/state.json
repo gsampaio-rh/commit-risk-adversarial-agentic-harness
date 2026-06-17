@@ -347,11 +347,22 @@
       "id": "v42-checkpoint-phase1",
       "name": "V4.2 checkpoint: Phase 1 funnel metrics (Recall@15 + TriageRecall@7)",
       "type": "checkpoint",
-      "status": "pending",
+      "status": "committed",
       "priority": 15,
       "depends_on": ["v42-phase1a-prescore"],
       "scope": "Run built Phase 1 module (pre-score + deterministic triage) on full n=20 dataset. Measure Recall@15 and TriageRecall@7 with the real module, not ad-hoc gate scripts. Register baselines for the 5-stage funnel. Verify module output matches gate results (Recall@15>=0.846, TriageRecall@7=1.00 on retrievable cases). Output: results/v4-checkpoints/phase1-funnel.json.",
-      "gate": {"recall_15": 0.846, "triage_recall_7": 1.00}
+      "gate": {"recall_15": 0.846, "triage_recall_7": 1.00},
+      "result": {
+        "recall_15": 0.846,
+        "triage_recall_7": 1.0,
+        "n_total": 20,
+        "n_retrievable": 13,
+        "n_recall_15": 11,
+        "gate_passed": true,
+        "tier_breakdown": {"must_examine": 9, "watchlist": 2},
+        "misses_at_r15": ["HBASE-4577 (R@100 rank 17)", "IGNITE-1787 (R@100 rank 47)"],
+        "note": "TriageRecall@7 conditioned on Recall@15=true (11/11=1.00). Deterministic triage has zero loss — all shortlist survivors enter top 7."
+      }
     },
     {
       "id": "v42-phase2-revised-investigation",
