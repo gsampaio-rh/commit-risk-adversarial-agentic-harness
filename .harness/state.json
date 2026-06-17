@@ -425,7 +425,7 @@
       "id": "v42-phase2b-watchlist",
       "name": "V4.2 build: Phase 2b watchlist expansion + merge",
       "type": "feature",
-      "status": "verified",
+      "status": "committed",
       "priority": 17,
       "depends_on": ["v42-phase2-revised-investigation"],
       "scope": "Watchlist expansion trigger logic (no suspects OR confidence < 0.6 OR no evidence). Fresh context prompt with watchlist candidates. Merge algorithm (dedup, max confidence, quote union, mechanism longest). Phase2bResult. InvestigationResult with funnel metrics. Tests.",
@@ -485,10 +485,39 @@
       "id": "v42-funnel-metrics",
       "name": "V4.2 build: 5-stage funnel evaluation metrics",
       "type": "feature",
-      "status": "pending",
+      "status": "verified",
       "priority": 18,
       "depends_on": ["v42-phase2b-watchlist"],
-      "scope": "Extend InvestigationTrace with pre_score_recall_15, triage_recall_7, exam_recall, phase2b_triggered. Extend eval_metrics to compute funnel. Updated run_scoped_eval.py to report funnel per case. Adapter from Suspect to BugAttributionReport for D3/D6 compatibility."
+      "scope": "Extend InvestigationTrace with pre_score_recall_15, triage_recall_7, exam_recall, phase2b_triggered. Extend eval_metrics to compute funnel. Updated run_scoped_eval.py to report funnel per case. Adapter from Suspect to BugAttributionReport for D3/D6 compatibility.",
+      "subtasks": [
+        {
+          "id": "p18-1-eval-metrics",
+          "name": "Eval metrics module: Hit@k, MRR, and 5-stage funnel computation",
+          "status": "completed",
+          "depends_on": [],
+          "scope": "New eval/metrics.py with pure functions: (1) FunnelMetrics dataclass (recall_100, pre_score_recall_15, triage_recall_7, exam_recall, hit_at_5 — all bool|None, plus mrr float|None, hit_rank int|None). (2) compute_hit_at_k(ground_truth_sha: str, suspects: list[Suspect], k: int=5) -> tuple[bool, int|None] — checks if GT SHA in top-k suspects, returns (hit, rank_or_None). (3) compute_mrr(ground_truth_sha: str, suspects: list[Suspect]) -> float — reciprocal rank, 0.0 if not found. (4) compute_funnel(ground_truth_sha: str, candidate_set: CandidateSet, scored_shortlist: ScoredShortlist, triage: TriageResult, tool_trace: list[ToolCallRecord], suspects: list[Suspect], phase2b_triggered: bool) -> FunnelMetrics — computes all 5 stages + MRR in one call. Ground truth SHA matching is case-insensitive prefix (>=12 chars). Tests (~10): hit@1/3/5 cases, miss case, MRR values, funnel with GT at each dropout stage, empty suspects.",
+          "files": ["src/commit_investigator/eval/metrics.py", "tests/test_funnel_metrics.py"],
+          "why_first": "Pure functions with zero external deps beyond existing data types. Everything downstream (trace extensions, eval script) consumes FunnelMetrics. Smallest possible unit."
+        },
+        {
+          "id": "p18-2-trace-extensions",
+          "name": "InvestigationTrace funnel fields + build_v42_trace()",
+          "status": "completed",
+          "depends_on": ["p18-1-eval-metrics"],
+          "scope": "Extend InvestigationTrace in trace_writer.py: add pre_score_recall_15 (bool|None), triage_recall_7 (bool|None), exam_recall (bool|None), phase2b_triggered (bool, default False). Update to_dict() to include new fields. Add build_v42_trace() factory that accepts FunnelMetrics + pipeline outputs and constructs a fully-populated InvestigationTrace with OutcomeRecord.hit_at_5 and OutcomeRecord.mrr filled from FunnelMetrics. Suspect adapter: [s.to_dict() for s in suspects] — Suspect.to_dict() already produces the shape needed (commit_id, confidence, mechanism, evidence_quotes). No separate BugAttributionReport class needed. Tests (~5): trace round-trip with new fields, build_v42_trace produces correct funnel fields, OutcomeRecord populated with hit/mrr, None defaults for non-retrievable cases.",
+          "files": ["src/commit_investigator/harness/trace_writer.py", "tests/test_funnel_metrics.py"],
+          "why_first": "Depends on p18-1 for FunnelMetrics type. Extends existing dataclass — low risk. Required before eval script can write traces."
+        },
+        {
+          "id": "p18-3-eval-script",
+          "name": "run_scoped_eval.py: full V4.2 pipeline eval with funnel reporting",
+          "status": "completed",
+          "depends_on": ["p18-1-eval-metrics", "p18-2-trace-extensions"],
+          "scope": "New scripts/run_scoped_eval.py. Per case: load JIRA → prepare_investigation → narrow_candidates → RevisedScopedInvestigator.investigate() → run_phase2b() → compute_funnel() → build_v42_trace() → write trace JSON. Reports per case: issue_key, each funnel stage (bool), hit_rank, exit_reason, phase2b_triggered. Aggregates: Recall@100, Recall@15, TriageRecall@7, ExamRecall, Hit@5 (count and rate), MRR (mean). Reuses build_eval_cases() pattern from run_phase1_checkpoint.py (JIRA cache, GT graph, repo paths). Writes results/v4-checkpoints/scoped-eval.json. CLI: python scripts/run_scoped_eval.py [--n N] [--model MODEL]. No test file for script — verified by P19 checkpoint run.",
+          "files": ["scripts/run_scoped_eval.py"],
+          "why_first": "Integration subtask — wires p18-1 metrics + p18-2 traces into the full V4.2 pipeline. Must be last because it depends on both prior subtasks and exercises the entire flow."
+        }
+      ]
     },
     {
       "id": "v42-checkpoint-eval",

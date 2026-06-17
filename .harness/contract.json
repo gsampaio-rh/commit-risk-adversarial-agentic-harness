@@ -1,27 +1,24 @@
 {
-  "task_id": "v42-phase2b-watchlist",
-  "feature": "Phase 2b watchlist expansion with trigger, investigation, merge, and orchestration",
-  "problem": "Phase 2 investigates only 3 must-examine candidates. When results are weak (no suspects, low confidence, no evidence), the 4 watchlist candidates go uninvestigated, potentially missing the bug-introducing commit.",
-  "proposed_solution": "Conditional Phase 2b: trigger check on Phase 2 output, fresh-context investigation of watchlist candidates via RevisedScopedInvestigator reuse (synthetic TriageResult, reduced budget), 5-step merge algorithm combining P2+P2b suspects, final InvestigationResult.",
+  "task_id": "v42-funnel-metrics",
+  "feature": "5-stage funnel evaluation metrics with Hit@k, MRR, trace extensions, and eval script",
+  "problem": "V4.2 pipeline has no unified evaluation path. Hit@k/MRR functions don't exist as reusable code. InvestigationTrace lacks funnel fields. No script to run the full V4.2 pipeline end-to-end on eval cases.",
+  "proposed_solution": "New eval/metrics.py with FunnelMetrics, compute_hit_at_k, compute_mrr, compute_funnel. Extend InvestigationTrace with 4 funnel fields. Add build_v42_trace() factory. New run_scoped_eval.py script for full pipeline eval.",
   "acceptance_criteria": [
-    "AC1: Phase2bResult dataclass has suspects (list[Suspect]), tool_calls (int), turns (int), trigger_reason (str)",
-    "AC2: should_trigger_phase2b() returns (True, reason) for any of: no suspects, max_confidence < 0.6, no evidence_quotes on top suspect",
-    "AC3: should_trigger_phase2b() returns (False, 'watchlist_skipped') when all conditions clear",
-    "AC4: merge_suspects() deduplicates by SHA, takes max confidence, unions evidence_quotes, keeps longer mechanism",
-    "AC5: merge_suspects() caps output at 5 suspects, sorts by (grounded_quote_count DESC, confidence DESC)",
-    "AC6: merge_suspects() promotes 2b-only suspects above P2 when confidence > top_p2 + 0.15",
-    "AC7: build_phase2b_system_prompt() includes all watchlist SHAs and excludes must-examine SHAs",
-    "AC8: build_phase2b_system_prompt() includes Phase 2 best suspect as reference when available",
-    "AC9: run_phase2b() skips investigation and returns watchlist_skipped when trigger is false",
-    "AC10: run_phase2b() reuses RevisedScopedInvestigator with budget=8 calls, 4 turns when triggered"
+    "AC1: FunnelMetrics dataclass has recall_100, pre_score_recall_15, triage_recall_7, exam_recall, hit_at_5 (all bool|None), mrr (float|None), hit_rank (int|None), phase2b_triggered (bool)",
+    "AC2: compute_hit_at_k returns (True, rank) when GT in top-k suspects, (False, None) otherwise",
+    "AC3: compute_mrr returns 1/rank when GT found, 0.0 when not found",
+    "AC4: compute_funnel computes all 5 stages from pipeline outputs in one call",
+    "AC5: InvestigationTrace has pre_score_recall_15, triage_recall_7, exam_recall, phase2b_triggered fields",
+    "AC6: build_v42_trace() wires FunnelMetrics into InvestigationTrace + OutcomeRecord",
+    "AC7: Suspect.to_dict() is the adapter for D3/D6 (no separate class needed)",
+    "AC8: run_scoped_eval.py runs full V4.2 pipeline per case with 5-stage funnel reporting"
   ],
   "edge_cases": [
-    "EC1: Phase 2 produced suspects but all have confidence exactly 0.6 — should NOT trigger (boundary)",
-    "EC2: Phase 2 and 2b produce same SHA with different evidence — merge unions quotes without duplicates",
-    "EC3: Empty watchlist in TriageResult — Phase 2b returns watchlist_skipped immediately",
-    "EC4: Phase 2b produces no suspects — merge degenerates to Phase 2 only"
+    "EC1: GT not retrievable (recall_100=False) — all downstream metrics are None",
+    "EC2: GT in candidates but not in suspects — hit_at_5=False, exam_recall depends on diff calls",
+    "EC3: Empty suspects list — hit_at_5=False, mrr=0.0"
   ],
-  "verification_method": "pytest tests/test_phase2b.py — all tests pass with zero regressions on full suite",
+  "verification_method": "pytest tests/test_funnel_metrics.py — all tests pass; full suite zero regressions",
   "rubrics": ["code-quality"],
   "rubric_mode": "warn",
   "negotiation_rounds": 0,

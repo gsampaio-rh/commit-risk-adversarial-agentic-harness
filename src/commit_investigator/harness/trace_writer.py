@@ -86,6 +86,10 @@ class InvestigationTrace:
     temporal_bound: str = ""
     candidate_set_size: int = 0
     retrieval_recall_100: bool | None = None
+    pre_score_recall_15: bool | None = None
+    triage_recall_7: bool | None = None
+    exam_recall: bool | None = None
+    phase2b_triggered: bool = False
     hypotheses: list[dict[str, Any]] = field(default_factory=list)
     candidates_examined: list[str] = field(default_factory=list)
     candidates_eliminated: list[dict[str, Any]] = field(default_factory=list)
@@ -103,6 +107,10 @@ class InvestigationTrace:
             "temporal_bound": self.temporal_bound,
             "candidate_set_size": self.candidate_set_size,
             "retrieval_recall_100": self.retrieval_recall_100,
+            "pre_score_recall_15": self.pre_score_recall_15,
+            "triage_recall_7": self.triage_recall_7,
+            "exam_recall": self.exam_recall,
+            "phase2b_triggered": self.phase2b_triggered,
             "hypotheses": self.hypotheses,
             "candidates_examined": self.candidates_examined,
             "candidates_eliminated": self.candidates_eliminated,
@@ -133,6 +141,69 @@ class TraceWriter:
         return file_path
 
 
+def _extract_examined_shas(tool_trace: list[dict[str, Any]]) -> list[str]:
+    """Extract commit SHAs that were diff'd from a tool trace."""
+    return [
+        tc["args"].get("commit_id", "")
+        for tc in tool_trace
+        if tc.get("tool") == "get_commit_diff" and tc["args"].get("commit_id")
+    ]
+
+
+def _build_outcome(
+    suspects: list[dict[str, Any]], funnel: Any,
+) -> OutcomeRecord:
+    """Build OutcomeRecord from suspects and funnel metrics."""
+    top_conf = max((s.get("confidence", 0.0) for s in suspects), default=0.0)
+    return OutcomeRecord(
+        suspect_count=len(suspects),
+        top_confidence=top_conf,
+        degraded=not suspects,
+        degraded_reason=None if suspects else "no_suspects",
+        hit_at_5=funnel.hit_at_5,
+        mrr=funnel.mrr,
+        suspects=suspects[:5],
+    )
+
+
+def build_v42_trace(
+    issue_key: str,
+    temporal_bound: str,
+    candidate_count: int,
+    suspects: list[dict[str, Any]],
+    tool_trace: list[dict[str, Any]],
+    funnel: Any,
+    exit_reason: str = "",
+    retrieval_ms: float = 0.0,
+    agent_ms: float = 0.0,
+) -> InvestigationTrace:
+    """Build a V4.2 InvestigationTrace with funnel metrics populated.
+
+    Args:
+        funnel: FunnelMetrics instance (imported as Any to avoid circular import).
+    """
+    return InvestigationTrace(
+        issue_key=issue_key,
+        temporal_bound=temporal_bound,
+        candidate_set_size=candidate_count,
+        retrieval_recall_100=funnel.recall_100,
+        pre_score_recall_15=funnel.pre_score_recall_15,
+        triage_recall_7=funnel.triage_recall_7,
+        exam_recall=funnel.exam_recall,
+        phase2b_triggered=funnel.phase2b_triggered,
+        candidates_examined=_extract_examined_shas(tool_trace),
+        examination_turns=[
+            TurnRecord(turn=i + 1, tool_calls=[{"tool": tc["tool"], "args": tc["args"]}])
+            for i, tc in enumerate(tool_trace)
+        ],
+        stage_timings={
+            "retrieval": round(retrieval_ms, 1),
+            "agent_total": round(agent_ms, 1),
+        },
+        outcome=_build_outcome(suspects, funnel),
+    )
+
+
 def build_scoped_trace(
     issue_key: str,
     temporal_bound: str,
@@ -144,18 +215,13 @@ def build_scoped_trace(
     agent_ms: float,
 ) -> InvestigationTrace:
     """Build an InvestigationTrace from scoped investigation tool records."""
-    examined = [
-        tc["args"].get("commit_id", "")
-        for tc in tool_trace
-        if tc.get("tool") == "get_commit_diff" and tc["args"].get("commit_id")
-    ]
     top_confidence = max((s.get("confidence", 0.0) for s in suspects), default=0.0)
     return InvestigationTrace(
         issue_key=issue_key,
         temporal_bound=temporal_bound,
         candidate_set_size=candidate_count,
         retrieval_recall_100=recall_found,
-        candidates_examined=examined,
+        candidates_examined=_extract_examined_shas(tool_trace),
         examination_turns=[
             TurnRecord(turn=i + 1, tool_calls=[{"tool": tc["tool"], "args": tc["args"]}])
             for i, tc in enumerate(tool_trace)

@@ -18,88 +18,25 @@ from __future__ import annotations
 import json
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from commit_investigator.eval.ground_truth import GroundTruthGraph
+from commit_investigator.eval.helpers import (
+    ZIP_PATH,
+    EvalCase,
+    build_eval_cases,
+    gt_in_set,
+    load_jira_text,
+)
 from commit_investigator.narrowing import narrow_candidates
 from commit_investigator.retrieval import compute_recall_at_k, prepare_investigation
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-JIRA_CACHE_DIR = PROJECT_ROOT / "data" / "jira_cache"
-REPOS_DIR = PROJECT_ROOT / "data" / "repos"
-ZIP_PATH = PROJECT_ROOT / "data" / "apachejit" / "apachejit_dataset_replication.zip"
-RECALL100_PATH = PROJECT_ROOT / "results" / "v4-checkpoints" / "retrieval-recall.json"
-RESULTS_PATH = PROJECT_ROOT / "results" / "v4-checkpoints" / "phase1-funnel.json"
+RESULTS_PATH = Path(__file__).resolve().parents[1] / "results" / "v4-checkpoints" / "phase1-funnel.json"
 
 GATE_RECALL_15 = 0.846
 GATE_TRIAGE_RECALL_7 = 1.00
-
-
-@dataclass
-class EvalCase:
-    issue_key: str
-    project: str
-    bug_hashes: list[str]
-    fix_hash: str
-    repo_path: Path
-    temporal_bound: str
-
-
-def load_jira_text(issue_key: str) -> dict[str, str] | None:
-    path = JIRA_CACHE_DIR / f"{issue_key}.json"
-    if not path.exists():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except UnicodeDecodeError:
-        raw = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-    return {
-        "title": raw["fields"]["summary"],
-        "description": raw["fields"].get("description") or "",
-    }
-
-
-def build_eval_cases(gt: GroundTruthGraph) -> list[EvalCase]:
-    """Build eval cases from retrieval-recall.json + ground truth graph."""
-    recall_data = json.loads(RECALL100_PATH.read_text(encoding="utf-8"))
-    cases: list[EvalCase] = []
-    for case_data in recall_data["cases"]:
-        issue_key = case_data["issue_key"]
-        project = case_data["project"]
-        fix_hash, bug_hashes = _find_hashes(gt, issue_key)
-        if not fix_hash or not bug_hashes:
-            print(f"  WARN {issue_key}: could not resolve fix/bug chain in GT")
-            continue
-        repo_path = REPOS_DIR / project.lower()
-        cases.append(EvalCase(
-            issue_key=issue_key,
-            project=project,
-            bug_hashes=bug_hashes,
-            fix_hash=fix_hash,
-            repo_path=repo_path,
-            temporal_bound=f"{fix_hash}~1",
-        ))
-    return cases
-
-
-def _find_hashes(gt: GroundTruthGraph, issue_key: str) -> tuple[str, list[str]]:
-    """Find (fix_hash, all_bug_hashes) for an issue key."""
-    commits = gt._issue_to_commits.get(issue_key, [])
-    for commit_id in commits:
-        if gt.has_fix(commit_id):
-            bug_hashes = gt.get_bug_commits(commit_id)
-            if bug_hashes:
-                return commit_id, bug_hashes
-    return "", []
-
-
-def gt_in_set(bug_hashes: list[str], sha_set: list[str]) -> bool:
-    """Check if any bug hash appears in a SHA list (case-insensitive)."""
-    targets = {bh.lower() for bh in bug_hashes}
-    return bool(targets & {s.lower() for s in sha_set})
 
 
 def main() -> None:
