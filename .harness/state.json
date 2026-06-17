@@ -327,10 +327,11 @@
       "id": "v42-phase1a-prescore",
       "name": "V4.2 build: Phase 1 narrowing module (pre-score + deterministic triage)",
       "type": "feature",
-      "status": "pending",
+      "status": "verified",
       "priority": 14,
       "depends_on": ["v42-gate-recall15"],
-      "scope": "New module: ScoredCandidate, ScoredShortlist, TriageResult, TriagedCandidate. Pre-score formula (0.5/0.3/0.2 weights from ablation). Deterministic tier assignment: must_examine = top 3, watchlist = next 4. TriagedCandidate.rationale = template string. Input: CandidateSet + ProblemStatement. Output: TriageResult. Tests with fixture data. Absorbs former P15 (LLM triage unnecessary — deterministic top-7 achieves TriageRecall@7=1.00)."
+      "scope": "New module: ScoredCandidate, ScoredShortlist, TriageResult, TriagedCandidate. Pre-score formula (0.5/0.3/0.2 weights from ablation). Deterministic tier assignment: must_examine = top 3, watchlist = next 4. TriagedCandidate.rationale = template string. Input: CandidateSet + ProblemStatement. Output: TriageResult. Tests with fixture data. Absorbs former P15 (LLM triage unnecessary — deterministic top-7 achieves TriageRecall@7=1.00).",
+      "note": "Built: src/commit_investigator/narrowing/ (4 source files + __init__.py). 35 unit tests. Entry: narrow_candidates(). 203 total suite pass."
     },
     {
       "id": "v42-phase1b-triage",

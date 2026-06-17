@@ -56,6 +56,7 @@ Before starting a new task: check if a contract exists, read the last 5 breadcru
 src/commit_investigator/
 ├── extraction/        # problem_extractor, jira_client
 ├── retrieval/         # retriever, config, pipeline (input pipeline)
+├── narrowing/         # Phase 1: pre-score + deterministic triage (ScoredShortlist → TriageResult)
 ├── models/            # candidates (CandidateSet, CandidateCommit)
 ├── agent/             # tools (build_scoped_tools, ToolRegistry)
 ├── harness/           # scoped_runner, scoped_prompts, result, trace_writer
@@ -77,8 +78,8 @@ Evaluation: 5-stage funnel (Recall@100→@15→@7→Exam→Hit@5)
 | Phase | Module | Owner |
 |-------|--------|-------|
 | Extraction | `extraction/problem_extractor.py` | Script |
-| Retrieval + pre-score | `retrieval/pipeline.py` → `retrieval/retriever.py` | Script |
-| Deterministic triage | TBD (V4.2 implementation) | Script |
+| Retrieval | `retrieval/pipeline.py` → `retrieval/retriever.py` | Script |
+| Pre-score + Triage | `narrowing/pipeline.py` (scoring.py, triage.py) | Script |
 | Scoped investigation | `harness/scoped_runner.py` + `agent/tools.py` | LLM + scoped tools |
 | Watchlist expansion | TBD (V4.2 implementation) | Harness + LLM |
 | Evaluation | TBD (V4.2 implementation) | Oracle |

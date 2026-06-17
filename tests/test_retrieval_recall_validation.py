@@ -75,6 +75,10 @@ class TestRetrievalRecallValidation:
         not (REPOS_DIR / "cassandra" / ".git").exists(),
         reason="cassandra repo not cloned at data/repos/cassandra",
     )
+    @pytest.mark.skipif(
+        not MANIFEST_PATH.exists(),
+        reason="manifest.json not found at results/v3-subagent-eval-v2/",
+    )
     def test_cassandra_7570_recall(self, manifest_cases: list[dict]) -> None:
         """CASSANDRA-7570: mandatory smoke case — must find via signal strategies."""
         case = _get_case_by_key(manifest_cases, "CASSANDRA-7570")
