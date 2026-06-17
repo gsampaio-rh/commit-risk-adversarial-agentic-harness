@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""Smoke test: verify data infrastructure is ready for V3 eval.
+"""Smoke test: verify data infrastructure is ready for eval.
+
+.. warning::
+   **BROKEN — pending V4.2 rewrite.** Steps 3-4 import ``select_eval_cases``
+   from ``commit_investigator.eval.run_eval``, which was deleted during the
+   V4.2 prep cleanup. Steps 1-2 (ground truth load, repo check) still work.
+   Do not run the full script until the V4.2 eval runner replaces ``run_eval``.
 
 Checks:
   1. GroundTruthGraph loads from replication zip
   2. Git repos exist and are accessible for n=20 eval cases
-  3. JIRA cache has entries for n=20 eval cases (with descriptions)
-  4. select_eval_cases returns exactly n cases
+  3. JIRA cache has entries for n=20 eval cases (with descriptions) [BROKEN]
+  4. select_eval_cases returns exactly n cases [BROKEN]
 
 Usage:
-    python scripts/smoke_test_data.py \
-        --zip data/apachejit/apachejit_dataset_replication.zip \
-        --repos-dir data/repos \
+    python scripts/smoke_test_data.py \\
+        --zip data/apachejit/apachejit_dataset_replication.zip \\
+        --repos-dir data/repos \\
         --jira-cache data/jira_cache
 """
 

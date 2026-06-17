@@ -1,0 +1,76 @@
+{
+  "task_id": "repo-cleanup-v42-prep",
+  "verdict": "pass",
+  "retest": 1,
+  "criteria": [
+    {
+      "id": "AC1",
+      "result": "pass",
+      "evidence": "rg over src/ for deleted module imports: 0 matches."
+    },
+    {
+      "id": "AC2",
+      "result": "pass",
+      "evidence": "rg over tests/ for deleted module imports: 0 matches."
+    },
+    {
+      "id": "AC3",
+      "result": "pass",
+      "evidence": "pytest tests/ -x -q: 174 passed in 394.65s (0 failures)."
+    },
+    {
+      "id": "AC4",
+      "result": "pass",
+      "evidence": "7 top-level packages match AGENTS.md Package Layout."
+    },
+    {
+      "id": "AC5",
+      "result": "pass",
+      "evidence": "README.md V4.2 target pipeline diagram."
+    },
+    {
+      "id": "AC6",
+      "result": "pass",
+      "evidence": "project_domain.mdc V4.2 pipeline."
+    },
+    {
+      "id": "AC7",
+      "result": "pass",
+      "evidence": "rg docs/ for deleted source file refs: 0 matches after evaluation-framework.md fix."
+    },
+    {
+      "id": "AC8",
+      "result": "pass",
+      "evidence": "__init__.py exports resolve; import smoke test passed."
+    },
+    {
+      "id": "AC9",
+      "result": "pass",
+      "evidence": "SUPERSEDED banners on 3 ADRs per contract."
+    },
+    {
+      "id": "AC10",
+      "result": "pass",
+      "evidence": "tools.py: build_scoped_tools only."
+    }
+  ],
+  "edge_cases": [
+    {
+      "id": "EC1",
+      "result": "pass",
+      "evidence": "smoke_test_data.py BROKEN warning documents run_eval import; import retained per contract."
+    },
+    {
+      "id": "EC2",
+      "result": "pass",
+      "evidence": "v4_runner.py retains V4InvestigationResult; run_v4_investigation deleted."
+    }
+  ],
+  "issues_found": [],
+  "recommendations": [
+    "Add repo-cleanup-v42-prep verified task to state.json on commit",
+    "V4.2 eval module to replace run_eval and run_scoped_eval references"
+  ],
+  "test_count": 174,
+  "test_result": "pass"
+}

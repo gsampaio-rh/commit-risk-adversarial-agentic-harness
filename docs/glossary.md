@@ -35,14 +35,6 @@
 | **CandidateSet** | Ranked set of 50-100 commits produced by the input pipeline's retrieval stage. The agent's tools are scoped to this set — it does not search the full repo. |
 | **CandidateCommit** | One entry in a `CandidateSet`: commit SHA, retrieval rank, retrieval signal (why retrieved), summary, files changed, optional `diff_summary`. |
 
-## V4 (Historical)
-
-| Term | Definition |
-|------|------------|
-| **Investigation Harness (V4)** | 3-stage state machine (Planning → Examination → Attribution). Superseded by V4.1, then V4.2. Code in `harness/harness.py`. |
-| **InvestigationBrief** | Structured output of V4 Stage 2 (Planning). Not used in V4.1 or V4.2. |
-| **CompletionCriteria** | V4 conditions for when an investigation is "done". V4.2 uses exit reason enum + must-examine gate. |
-
 ## Pipeline Phases
 
 | Term | Definition |
@@ -59,10 +51,8 @@
 |------|------------|
 | **ProblemStatement** | Structured bug report (title + description + extraction signals). Input to the agent pipeline. Only `title` and `description` are sent to the LLM. |
 | **Suspect** | Unified suspect type (replaces `SuspectCommit` + dict suspects). Includes commit_id, rank, confidence, mechanism, evidence_quotes, phase, tools_used. |
-| **SuspectCommit** | Legacy suspect type from V3. Adapter provided for eval compatibility. |
-| **BugAttributionReport** | Final pipeline output: ranked suspects, reasoning summary, tool trace, metadata, investigation trace. |
+| **SuspectCommit** | Suspect with commit_id, rank, confidence, mechanism, evidence_quotes. Output of investigation. |
 | **InvestigationResult** | V4.2 eval-facing result: issue_key, suspects, exit_reason, retrieval_recall, trace, elapsed_s. |
-| **Evidence Scorer** | Script that verifies evidence quotes against commit diffs via exact, normalized, and fuzzy matching. |
 | **ProblemExtractor** | Input pipeline infrastructure that builds `ProblemStatement` from JIRA tickets. |
 | **GitContextProvider** | Temporally-bounded git access layer wrapping `git` CLI. All tools and retrieval route through this. |
 | **ToolRegistry** | Registry of examination tools. `build_scoped_tools()` creates registries scoped to CandidateSet. Tools are text-based (markdown fences), not native function calling. |

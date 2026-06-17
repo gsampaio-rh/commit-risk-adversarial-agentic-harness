@@ -1,6 +1,0 @@
-id: min_suspects
-enforcement: hard
-stage: attribution
-description: Never conclude with fewer than 3 suspects unless fewer than 3 candidates exist
-check: len(suspects) >= 3 OR len(candidate_set) < 3
-prompt_text: ""

@@ -139,22 +139,6 @@ Search tools (`search_commits_by_file`, `search_commits_by_keyword`, `list_recen
 
 V4.1 passed 20 candidates into a single system prompt, forcing simultaneous triage and investigation. V4.2 separates these: Phase 1a/1b narrows to 7 candidates, Phase 2 investigates deeply with fresh context. See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md) for the full decision and [scoped-tools ADR](../.harness/docs/scoped-tools-adr.md) for the V4→V4.1 pivot.
 
-## Agent Pipeline — V4 3-Stage Harness (Historical)
-
-> **Note:** The V4 3-stage harness below is superseded by V4.1. It is preserved for reference. Code: `harness/harness.py`.
-
-The V4 agent operated inside a governed framework with three layers:
-
-| Layer | Role | Mechanism |
-|-------|------|-----------|
-| **Investigation Harness** | Manages lifecycle, state, transitions, completion | Script-based orchestrator |
-| **Investigation Rules** | Constrains behavior, enforces quality | **Hybrid** — hard gates + soft guidance. YAML in `data/governance/rules/`. |
-| **Investigation Skills** | Augments strategy with learned patterns | **Hybrid** — keyword retrieval + manual curation. Markdown in `data/governance/skills/`. |
-
-Stages: Planning (InvestigationBrief) → Examination (tool dispatch with completion criteria) → Attribution (ranked suspects). See [mechanism-design ADR](../.harness/docs/mechanism-design.md) for full details.
-
----
-
 ## Agent Governance (V4.2)
 
 V4.2 governance is phase-aware with explicit harness control:
@@ -232,84 +216,7 @@ class CandidateCommit:
     date: str                              # author date
 ```
 
-### InvestigationBrief (Stage 2 output)
-
-```python
-@dataclass
-class InvestigationBrief:
-    hypotheses: list[Hypothesis]            # falsifiable statements
-    examination_plan: list[ExaminationStep] # what to check and why
-    success_criteria: CompletionCriteria    # when "done"
-    strategy: str                           # overall approach description
-    max_effort: int = 18                     # max tool calls for examination (default)
-```
-
-### InvestigationState (harness-managed)
-
-```python
-@dataclass
-class InvestigationState:
-    current_stage: int                      # 2, 3, or 4
-    candidates_examined: int
-    candidates_total: int
-    hypotheses_tested: int
-    hypotheses_confirmed: int
-    evidence_quotes_collected: int
-    re_plan_count: int                      # max 2
-    budget_used: BudgetState
-    brief: InvestigationBrief | None
-```
-
-### CompletionCriteria (brief-driven exit)
-
-```python
-@dataclass
-class CompletionCriteria:
-    evidence_threshold: int = 3           # min grounded quotes across suspects
-    hypothesis_coverage: int = 2          # min alternative explanations tested
-    confidence_gate: float = 0.60         # min top suspect confidence
-    brief_satisfaction: bool = False        # all planned examinations done
-    budget_hard_stop: bool = False          # budget exceeded (safety net)
-```
-
-### InvestigationTrace (structured investigation record)
-
-```python
-@dataclass
-class InvestigationTrace:
-    trace_id: str
-    issue_key: str
-    run_id: str
-    temporal_bound: str
-    candidate_set_size: int
-    retrieval_recall_100: bool | None       # eval-only
-    hypotheses: list[HypothesisRecord]      # id, statement, status, reason, stage, turn
-    candidates_examined: list[str]            # commit SHAs inspected
-    candidates_eliminated: list[EliminationRecord]  # commit_id, reason, turn, hypothesis_id
-    evidence_collected: list[EvidenceRecord]  # commit_id, quote, grounded, hypothesis_id, turn
-    strategy_decisions: list[StrategyRecord]  # decision, rationale, stage, turn, alternatives
-    examination_turns: list[TurnRecord]      # per-turn Stage 3 log
-    stage_timings: dict[str, float]           # stage → elapsed_ms
-    outcome: OutcomeRecord                    # suspect_count, degraded, hit_at_5 (eval-only)
-```
-
-> **Note:** Nested record types defined in [mechanism-design ADR §Q4](../.harness/docs/mechanism-design.md#5-q4--trace-schema).
-
-### BugAttributionReport (output)
-
-```python
-@dataclass
-class BugAttributionReport:
-    problem_title: str
-    problem_description: str
-    suspects: list[SuspectCommit]           # rank-ordered
-    reasoning_summary: str
-    tool_trace: list[ToolCallRecord]
-    metadata: dict[str, Any]                # evidence_scores, cost, model, etc.
-    investigation_trace: InvestigationTrace | None  # full structured trace
-```
-
-### SuspectCommit
+### SuspectCommit (output)
 
 ```python
 @dataclass
@@ -407,22 +314,17 @@ All tools wrap `GitContextProvider` methods. Available during Stage 3 (Examinati
 
 ---
 
-## Current Implementation (V3) — Reference
+## Architecture Evolution (Reference)
 
-The V3 implementation (current code) uses a different architecture:
-
-| Aspect | V3 | V4.1 (current) | V4.2 (target) |
-|--------|--------------|-------------|---------------|
+| Aspect | V3 (baseline, deleted) | V4.1 (current impl) | V4.2 (target) |
+|--------|------------------------|----------------------|---------------|
 | Agent receives | Full repo access | 20 candidates + scoped tools | 7 triaged candidates + scoped tools |
 | Search | LLM via tools (5-8 calls) | Scripts (zero LLM) | Scripts (zero LLM) |
 | Narrowing | None (LLM searches) | None (all 20 in prompt) | Script pre-score + LLM triage |
-| Examination | Ad hoc tools | Scoped tools, single loop | Scoped tools, per-candidate focus |
-| Governance | Budget-only (30/15) | Budget (15/8) + SHA validation | Phase-aware budget + nudge ladder + script-anchored triage |
-| Exit signal | Budget exhaustion | Budget or suspects | Exit reason enum, must-examine gate |
-| Tracing | `tool_trace` (500-char) | `InvestigationTrace` JSON | 5-stage funnel metrics |
-| Best result | Hit@5=0.50, MRR=0.304 | TBD (eval blocked by SDK) | Target: Hit@5 ≥ 0.40 |
+| Governance | Budget-only (30/15) | Budget (15/8) + SHA validation | Phase-aware budget + nudge ladder |
+| Best result | Hit@5=0.50, MRR=0.304 | TBD | Target: Hit@5 >= 0.40 |
 
-V3 code lives in `src/commit_investigator/` with packages: `extraction/`, `agent/`, `eval/`, `infra/`. The V3 agentic loop runs 7 advisory stages (5 LLM + 2 script) inside `AgentOrchestrator.investigate()`. Full V3 details in the [exp19b retrospective](../.harness/docs/exp19b-retrospective.md).
+V3 code was deleted during cleanup. V3 details preserved in the [exp19b retrospective](../.harness/docs/exp19b-retrospective.md).
 
 ---
 

@@ -1,6 +1,8 @@
 # ADR: Architecture V4 — Topology and Boundaries
 
-**Status:** Proposed  
+> **SUPERSEDED** by [V4.2 Architecture ADR](v42-architecture-adr.md) (2026-06-17). Retained for historical context only.
+
+**Status:** Superseded  
 **Date:** 2026-06-16  
 **Deciders:** Builder + Evaluator (adversarial debate)  
 **Context:** V3 achieved Hit@5=0.50, MRR=0.304 with a fully-agentic approach where the LLM performs both search and reasoning within a budget-limited loop. This ADR proposes the V4 architecture that separates retrieval from reasoning and introduces agent governance.

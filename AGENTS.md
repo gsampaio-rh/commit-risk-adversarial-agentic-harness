@@ -5,8 +5,8 @@ This project builds a bug attribution system: given a JIRA bug report (title + d
 ## Reading Order
 
 1. **This file** — entry point, key invariants, current code layout, task policy
-2. [docs/system-specification.md](docs/system-specification.md) — V4.1 architecture (retrieval + scoped tools), data structures, LLM boundary
-3. [docs/agent-loop.md](docs/agent-loop.md) — V4.1 scoped investigation loop
+2. [docs/system-specification.md](docs/system-specification.md) — V4.2 architecture, data structures, LLM boundary
+3. [docs/agent-loop.md](docs/agent-loop.md) — V4.2 agent loop (phases 1b-2-2b)
 4. [docs/evaluation-framework.md](docs/evaluation-framework.md) — metrics, stage-to-metric mapping, baselines, thresholds
 5. [docs/glossary.md](docs/glossary.md) — all project-specific terms and definitions
 6. [docs/datasets.md](docs/datasets.md) — ApacheJIT data, ground truth chain, bug→commit mappings
@@ -55,12 +55,11 @@ Before starting a new task: check if a contract exists, read the last 5 breadcru
 ```
 src/commit_investigator/
 ├── extraction/        # problem_extractor, jira_client
-├── retrieval/         # retriever, config, pipeline (V4 input pipeline)
+├── retrieval/         # retriever, config, pipeline (input pipeline)
 ├── models/            # candidates (CandidateSet, CandidateCommit)
-├── agent/             # orchestrator (V3), tools (build_scoped_tools), evidence_tagger
-├── harness/           # scoped_runner (V4.1), harness (V4 historical), v4_runner, trace_writer
-├── governance/        # prompt_assembler
-├── eval/              # eval_metrics, d3_judge, baselines, run_eval, ground_truth
+├── agent/             # tools (build_scoped_tools, ToolRegistry)
+├── harness/           # scoped_runner, scoped_prompts, v4_runner, trace_writer
+├── eval/              # ground_truth, coverage
 └── infra/             # llm, git_context, smart_diff (shared)
 ```
 
@@ -82,14 +81,10 @@ Evaluation: 5-stage funnel (Recall@100→@15→@7→Exam→Hit@5)
 | LLM triage | TBD (V4.2 implementation) | Harness + LLM |
 | Scoped investigation | `harness/scoped_runner.py` + `agent/tools.py` | LLM + scoped tools |
 | Watchlist expansion | TBD (V4.2 implementation) | Harness + LLM |
-| Evaluation | `eval/eval_metrics.py` | Oracle |
+| Evaluation | TBD (V4.2 implementation) | Oracle |
 
 The agent receives `ScoredShortlist` + `ProblemStatement`, not raw repo access. Tools are scoped to CandidateSet SHAs.
 
-## Pipeline (V3 — Baseline)
+## Baselines
 
-```
-ProblemStatement (input) → Attribution Agent (multi-turn, full repo tools) → Evidence Scorer → BugAttributionReport
-```
-
-V3 code in `agent/orchestrator.py`. Hit@5=0.50, MRR=0.304. Used as baseline for V4.1 comparison.
+V3 (fully agentic, full repo tools): Hit@5=0.50, MRR=0.304. Code deleted during cleanup; results preserved in [exp19b retrospective](.harness/docs/exp19b-retrospective.md).

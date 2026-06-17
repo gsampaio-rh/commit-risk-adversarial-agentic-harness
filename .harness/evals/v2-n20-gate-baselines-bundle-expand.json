@@ -1,9 +1,0 @@
-{
-  "source": "Pinned from v2-n20-gate (output/runs/2026-06-11_17-52-22_real_n20) per v2-d3-selector-forensics.json v2_d3 scores and v2-forensics-n50.json D6",
-  "run": "output/runs/2026-06-11_17-52-22_real_n20",
-  "commits": {
-    "294c169": { "D3": 0.0, "D6": 0.75 },
-    "572f3cee": { "D3": 0.0, "D6": 0.75 },
-    "520f7eb": { "D3": 0.0, "D6": 0.75 }
-  }
-}

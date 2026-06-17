@@ -25,7 +25,7 @@ These metrics evaluate the quality of the LLM's output independent of whether it
 | Metric | Type | Question answered | Owner | Status |
 |--------|------|-------------------|-------|--------|
 | **D6 Evidence Grounding** | Continuous [0, 1] per case | Are the evidence quotes from real diffs? | Script | Implemented |
-| **D3 Attribution Quality** | 0-4 scale per case | Does the causal mechanism explain how the suspect introduced the bug? | LLM judge | Implemented (`eval/d3_judge.py`) |
+| **D3 Attribution Quality** | 0-4 scale per case | Does the causal mechanism explain how the suspect introduced the bug? | LLM judge | Removed — pending V4.2 eval module |
 
 ---
 
@@ -171,7 +171,7 @@ aggregated = mean(case_score for all cases)
 
 **Why separate from Hit@k:** An agent can find the right commit (Hit@1 = 1) with a bad explanation (D3 = 1), or miss the right commit (Hit@1 = 0) but produce excellent reasoning about a plausible alternative (D3 = 3). Both cases are informative.
 
-**Implementation status:** Implemented in `eval/d3_judge.py`. Scores top-3 suspects per case using any `LLMProvider`. Integrated into `evaluate_attribution()` via optional `d3_llm` parameter.
+**Implementation status:** Removed during V4.2 prep cleanup. D3 rubric preserved here; V4.2 eval module will re-implement LLM-as-judge scoring.
 
 ---
 
@@ -214,7 +214,7 @@ Baselines establish the performance floor. The agent must beat these to justify 
 
 **Expected Hit@5:** ~0.01 (1 in ~10K commits). Useful only as an absolute floor reference.
 
-**Implementation status:** Implemented in `eval/baselines.py`. Random baseline selects 5 commits from a pool of 500.
+**Implementation status:** Removed during V4.2 prep cleanup. Baseline methods documented above; V4.2 eval module will re-implement.
 
 ---
 
@@ -273,7 +273,7 @@ These thresholds are **provisional** — they will be calibrated after the first
 | Triage may veto GT | LLM triage could exclude GT from must-examine + watchlist | Script-anchored triage: top 3 by pre_score are harness-pinned |
 | Provider-dependent tool format | ```tool block compliance varies by model | Compliance spike required before n=20 eval |
 | No V4.2 eval data yet | Funnel metrics are designed but unmeasured | Pre-implementation gates G1-G3 must pass before build |
-| Skills mechanism not integrated | Prompts don't inject investigation skills yet | Skills in `data/governance/skills/` for future integration |
+| Skills mechanism not integrated | Prompts don't inject investigation skills yet | Deferred to V4.2 — skills integration TBD |
 
 ---
 

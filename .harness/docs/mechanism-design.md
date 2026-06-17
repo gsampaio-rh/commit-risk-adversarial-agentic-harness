@@ -1,6 +1,8 @@
 # ADR: Architecture V4 — Mechanism Design
 
-**Status:** Accepted  
+> **SUPERSEDED** by [V4.2 Architecture ADR](v42-architecture-adr.md) (2026-06-17). Retained for historical context only.
+
+**Status:** Superseded  
 **Date:** 2026-06-16  
 **Deciders:** Builder + Evaluator (adversarial debate)  
 **Context:** The [topology-debate ADR](topology-debate.md) established V4's three pipelines and governance layers but left seven implementation-level decisions open. This ADR resolves them with concrete, filesystem-based mechanisms suitable for a research project.

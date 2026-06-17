@@ -1,7 +1,9 @@
 # ADR: Cursor SDK Multi-Turn Integration
 
+> **SUPERSEDED** by [V4.2 Architecture ADR](v42-architecture-adr.md) (2026-06-17). Cursor SDK dropped for multi-turn eval in favor of OpenAI-compatible providers.
+
 **Date:** 2026-06-17
-**Status:** Active (in evaluation)
+**Status:** Superseded
 **Context:** P9 full V4 eval revealed performance and quality issues with single-shot SDK usage.
 
 ## Problem Statement

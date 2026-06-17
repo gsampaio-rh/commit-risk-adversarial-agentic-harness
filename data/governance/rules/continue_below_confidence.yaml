@@ -1,8 +1,0 @@
-id: continue_below_confidence
-enforcement: hard
-stage: examination
-description: Continue examining if top suspect confidence is below gate
-check: top_confidence >= confidence_gate OR budget_hard_stop
-prompt_text: |
-  If your top suspect confidence is below 0.60, continue examining
-  additional candidates before requesting attribution.

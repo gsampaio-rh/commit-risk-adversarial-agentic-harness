@@ -2,7 +2,7 @@
 
 The agent loop is the reasoning core. It receives a `ScoredShortlist` + `ProblemStatement` from the input pipeline and produces ranked suspects via a multi-phase pipeline that separates narrowing from deep investigation.
 
-> **Architecture status:** The **target architecture is V4.2** (Revised Hierarchical Pipeline). V4.1 (single scoped loop with 20 candidates) is the current implementation. See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md) for the decision, [architecture-constraints.md](../.harness/docs/architecture-constraints.md) for codified NFRs. V3's fully-agentic loop is preserved in `agent/orchestrator.py` for baseline comparison.
+> **Architecture status:** The **target architecture is V4.2** (Revised Hierarchical Pipeline). V4.1 (single scoped loop with 20 candidates) is the current implementation. See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md) for the decision, [architecture-constraints.md](../.harness/docs/architecture-constraints.md) for codified NFRs.
 
 ---
 
@@ -220,17 +220,6 @@ The V4.1 implementation runs a single multi-turn loop with 20 candidates in the 
 | Nudges | Single generic nudge | 4-tier state-based ladder |
 
 V4.1 code: `harness/scoped_runner.py`. Preserved for baseline comparison.
-
----
-
-## V4 3-Stage Harness (Historical Reference)
-
-The V4 agent loop used a state machine with explicit stages:
-- **Stage 2 (Planning):** LLM produces `InvestigationBrief` with hypotheses and examination plan
-- **Stage 3 (Examination):** LLM examines candidates, harness evaluates completion criteria
-- **Stage 4 (Attribution):** LLM produces final suspect ranking
-
-Superseded by V4.1 (Hit@5=0.062 — metadata-only failed). Code in `harness/harness.py`.
 
 ---
 

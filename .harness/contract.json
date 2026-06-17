@@ -1,29 +1,28 @@
 {
-  "task_id": "v4-scoped-tools",
-  "feature": "V4.1 Scoped Tools — retrieval + V3-style examination tools restricted to CandidateSet",
-  "problem": "V4 harness (metadata-only, no diff access) achieved Hit@5=0.062 vs V3's 0.50. The proposed hybrid approach (raw repo access via SDK) violates temporal bound, oracle isolation, and llm_reasons_scripts_retrieve invariants.",
-  "proposed_solution": "Keep V4 deterministic retrieval (prepare_investigation). Replace the state machine harness with a V3-style multi-turn agentic loop using scoped tools: get_commit_diff, get_commit_message, get_blame, get_file_at_commit — all restricted to CandidateSet SHAs and enforced by GitContextProvider temporal bound.",
+  "task_id": "repo-cleanup-v42-prep",
+  "feature": "Repository cleanup: delete dead V3/V4 code, prune docs, update entry points",
+  "problem": "Repo has ~25K lines of dead code from V3/V4 that will confuse future development and bloat context",
+  "proposed_solution": "Delete dead source, tests, scripts, evals, fixtures. Clean docs. Update entry points.",
   "acceptance_criteria": [
-    "AC1: build_scoped_tools(git, candidate_set) rejects commit SHAs not in CandidateSet with clear error message",
-    "AC2: build_scoped_tools() registers only examination tools (get_commit_diff, get_commit_message, get_blame, get_file_at_commit) — no search tools",
-    "AC3: ScopedInvestigator produces suspects within budget (<=15 tool calls, <=8 turns)",
-    "AC4: run_scoped_investigation() wires retrieval + scoped investigator end-to-end, returns V4InvestigationResult-compatible output",
-    "AC5: On 3 test cases (CASSANDRA-7570, SPARK-2583, SPARK-19033), produces parseable suspects with >=1 suspect per case",
-    "AC6: All existing 372 tests + new tests pass with zero regressions",
-    "AC7: All tool calls go through GitContextProvider, temporal bound enforced",
-    "AC8: scoped_runner.py <= 200 lines"
+    "AC1: No source file imports deleted modules (orchestrator, evidence_tagger, governance, models.investigation, models.trace, harness.harness, brief_validator, completion, llm_protocol, eval_metrics, baselines, d3_judge, run_eval)",
+    "AC2: No test file imports deleted modules — all test imports resolve",
+    "AC3: All tests pass (pytest tests/ -x) with zero failures or import errors",
+    "AC4: Package layout in AGENTS.md matches actual filesystem (ls src/commit_investigator/*/)",
+    "AC5: README.md pipeline diagram reflects V4.2 architecture (not V3)",
+    "AC6: project_domain.mdc references V4.2 pipeline (not V3)",
+    "AC7: No doc file references deleted source files (orchestrator.py, harness.py, eval_metrics.py, etc.)",
+    "AC8: __init__.py files export only symbols that exist in their respective packages",
+    "AC9: Superseded ADRs have SUPERSEDED banners (mechanism-design, topology-debate, cursor-sdk-multi-turn)",
+    "AC10: tools.py contains only scoped tools (build_scoped_tools) — no V3 build_attribution_tools"
   ],
   "edge_cases": [
-    "EC1: LLM requests SHA not in CandidateSet — tool returns error, investigation continues",
-    "EC2: LLM outputs suspects on first turn before any tool calls — rejected, must examine at least 1 diff",
-    "EC3: CandidateSet is empty — ScopedInvestigator returns empty suspects without crashing",
-    "EC4: LLM outputs no tool calls and no suspects — nudged to use tools, max retries before degraded exit"
+    "EC1: smoke_test_data.py imports select_eval_cases from deleted run_eval — this is a known issue (script needs V4.2 update), should be documented not fixed",
+    "EC2: v4_runner.py retains V4InvestigationResult dataclass (used by scoped_runner) but run_v4_investigation is deleted"
   ],
-  "verification_method": "pytest sensors (unit + integration tests), then run_scoped_eval.py on 3 cases to verify suspect parsing and Hit@5 > 0",
-  "rubrics": ["code-quality", "architecture"],
+  "verification_method": "Grep for dangling imports, verify filesystem matches docs, run pytest, inspect __init__.py exports, check ADR banners",
+  "rubrics": ["code-quality", "organization"],
   "rubric_mode": "warn",
   "negotiation_rounds": 0,
   "phase": "verified",
-  "verified": true,
-  "verified_at": "2026-06-17T12:17:00Z"
+  "verified": true
 }
