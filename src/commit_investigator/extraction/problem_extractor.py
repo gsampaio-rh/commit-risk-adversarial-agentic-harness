@@ -32,6 +32,20 @@ _CAMEL_CASE_RE = re.compile(
     r"(?![a-zA-Z0-9_])"
 )
 
+_ACRONYM_CAMEL_RE = re.compile(
+    r"(?<![a-zA-Z0-9_.])"
+    r"[A-Z][a-z]+[A-Z]{2,}[a-zA-Z0-9]*"
+    r"(?![a-zA-Z0-9_])"
+)
+
+_LOWER_CAMEL_RE = re.compile(
+    r"(?<![a-zA-Z0-9_.])"
+    r"[a-z]{2,}(?:[A-Z][a-z0-9]+|[A-Z]{2,}[a-z0-9]*)+"
+    r"(?![a-zA-Z0-9_])"
+)
+
+_MIN_SYMBOL_LENGTH = 6
+
 _STOPWORDS = frozenset({
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
@@ -59,14 +73,17 @@ def _extract_file_paths(text: str) -> list[str]:
 
 
 def _infer_files_from_symbols(symbols: list[str], existing_files: list[str]) -> list[str]:
-    """Derive potential filenames from CamelCase symbols (class → ClassName.java).
+    """Derive potential filenames from PascalCase symbols (class → ClassName.java).
 
-    In JVM projects, CamelCase class names map to same-named source files.
+    In JVM projects, PascalCase class names map to same-named source files.
+    Skips lowerCamelCase symbols since those are methods/variables, not classes.
     Only adds inferences not already present in extracted_files.
     """
     existing_lower = {f.lower() for f in existing_files}
     inferred: list[str] = []
     for symbol in symbols:
+        if not symbol[0].isupper():
+            continue
         for ext in _INFERRED_EXTENSIONS:
             candidate = f"{symbol}.{ext}"
             if candidate.lower() not in existing_lower:
@@ -76,8 +93,12 @@ def _infer_files_from_symbols(symbols: list[str], existing_files: list[str]) -> 
 
 
 def _extract_symbols(text: str) -> list[str]:
-    """Extract CamelCase symbols (class/method names) from text."""
-    return list(dict.fromkeys(_CAMEL_CASE_RE.findall(text)))
+    """Extract code identifiers from text: PascalCase, acronym CamelCase, lowerCamelCase."""
+    hits: list[str] = []
+    hits.extend(_CAMEL_CASE_RE.findall(text))
+    hits.extend(_ACRONYM_CAMEL_RE.findall(text))
+    hits.extend(_LOWER_CAMEL_RE.findall(text))
+    return [s for s in dict.fromkeys(hits) if len(s) >= _MIN_SYMBOL_LENGTH]
 
 
 def _extract_keywords(title: str) -> list[str]:

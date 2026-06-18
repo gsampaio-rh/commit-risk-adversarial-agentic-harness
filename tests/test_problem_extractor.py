@@ -196,7 +196,6 @@ class TestLevel1ExtractionSymbols:
 
     def test_preceded_by_dot_excluded(self) -> None:
         text = "obj.CallSite is null"
-        # "CallSite" preceded by '.' — excluded
         assert "CallSite" not in _extract_symbols(text)
 
     def test_preceded_by_dollar_included(self) -> None:
@@ -210,6 +209,44 @@ class TestLevel1ExtractionSymbols:
         text = "CallSite and CallSite again"
         symbols = _extract_symbols(text)
         assert symbols.count("CallSite") == 1
+
+    def test_acronym_camelcase_trailing(self) -> None:
+        text = "HiveUDAF should return NULL in case of 0 rows"
+        assert "HiveUDAF" in _extract_symbols(text)
+
+    def test_acronym_camelcase_embedded(self) -> None:
+        text = "HiveUDAFFunction throws NPE on empty input"
+        assert "HiveUDAFFunction" in _extract_symbols(text)
+
+    def test_lower_camelcase_basic(self) -> None:
+        text = "use globalTempDB and listTables for the query"
+        symbols = _extract_symbols(text)
+        assert "globalTempDB" in symbols
+        assert "listTables" in symbols
+
+    def test_lower_camelcase_multi_segment(self) -> None:
+        text = "call dropTempView and dropGlobalTempView"
+        symbols = _extract_symbols(text)
+        assert "dropTempView" in symbols
+        assert "dropGlobalTempView" in symbols
+
+    def test_lower_camelcase_with_acronym(self) -> None:
+        text = "hiveUDFs are broken in this version"
+        assert "hiveUDFs" in _extract_symbols(text)
+
+    def test_short_noise_filtered(self) -> None:
+        """Identifiers under 6 chars should not be extracted."""
+        text = "use aBC or myFoo here"
+        symbols = _extract_symbols(text)
+        assert all(len(s) >= 6 for s in symbols)
+
+    def test_dot_preceded_acronym_excluded(self) -> None:
+        text = "obj.HiveUDAF is broken"
+        assert "HiveUDAF" not in _extract_symbols(text)
+
+    def test_dot_preceded_lower_camel_excluded(self) -> None:
+        text = "obj.globalTempDB is null"
+        assert "globalTempDB" not in _extract_symbols(text)
 
 
 class TestLevel1ExtractionKeywords:

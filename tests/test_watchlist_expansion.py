@@ -79,16 +79,18 @@ class TestShouldTriggerPhase2b:
         assert reason == "low_confidence"
 
     def test_no_evidence_on_top_suspect_triggers(self):
-        suspects = [{"commit_id": SHA_A, "confidence": 0.8, "evidence_quotes": []}]
+        """no_evidence path requires confidence >= threshold to bypass low_confidence."""
+        suspects = [{"commit_id": SHA_A, "confidence": CONFIDENCE_THRESHOLD, "evidence_quotes": []}]
         triggered, reason = should_trigger_phase2b(_p2_result(suspects))
         assert triggered is True
         assert reason == "no_evidence"
 
-    def test_all_clear_skips(self):
+    def test_high_confidence_with_evidence_still_triggers(self):
+        """With CONFIDENCE_THRESHOLD=1.0, any real confidence triggers phase2b."""
         suspects = [{"commit_id": SHA_A, "confidence": 0.8, "evidence_quotes": ["line"]}]
         triggered, reason = should_trigger_phase2b(_p2_result(suspects))
-        assert triggered is False
-        assert reason == "watchlist_skipped"
+        assert triggered is True
+        assert reason == "low_confidence"
 
     def test_multiple_triggers_returns_first(self):
         """no_suspects takes priority over low_confidence."""
@@ -97,23 +99,24 @@ class TestShouldTriggerPhase2b:
         assert reason == "no_suspects"
 
     def test_boundary_confidence_exactly_threshold_does_not_trigger(self):
-        """EC1: confidence == 0.6 is NOT < 0.6, so should not trigger."""
+        """EC1: confidence == 1.0 is NOT < 1.0, so should not trigger via low_confidence."""
         suspects = [{"commit_id": SHA_A, "confidence": CONFIDENCE_THRESHOLD, "evidence_quotes": ["x"]}]
         triggered, reason = should_trigger_phase2b(_p2_result(suspects))
         assert triggered is False
         assert reason == "watchlist_skipped"
 
     def test_confidence_just_below_threshold_triggers(self):
-        suspects = [{"commit_id": SHA_A, "confidence": 0.599, "evidence_quotes": ["x"]}]
+        suspects = [{"commit_id": SHA_A, "confidence": 0.999, "evidence_quotes": ["x"]}]
         triggered, reason = should_trigger_phase2b(_p2_result(suspects))
         assert triggered is True
         assert reason == "low_confidence"
 
     def test_top_suspect_by_confidence_checked_for_evidence(self):
-        """When multiple suspects, evidence check is on the highest-confidence one."""
+        """Evidence check targets the first max-confidence suspect.
+        Both at threshold to bypass low_confidence; top (first) has no evidence."""
         suspects = [
-            {"commit_id": SHA_A, "confidence": 0.5, "evidence_quotes": ["has evidence"]},
-            {"commit_id": SHA_B, "confidence": 0.8, "evidence_quotes": []},
+            {"commit_id": SHA_B, "confidence": CONFIDENCE_THRESHOLD, "evidence_quotes": []},
+            {"commit_id": SHA_A, "confidence": CONFIDENCE_THRESHOLD, "evidence_quotes": ["has evidence"]},
         ]
         triggered, reason = should_trigger_phase2b(_p2_result(suspects))
         assert triggered is True
@@ -393,21 +396,21 @@ class TestRunPhase2b:
     def _problem(self):
         return ProblemStatement(title="Bug", description="desc", project="TEST")
 
-    def test_skip_when_trigger_not_met(self):
-        """AC9: returns watchlist_skipped when Phase 2 is strong enough."""
+    def test_always_triggers_even_with_high_confidence(self):
+        """With CONFIDENCE_THRESHOLD=1.0, phase2b triggers even for strong P2 results."""
         p2 = Phase2Result(
             suspects=[{"commit_id": SHA_ME1, "confidence": 0.8,
                        "evidence_quotes": ["line"], "mechanism": "m"}],
             exit_reason=InvestigationExitReason.NORMAL,
         )
+        llm = _WatchlistToolThenSuspectsLLM([SHA_WL1, SHA_WL2])
+        cs = _make_cs(SHA_ME1, SHA_WL1, SHA_WL2, SHA_WL3, SHA_WL4)
         suspects, p2b_result, exit_reason = run_phase2b(
-            p2, self._problem(), _make_triage(),
-            _make_cs(SHA_ME1), _mock_git(), MockLLMProvider(),
+            p2, self._problem(), _make_triage(), cs, _mock_git(), llm,
         )
-        assert exit_reason == InvestigationExitReason.WATCHLIST_SKIPPED
-        assert p2b_result is None
-        assert len(suspects) == 1
-        assert suspects[0].commit_id == SHA_ME1
+        assert p2b_result is not None
+        assert p2b_result.trigger_reason == "low_confidence"
+        assert any(s.commit_id == SHA_ME1 for s in suspects)
 
     def test_skip_when_empty_watchlist(self):
         """EC3: empty watchlist → skip even if trigger fires."""
@@ -478,8 +481,9 @@ class TestRunPhase2b:
                        "evidence_quotes": ["line"], "mechanism": "m"}],
             exit_reason=InvestigationExitReason.NORMAL,
         )
+        llm = _WatchlistToolThenSuspectsLLM([SHA_WL1])
+        cs = _make_cs(SHA_ME1, SHA_WL1, SHA_WL2, SHA_WL3, SHA_WL4)
         suspects, _, _ = run_phase2b(
-            p2, self._problem(), _make_triage(),
-            _make_cs(SHA_ME1), _mock_git(), MockLLMProvider(),
+            p2, self._problem(), _make_triage(), cs, _mock_git(), llm,
         )
         assert all(isinstance(s, Suspect) for s in suspects)

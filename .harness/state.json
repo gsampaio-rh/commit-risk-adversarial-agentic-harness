@@ -151,7 +151,7 @@
       "id": "spike-trace-analysis",
       "name": "Trace analysis: sonnet vs codex failure modes and improvement hypotheses",
       "type": "spike",
-      "status": "pending",
+      "status": "completed",
       "priority": 20,
       "scope": "Analyze investigation traces from the n=20 scaled eval for claude-sonnet-4-6 and gpt-5.3-codex. Both hit 10/20 — the SAME 10 cases. Focus on the 10 misses: (1) How many are Recall@100 misses (bug never in candidate set)? (2) How many survive to ExamRecall but fail attribution? (3) What patterns distinguish hits from misses? (4) Are misses due to weak retrieval, bad triage, poor investigation reasoning, or noisy ground truth? Produce hypotheses for what could lift Hit@5 from 0.500 toward 0.700+. Output: structured analysis document with per-case miss breakdown, failure taxonomy, and ranked improvement hypotheses.",
       "inputs": [
@@ -162,13 +162,62 @@
       "note": "Both top models hit the same 10 cases — suggests the pipeline has a structural ceiling, not a model reasoning ceiling. Recall@100=0.700 means 6 cases are lost before the LLM even sees them. This spike determines whether the next investment is retrieval (lift Recall@100) or investigation (lift ExamRecall→Hit@5 conversion)."
     },
     {
+      "id": "phase2b-always-trigger",
+      "name": "Always-trigger phase2b watchlist expansion",
+      "type": "feature",
+      "status": "verified",
+      "priority": 21,
+      "scope": "Remove the confidence threshold gate in should_trigger_phase2b() so watchlist candidates are ALWAYS examined. Change CONFIDENCE_THRESHOLD to 1.0 or remove the check. Validates: GROOVY-8298 rescued (Hit@5 0.500→0.550). Verify no regression on 10 passing cases. Touch: watchlist_expansion.py only.",
+      "gate": { "groovy_8298_hit": true, "no_regression": true },
+      "note": "Debate conclusion: always-trigger is safe (within 300s budget, +30s/case average). Merge logic handles garbage from watchlist. Lowest-effort highest-certainty gain."
+    },
+    {
+      "id": "diag-prescore-rank",
+      "name": "Diagnostic: actual pre-score rank of ground truth for 3 failures",
+      "type": "spike",
+      "status": "completed",
+      "priority": 21.1,
+      "scope": "Re-run compute_pre_scores() on HBASE-4577, GROOVY-5775, IGNITE-1787 with debug output. For each: (1) what rank does the ground truth commit get? (2) what's its file_overlap, signal_count, pre_score? (3) is it at position 16-20 (simple expansion works) or 25+ (formula change needed)? Output: table with per-case rank, score components, and recommendation.",
+      "note": "Informs whether H2 is 'expand to 20' or 'adaptive formula.' Must run before any scoring changes."
+    },
+    {
+      "id": "diag-keyword-recall",
+      "name": "Diagnostic: keyword extraction vs ground truth commit messages for 6 recall failures",
+      "type": "spike",
+      "status": "completed",
+      "priority": 21.2,
+      "scope": "For each of the 6 Recall@100 failures (SPARK-20123, GROOVY-5003, SPARK-27907, SPARK-946, GROOVY-7014, SPARK-23059): (1) extract CamelCase symbols from description (not just title), (2) check if ground truth commit MESSAGE contains any of these symbols, (3) check if ground truth commit DIFF adds/removes any of these symbols (pickaxe hit). Output: table showing which cases WOULD be rescued by extending keyword_grep to description symbols.",
+      "note": "Informs H1 (keyword expansion) and H4 (Level 2 necessity). If 3+ cases rescued by simple keyword expansion, Level 2 is unnecessary."
+    },
+    {
+      "id": "extend-keyword-sources",
+      "name": "Extend symbol extraction (acronym CamelCase + lowerCamelCase) and remove --first-parent from pickaxe",
+      "type": "feature",
+      "status": "verified",
+      "priority": 22,
+      "scope": "Scope updated from original based on P21.2 diagnostic. Three changes: (1) Added _ACRONYM_CAMEL_RE for identifiers like HiveUDAF (SPARK-27907). (2) Added _LOWER_CAMEL_RE for identifiers like globalTempDB (SPARK-23059). (3) Removed --first-parent from pickaxe so merge-branch commits are found (SPARK-946). keyword_grep symbol feeding dropped — diagnostic showed symbols don't appear in commit messages.",
+      "depends_on": ["diag-keyword-recall"],
+      "note": "Diagnostic P21.2 proved 2/6 rescuable by regex fix, +1 bonus by pickaxe flag. Expected: Recall@100 0.700→0.850."
+    },
+    {
+      "id": "adaptive-scoring",
+      "name": "Adaptive pre-score weights when file_overlap=0 for all candidates",
+      "type": "feature",
+      "status": "pending",
+      "priority": 22.5,
+      "scope": "When no candidate in the set has file_overlap > 0 (or when extracted_files is empty), redistribute the 0.5 file_overlap weight to signal_count (0.6) and rank (0.4). This prevents low-signal commits from being uniformly ranked by rank alone. Requires: diag-prescore-rank shows rank > 20 for failures. Full ablation on 20-case dataset to verify no regression. Touch: scoring.py.",
+      "depends_on": ["diag-prescore-rank"],
+      "note": "Debate conclusion: only build if diagnostic shows expansion insufficient. Adaptive weights = more complex formula = regression risk."
+    },
+    {
       "id": "spike-level2-extractor",
       "name": "Level 2 LLM-assisted hint extraction for retrieval",
       "type": "feature",
       "status": "pending",
-      "priority": 22,
-      "scope": "LLM-synthesized extraction hints (files, symbols, keywords) to complement Level 1 regex extraction. Expected to lift recall@100 from 0.45 toward 0.60 target.",
-      "note": "Optional enhancement. Level 1 meets gate (0.35) but not target (0.60). Deferred until V4.2 pipeline proves Hit@5 viability."
+      "priority": 23,
+      "scope": "LLM-synthesized extraction hints (files, symbols, keywords) to complement Level 1 regex extraction. Use cheap model (nano/haiku) to read JIRA and produce structured hints. Expected to lift Recall@100 by inferring symbols from natural language descriptions.",
+      "depends_on": ["extend-keyword-sources"],
+      "note": "Debate conclusion: DEFERRED until simpler keyword expansion (P22) is tried. Only needed if simple approaches fail to rescue 2+ cases. Escalation path, not first action."
     }
   ]
 }

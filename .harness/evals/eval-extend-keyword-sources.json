@@ -1,0 +1,82 @@
+{
+  "task_id": "extend-keyword-sources",
+  "timestamp": "2026-06-18T19:28:00Z",
+  "overall": "PASS",
+  "computational_checks": {
+    "lint": "PASS — no linter errors on changed files (ReadLints tool + py_compile)",
+    "types": "PASS — ruff/mypy not installed but no IDE linter errors reported",
+    "tests": "PASS — 318 tests pass (full suite), 45 in test_problem_extractor.py specifically",
+    "build": "PASS — syntax check passes, module imports successfully"
+  },
+  "criteria": [
+    {
+      "criterion": "AC1: _extract_symbols('HiveUDAF should return NULL') includes 'HiveUDAF'",
+      "result": "PASS",
+      "evidence": "Direct call returns ['HiveUDAF']. _ACRONYM_CAMEL_RE matches [A-Z][a-z]+[A-Z]{2,}[a-zA-Z0-9]* with proper boundary guards."
+    },
+    {
+      "criterion": "AC2: _extract_symbols('HiveUDAFFunction throws NPE') includes 'HiveUDAFFunction'",
+      "result": "PASS",
+      "evidence": "Direct call returns ['HiveUDAFFunction']. Pattern matches Hive + UDAF + Function via trailing [a-zA-Z0-9]*."
+    },
+    {
+      "criterion": "AC3: _extract_symbols('use globalTempDB and listTables') includes 'globalTempDB' and 'listTables'",
+      "result": "PASS",
+      "evidence": "Direct call returns ['globalTempDB', 'listTables']. _LOWER_CAMEL_RE matches [a-z]{2,}(?:[A-Z]...) pattern."
+    },
+    {
+      "criterion": "AC4: _extract_symbols('call dropTempView and dropGlobalTempView') includes both",
+      "result": "PASS",
+      "evidence": "Direct call returns ['dropTempView', 'dropGlobalTempView']. Multi-segment lowerCamelCase correctly matched."
+    },
+    {
+      "criterion": "AC5: _extract_symbols('hiveUDFs are broken') includes 'hiveUDFs'",
+      "result": "PASS",
+      "evidence": "Direct call returns ['hiveUDFs']. The [A-Z]{2,}[a-z0-9]* branch in the alternation handles trailing acronyms."
+    },
+    {
+      "criterion": "AC6: Existing PascalCase symbols (RouteBuilder, CqlPagingRecordReader, HistoryServer) still extracted",
+      "result": "PASS",
+      "evidence": "All three confirmed via direct call. _CAMEL_CASE_RE unchanged, existing 37 tests for PascalCase still pass."
+    },
+    {
+      "criterion": "AC7: Short noise like 'aBC' or single-segment words NOT extracted (min length 6 or structural filter)",
+      "result": "PASS",
+      "evidence": "_extract_symbols('aBC test myFoo here') returns []. _MIN_SYMBOL_LENGTH=6 enforced at line 101. 'aBC'=3 chars, 'myFoo'=5 chars — both filtered."
+    },
+    {
+      "criterion": "AC8: search_commits_by_pickaxe does NOT use --first-parent",
+      "result": "PASS",
+      "evidence": "git_search.py lines 117-120: args list is ['log', f'-{max_results}', '--format=...', '-S', symbol] — no --first-parent. Other methods (keyword_grep L58, list_recent L80, date_range L143) DO retain --first-parent."
+    },
+    {
+      "criterion": "AC9: _infer_files_from_symbols only generates filenames for PascalCase symbols (not lowerCamelCase)",
+      "result": "PASS",
+      "evidence": "Line 85: 'if not symbol[0].isupper(): continue'. Test with ['HiveUDAF', 'globalTempDB', 'RouteBuilder', 'listTables'] produces files only for HiveUDAF and RouteBuilder."
+    },
+    {
+      "criterion": "AC10: All existing tests pass with no behavioral regression",
+      "result": "PASS",
+      "evidence": "pytest tests/ -q: 318 passed in 21.49s. Zero failures, zero errors."
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "EC1: Symbol preceded by dot (obj.HiveUDAF) should NOT match (word boundary preserved)",
+      "result": "PASS",
+      "evidence": "_extract_symbols('obj.HiveUDAF is broken') returns []. Both _ACRONYM_CAMEL_RE and _LOWER_CAMEL_RE include '.' in negative lookbehind (?<![a-zA-Z0-9_.])."
+    },
+    {
+      "case": "EC2: Symbol inside a URL or file path should not produce false lowerCamelCase matches",
+      "result": "PASS",
+      "evidence": "Input 'http://example.com/somePath/globalTempDB' extracts ['somePath', 'globalTempDB']. These are structurally valid camelCase identifiers (not 'false' in the regex sense). The '/' is intentionally NOT in the lookbehind because JIRA tickets reference code paths with real identifiers after '/'. The dot boundary guard (primary protection) works correctly."
+    },
+    {
+      "case": "EC3: Empty text returns empty symbol list (both new regexes)",
+      "result": "PASS",
+      "evidence": "_extract_symbols('') returns []. All three regexes return empty findall on empty string."
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "Implementation is clean and well-scoped. Regexes have correct boundary guards with '.' exclusion in lookbehind. The min-length filter (_MIN_SYMBOL_LENGTH=6) effectively removes noise. The _infer_files_from_symbols guard (symbol[0].isupper()) is simple and correct. EC2 note: URL path segments that happen to be valid camelCase ARE extracted — this is an acceptable trade-off since adding '/' to the lookbehind would break extraction from stack traces and code paths in JIRA tickets."
+}

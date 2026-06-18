@@ -21,7 +21,7 @@ from commit_investigator.models.candidates import CandidateSet
 from commit_investigator.narrowing.models import TriageResult
 
 
-CONFIDENCE_THRESHOLD = 0.6
+CONFIDENCE_THRESHOLD = 1.0
 PROMOTION_MARGIN = 0.15
 MAX_FINAL_SUSPECTS = 5
 
@@ -31,7 +31,7 @@ def should_trigger_phase2b(phase2: Phase2Result) -> tuple[bool, str]:
 
     Returns (triggered, reason). Trigger conditions (ANY):
       (a) no suspects
-      (b) max confidence < 0.6
+      (b) max confidence < threshold (effectively always — threshold is 1.0)
       (c) top suspect has no evidence_quotes
     """
     if not phase2.suspects:

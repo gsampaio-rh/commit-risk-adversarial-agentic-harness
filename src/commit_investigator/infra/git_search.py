@@ -110,12 +110,13 @@ class GitSearchMixin:
         """Search for commits that add or remove a string (git log -S).
 
         Pickaxe search finds commits where the number of occurrences of
-        the given string changed. Bounded by temporal_bound when set.
+        the given string changed. Traverses ALL commits (no --first-parent)
+        to reach commits introduced via merged branches/PRs.
+        Bounded by temporal_bound when set.
         """
         args = [
             "log", f"-{max_results}",
             "--format=%H|%an|%ai|%s",
-            "--first-parent",
             "-S", symbol,
         ]
         if self._temporal_bound:

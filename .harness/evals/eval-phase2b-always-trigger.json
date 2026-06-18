@@ -1,0 +1,62 @@
+{
+  "task_id": "phase2b-always-trigger",
+  "timestamp": "2026-06-18T19:05:00Z",
+  "overall": "PASS",
+  "computational_checks": {
+    "lint": "PASS — no new linter errors in changed files",
+    "types": "PASS — no type errors introduced",
+    "tests": "PASS — 310 passed in 19.61s",
+    "build": "PASS — module imports cleanly"
+  },
+  "criteria": [
+    {
+      "criterion": "AC1: CONFIDENCE_THRESHOLD is 1.0 in watchlist_expansion.py",
+      "result": "PASS",
+      "evidence": "Line 24: CONFIDENCE_THRESHOLD = 1.0"
+    },
+    {
+      "criterion": "AC2: should_trigger_phase2b() returns (True, 'low_confidence') for any suspect list with confidence < 1.0",
+      "result": "PASS",
+      "evidence": "Line 42: `if max_conf < CONFIDENCE_THRESHOLD` where CONFIDENCE_THRESHOLD=1.0. Test test_high_confidence_with_evidence_still_triggers confirms confidence=0.8 triggers. Test test_confidence_just_below_threshold_triggers confirms 0.999 triggers."
+    },
+    {
+      "criterion": "AC3: should_trigger_phase2b() still returns (True, 'no_suspects') when suspects list is empty (priority check preserved)",
+      "result": "PASS",
+      "evidence": "Lines 37-38: `if not phase2.suspects: return True, \"no_suspects\"`. Test test_no_suspects_triggers passes."
+    },
+    {
+      "criterion": "AC4: should_trigger_phase2b() still returns (True, 'no_evidence') when top suspect has no evidence_quotes",
+      "result": "PASS",
+      "evidence": "Lines 45-48: evidence check fires when confidence == threshold (only theoretical path). Test test_no_evidence_on_top_suspect_triggers passes with confidence=1.0 and empty quotes."
+    },
+    {
+      "criterion": "AC5: run_phase2b() still returns WATCHLIST_SKIPPED when watchlist is empty (safety guard preserved)",
+      "result": "PASS",
+      "evidence": "Lines 140-141: `if not triage.watchlist: return p2_suspects, None, InvestigationExitReason.WATCHLIST_SKIPPED`. Test test_skip_when_empty_watchlist passes."
+    },
+    {
+      "criterion": "AC6: All existing tests pass (updated where necessary to reflect new threshold)",
+      "result": "PASS",
+      "evidence": "Full suite: 310 passed in 19.61s. Watchlist-specific: 35 passed in 0.12s."
+    },
+    {
+      "criterion": "AC7: No other files changed besides watchlist_expansion.py and test_watchlist_expansion.py",
+      "result": "PASS",
+      "evidence": "git diff --name-only shows: .harness/breadcrumbs.jsonl, .harness/contract.json, .harness/state.json (harness metadata — expected), src/commit_investigator/investigation/watchlist_expansion.py, tests/test_watchlist_expansion.py. No other source/test files touched."
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "EC1: confidence == 1.0 exactly should NOT trigger (1.0 < 1.0 is False)",
+      "result": "PASS",
+      "evidence": "Test test_boundary_confidence_exactly_threshold_does_not_trigger: suspects with confidence=1.0 and evidence=['x'] returns (False, 'watchlist_skipped')."
+    },
+    {
+      "case": "EC2: run_phase2b with triggered phase2b but empty watchlist still returns WATCHLIST_SKIPPED",
+      "result": "PASS",
+      "evidence": "Test test_skip_when_empty_watchlist: phase2b triggered (empty suspects) but watchlist=[] → WATCHLIST_SKIPPED, p2b_result=None."
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "Clean, minimal change. The threshold bump from 0.6 to 1.0 is effectively an always-trigger since no LLM produces confidence == 1.0. The docstring on should_trigger_phase2b still mentions 'max confidence < 0.6' (line 35) which is now stale — cosmetic, does not affect correctness."
+}

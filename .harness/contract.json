@@ -1,25 +1,29 @@
 {
-  "task_id": "v42-scaled-eval-5-and-6",
-  "feature": "Fix resume bugs and tune early-stop thresholds for scaled eval runner",
-  "problem": "EarlyStopMonitor resets to zero on --resume, defeating all 5 hard-stop rules. Resume creates duplicate model folders splitting traces. perf_min_cases=20 is dead code with exactly 20 eval cases.",
-  "proposed_solution": "Add replay_checkpoint() to restore monitor state from checkpoint data. Store model_dir in checkpoint and reuse on resume. Move completed_keys.add() before abort check. Lower perf_min_cases to 10.",
+  "task_id": "extend-keyword-sources",
+  "feature": "Extend symbol extraction (acronym CamelCase + lowerCamelCase) and remove --first-parent from pickaxe",
+  "problem": "3 Recall@100 failures are caused by: (1) CamelCase regex misses acronym identifiers like HiveUDAF (SPARK-27907), (2) regex misses lowerCamelCase like globalTempDB (SPARK-23059), (3) pickaxe --first-parent misses commits via merged PRs (SPARK-946). Diagnostic P21.2 proved all 3 are rescuable.",
+  "proposed_solution": "Add two new regexes to problem_extractor.py for acronym CamelCase and lowerCamelCase symbols. Remove --first-parent from pickaxe in git_search.py. Filter file inference to PascalCase only (lowerCamelCase shouldn't generate filenames). Scope updated from original P22 based on diagnostic findings — keyword_grep symbol feeding dropped (diagnostic showed symbols don't appear in commit messages).",
   "acceptance_criteria": [
-    "AC1: After replay_checkpoint(), monitor.global_cost equals sum of all prior estimated_cost values",
-    "AC2: After replay_checkpoint(), model_summary() for each replayed model shows correct n_completed, n_hits, total_cost, and avg_latency_s matching the replayed data",
-    "AC3: replay_checkpoint() does NOT return any abort verdict — it only rebuilds state",
-    "AC4: On --resume with a prior model_dir in checkpoint, _run_model() reuses the existing folder (no new timestamped folder created)",
-    "AC5: On fresh run (no checkpoint), _run_model() creates a new folder as before",
-    "AC6: completed_keys.add() happens before the abort check so the triggering case is tracked on abort",
-    "AC7: perf_min_cases defaults to 10, enabling the performance floor to fire at the halfway point",
-    "AC8: All 310 existing tests still pass with no behavioral changes"
+    "AC1: _extract_symbols('HiveUDAF should return NULL') includes 'HiveUDAF'",
+    "AC2: _extract_symbols('HiveUDAFFunction throws NPE') includes 'HiveUDAFFunction'",
+    "AC3: _extract_symbols('use globalTempDB and listTables') includes 'globalTempDB' and 'listTables'",
+    "AC4: _extract_symbols('call dropTempView and dropGlobalTempView') includes both",
+    "AC5: _extract_symbols('hiveUDFs are broken') includes 'hiveUDFs'",
+    "AC6: Existing PascalCase symbols (RouteBuilder, CqlPagingRecordReader, HistoryServer) still extracted — no regression",
+    "AC7: Short noise like 'aBC' or single-segment words NOT extracted (min length 6 or structural filter)",
+    "AC8: search_commits_by_pickaxe does NOT use --first-parent",
+    "AC9: _infer_files_from_symbols only generates filenames for PascalCase symbols (not lowerCamelCase)",
+    "AC10: All existing tests pass with no behavioral regression"
   ],
   "edge_cases": [
-    "EC1: replay_checkpoint() with empty completed_models dict — monitor state should remain at zero",
-    "EC2: replay_checkpoint() with mixed statuses (completed + error + skipped) — only completed cases count toward n_completed/n_hits, but all contribute to cost and error windows",
-    "EC3: After replaying a model that was near the cost ceiling ($14.90 of $15), a single new case with $0.20 cost should trigger ABORT_MODEL"
+    "EC1: Symbol preceded by dot (obj.HiveUDAF) should NOT match (word boundary preserved)",
+    "EC2: Symbol inside a URL or file path should not produce false lowerCamelCase matches",
+    "EC3: Empty text returns empty symbol list (both new regexes)"
   ],
-  "verification_method": "Evaluator should: (1) Read run_monitor.py and verify replay_checkpoint() rebuilds all tracker fields correctly. (2) Read run_scaled_eval.py and verify checkpoint flow: load → replay → run → save with model_dir. (3) Write and run edge-case tests for EC1-EC3. (4) Verify completed_keys ordering in _run_model(). (5) Check perf_min_cases default. (6) Run full test suite.",
-  "rubrics": ["code-quality"],
+  "verification_method": "Evaluator should: (1) Read problem_extractor.py and verify both new regexes are correct with boundary guards. (2) Verify git_search.py pickaxe has no --first-parent. (3) Verify _infer_files_from_symbols filters lowerCamelCase. (4) Run pytest -v and verify all tests pass. (5) Manually test regex patterns against the diagnostic examples.",
+  "rubrics": [
+    "code-quality"
+  ],
   "rubric_mode": "warn",
   "negotiation_rounds": 0,
   "phase": "evaluating",
