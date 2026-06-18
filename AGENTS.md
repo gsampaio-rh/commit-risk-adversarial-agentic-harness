@@ -27,11 +27,11 @@ This project builds a bug attribution system: given a JIRA bug report (title + d
 
 ## Architecture Status
 
-The **target architecture is V4.2** (Revised Hierarchical Pipeline): separates narrowing from deep investigation via a 4-phase pipeline — script pre-score → deterministic triage → scoped investigation → conditional watchlist expansion. The **current implementation is V4.1** (Scoped Tools), which passes 20 candidates into a single loop.
+**V4.2** (Revised Hierarchical Pipeline) is the **current proven architecture**: separates narrowing from deep investigation via a 4-phase pipeline — script pre-score → deterministic triage → scoped investigation → conditional watchlist expansion.
 
 V4.2 was decided via research-grounded builder/evaluator debates. Key change: Phase 1a (script pre-score) narrows 100→15, Phase 1b (deterministic triage) narrows 15→7 (3 must-examine + 4 watchlist) using pre-score rank (zero LLM), Phase 2 investigates deeply with scoped tools.
 
-V3 (fully agentic) achieved Hit@5=0.50, MRR=0.304. V4 metadata-only achieved Hit@5=0.062. V4.2 targets Hit@5 ≥ 0.40.
+V3 (fully agentic) achieved Hit@5=0.50, MRR=0.304. V4 metadata-only achieved Hit@5=0.062. V4.2 achieved Hit@5=0.800 (Cursor SDK n=5), 0.250 (local gemma3:12b n=20). Exceeds V3 baseline (Hit@5=0.50) by 60%.
 
 See [.harness/docs/v42-architecture-adr.md](.harness/docs/v42-architecture-adr.md) for V4.2 decision, [.harness/docs/architecture-constraints.md](.harness/docs/architecture-constraints.md) for NFRs, [.harness/docs/scoped-tools-adr.md](.harness/docs/scoped-tools-adr.md) for V4→V4.1 pivot.
 
@@ -59,12 +59,12 @@ src/commit_investigator/
 ├── narrowing/         # Phase 1: pre-score + deterministic triage (ScoredShortlist → TriageResult)
 ├── models/            # candidates (CandidateSet, CandidateCommit)
 ├── agent/             # tools (build_scoped_tools, ToolRegistry)
-├── harness/           # scoped_runner, scoped_prompts, result, trace_writer
-├── eval/              # ground_truth, coverage
+├── harness/           # scoped_runner, scoped_prompts, result, trace_writer, phase2b
+├── eval/              # ground_truth, coverage, metrics, helpers
 └── infra/             # llm, git_context, smart_diff (shared)
 ```
 
-## Pipeline (V4.2 — Target)
+## Pipeline (V4.2 — Current)
 
 ```
 Input: Extraction → Retrieval → CandidateSet@100
@@ -81,8 +81,8 @@ Evaluation: 5-stage funnel (Recall@100→@15→@7→Exam→Hit@5)
 | Retrieval | `retrieval/pipeline.py` → `retrieval/retriever.py` | Script |
 | Pre-score + Triage | `narrowing/pipeline.py` (scoring.py, triage.py) | Script |
 | Scoped investigation | `harness/scoped_runner.py` + `agent/tools.py` | LLM + scoped tools |
-| Watchlist expansion | TBD (V4.2 implementation) | Harness + LLM |
-| Evaluation | TBD (V4.2 implementation) | Oracle |
+| Watchlist expansion | `harness/phase2b.py` | Harness + LLM |
+| Evaluation | `eval/metrics.py` | Oracle |
 
 The agent receives `TriageResult` + `ProblemStatement`, not raw repo access. Tools are scoped to CandidateSet SHAs.
 
@@ -100,3 +100,5 @@ All `results/` content is local, gitignored, and reproducible from scripts. New 
 ## Baselines
 
 V3 (fully agentic, full repo tools): Hit@5=0.50, MRR=0.304. Code deleted during cleanup; results preserved in [exp19b retrospective](.harness/docs/exp19b-retrospective.md).
+V4.2 (Cursor SDK, claude-sonnet-4-6): Hit@5=0.800, MRR=0.600 (n=5).
+V4.2 (local gemma3:12b): Hit@5=0.250, MRR=0.225 (n=20).

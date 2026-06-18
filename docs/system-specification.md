@@ -1,8 +1,8 @@
-# System Specification — Bug Attribution Agent (V4.2 Target Architecture)
+# System Specification — Bug Attribution Agent (V4.2 Architecture)
 
 Given a JIRA bug report (title + description) and a temporally-bounded git repository, this system identifies the commit that most likely **introduced** the bug. It produces a ranked list of suspect commits with causal mechanisms and evidence quotes, evaluated against SZZ-derived ground truth.
 
-> **Architecture status:** The **target architecture is V4.2** (Revised Hierarchical Pipeline) — separates narrowing from deep investigation via a 4-phase pipeline: retrieval → script pre-score → deterministic triage → scoped investigation (+ conditional watchlist expansion). V4.1 (Scoped Tools) is the current implementation. See [.harness/docs/v42-architecture-adr.md](../.harness/docs/v42-architecture-adr.md) for the V4.2 decision, [.harness/docs/architecture-constraints.md](../.harness/docs/architecture-constraints.md) for codified NFRs, [.harness/docs/scoped-tools-adr.md](../.harness/docs/scoped-tools-adr.md) for the V4→V4.1 pivot.
+> **Architecture status:** **V4.2** (Revised Hierarchical Pipeline) is the current, proven architecture — separates narrowing from deep investigation via a 4-phase pipeline: retrieval → script pre-score → deterministic triage → scoped investigation (+ conditional watchlist expansion). Proven at Hit@5=0.800, MRR=0.600 with Cursor SDK (n=5). See [.harness/docs/v42-architecture-adr.md](../.harness/docs/v42-architecture-adr.md) for the V4.2 decision, [.harness/docs/architecture-constraints.md](../.harness/docs/architecture-constraints.md) for codified NFRs, [.harness/docs/scoped-tools-adr.md](../.harness/docs/scoped-tools-adr.md) for the V4→V4.1 pivot.
 
 ---
 
@@ -73,7 +73,7 @@ Extraction is NOT part of the agent. It transforms raw text into structured sign
 | **Input** | `ProblemStatement` + repo + temporal bound |
 | **Output** | `CandidateSet` (50-100 ranked commits) |
 | **Contract** | Retrieval Recall target: ground truth in top 100 |
-| **Module** | **TBD** — to be built in `retrieval-spike` task |
+| **Module** | `retrieval/pipeline.py` + `retrieval/retriever.py` + `retrieval/strategies.py` |
 
 Retrieval uses deterministic git operations to assemble a candidate set:
 - File-based: `git log --all -- <extracted_files>` bounded by temporal ref
@@ -94,13 +94,13 @@ All retrieval respects the temporal bound — only commits reachable from `COMMI
 | **Input** | `ScoredShortlist` (top 15 from Phase 1a) |
 | **Output** | `TriageResult`: 3 must-examine + 4 watchlist |
 | **Rule** | must_examine = top 3 by pre_score; watchlist = next 4 |
-| **Module** | TBD — part of Phase 1 narrowing module |
+| **Module** | `narrowing/triage.py` |
 
 Triage assigns fixed tiers by pre-score rank. No LLM call — the triage smoke test showed deterministic top-7 achieves TriageRecall@7 = 1.00 on all retrievable cases. See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md) for reintroduction trigger if a larger dataset requires LLM-assisted triage.
 
 ---
 
-## Agent Pipeline — V4.2 Revised Hierarchical (Target)
+## Agent Pipeline — V4.2 Revised Hierarchical (Current)
 
 The agent receives a `TriageResult` + `ProblemStatement` from the input pipeline and produces a ranked suspect list. It uses scoped investigation with conditional watchlist expansion. See [V4.2 ADR](../.harness/docs/v42-architecture-adr.md).
 
@@ -110,7 +110,7 @@ The agent receives a `TriageResult` + `ProblemStatement` from the input pipeline
 
 | Aspect | Detail |
 |--------|--------|
-| **Owner** | `ScopedInvestigator` (harness) + LLM |
+| **Owner** | `RevisedScopedInvestigator` (harness) + LLM |
 | **Input** | Bug report + must-examine candidates (SHA + pre-score rank) + scoped tools |
 | **Output** | Ranked suspects with confidence, mechanism, evidence quotes |
 | **Budget** | 15 tool calls (soft), 8 turns |
@@ -219,16 +219,21 @@ class CandidateCommit:
     date: str                              # author date
 ```
 
-### SuspectCommit (output)
+### Suspect (output)
 
 ```python
 @dataclass
-class SuspectCommit:
+class Suspect:
+    """Ranked attribution suspect from Phase 2 investigation.
+    Replaces historical SuspectCommit. Defined in harness/result.py.
+    """
     commit_id: str                          # full SHA
-    rank: int                               # 1-based
-    confidence: float                       # 0.0-1.0
-    mechanism: str                          # "If <change> then <consequence>"
-    evidence_quotes: list[str]              # exact text from diffs
+    rank: int = 0                           # 1-based
+    confidence: float = 0.0                 # 0.0-1.0
+    mechanism: str = ""                     # "If <change> then <consequence>"
+    evidence_quotes: list[str] = field(default_factory=list)  # exact text from diffs
+    phase: str = "investigation"            # phase that produced this suspect
+    tools_used: list[str] = field(default_factory=list)       # tools invoked during examination
 ```
 
 ---
@@ -319,13 +324,13 @@ All tools wrap `GitContextProvider` methods. Available during Stage 3 (Examinati
 
 ## Architecture Evolution (Reference)
 
-| Aspect | V3 (baseline, deleted) | V4.1 (current impl) | V4.2 (target) |
+| Aspect | V3 (baseline, deleted) | V4.1 (historical baseline) | V4.2 (current, proven) |
 |--------|------------------------|----------------------|---------------|
 | Agent receives | Full repo access | 20 candidates + scoped tools | 7 triaged candidates + scoped tools |
 | Search | LLM via tools (5-8 calls) | Scripts (zero LLM) | Scripts (zero LLM) |
 | Narrowing | None (LLM searches) | None (all 20 in prompt) | Script pre-score + deterministic triage |
 | Governance | Budget-only (30/15) | Budget (15/8) + SHA validation | Phase-aware budget + nudge ladder |
-| Best result | Hit@5=0.50, MRR=0.304 | TBD | Target: Hit@5 >= 0.40 |
+| Best result | Hit@5=0.50, MRR=0.304 | TBD | Hit@5=0.800 (Cursor SDK n=5), 0.250 (local gemma3:12b n=20) |
 
 V3 code was deleted during cleanup. V3 details preserved in the [exp19b retrospective](../.harness/docs/exp19b-retrospective.md).
 

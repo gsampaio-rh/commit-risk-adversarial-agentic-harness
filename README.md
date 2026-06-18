@@ -2,7 +2,7 @@
 
 > Given a JIRA bug report (title + description), identify the commit that introduced the bug in a git repository. Produces ranked suspect lists with evidence-grounded causal explanations. Evaluated against [ApacheJIT](docs/datasets.md) ground truth via Hit@k, MRR, and attribution quality metrics.
 
-## Architecture (V4.2 — Target)
+## Architecture (V4.2 — Current)
 
 ```
 JIRA Bug Report (title + description)
@@ -63,8 +63,8 @@ Architecture decisions: [.harness/docs/](.harness/docs/)
 │   ├── retrieval/        # retriever.py, config.py, pipeline.py
 │   ├── models/           # candidates.py (CandidateSet, CandidateCommit)
 │   ├── agent/            # tools.py (build_scoped_tools, ToolRegistry)
-│   ├── harness/          # scoped_runner.py, scoped_prompts.py, result.py, trace_writer.py
-│   ├── eval/             # ground_truth.py, coverage.py
+│   ├── harness/          # scoped_runner.py, scoped_prompts.py, result.py, trace_writer.py, phase2b.py
+│   ├── eval/             # ground_truth.py, coverage.py, metrics.py, helpers.py
 │   └── infra/            # llm.py, git_context.py, smart_diff.py
 ├── data/apachejit/        # Train/test CSVs + replication zip (gitignored)
 ├── data/repos/            # Local git clones of Apache projects (gitignored)
@@ -77,6 +77,7 @@ Architecture decisions: [.harness/docs/](.harness/docs/)
 ## Baselines
 
 V3 (fully agentic, full repo tools): Hit@5=0.50, MRR=0.304 on n=20 (seed=42).
-V4.2 target: Hit@5 >= 0.40.
+V4.2 (Cursor SDK, claude-sonnet-4-6): Hit@5=0.800, MRR=0.600 (n=5).
+V4.2 (local gemma3:12b): Hit@5=0.250, MRR=0.225 (n=20).
 
 See `.harness/state.json` for current tasks and status.

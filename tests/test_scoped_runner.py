@@ -1,10 +1,9 @@
-"""Tests for V4.1 scoped tools and ScopedInvestigator."""
+"""Tests for V4.2 scoped tools and RevisedScopedInvestigator."""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -24,12 +23,8 @@ from commit_investigator.harness.scoped_runner import (
     Phase2Result,
     RevisedScopedInvestigator,
     RollingSummary,
-    ScopedInvestigationResult,
-    ScopedInvestigator,
     ToolCallCache,
-    run_scoped_investigation,
 )
-from commit_investigator.harness.trace_writer import InvestigationTrace
 from commit_investigator.harness.result import (
     InvestigationExitReason,
     InvestigationResult,
@@ -42,8 +37,6 @@ from commit_investigator.infra.llm import (
     get_provider,
 )
 from commit_investigator.models.candidates import CandidateCommit, CandidateSet
-from commit_investigator.retrieval import prepare_investigation
-from commit_investigator.retrieval.pipeline import RetrievalResult
 
 
 SHA_IN = "aaa111bbb222ccc333ddd444eee555fff666aaa1"
@@ -450,245 +443,6 @@ class _StaticLLM(MockLLMProvider):
 
     def complete(self, messages, **kwargs) -> LLMResponse:
         return LLMResponse(content=self._content, tokens_used=10, estimated_cost=0.0, model="mock")
-
-
-class TestScopedInvestigator:
-    def test_produces_suspects_after_diff(self):
-        inv = ScopedInvestigator(
-            llm=_ToolThenSuspectsLLM(SHA_IN),
-            problem=ProblemStatement(title="Bug", description="desc", project="TEST"),
-            candidate_set=_make_candidate_set(SHA_IN),
-            git=_mock_git(),
-        )
-        result = inv.investigate()
-        assert len(result.suspects) == 1
-        assert result.tool_trace[0].tool == "get_commit_diff"
-
-    def test_rejects_first_turn_suspects_without_diff(self):
-        suspects_only = '```suspects\n[{"commit_id": "abc", "confidence": 0.9}]\n```'
-        inv = ScopedInvestigator(
-            llm=_StaticLLM(suspects_only),
-            problem=ProblemStatement(title="Bug", description="desc", project="TEST"),
-            candidate_set=_make_candidate_set(SHA_IN),
-            git=_mock_git(),
-            max_turns=2,
-        )
-        result = inv.investigate()
-        assert result.suspects == []
-        assert result.diff_examined is False
-
-    def test_blame_alone_does_not_satisfy_diff_requirement(self):
-        inv = ScopedInvestigator(
-            llm=_ToolThenSuspectsLLM(SHA_IN, tool="get_blame"),
-            problem=ProblemStatement(title="Bug", description="desc", project="TEST"),
-            candidate_set=_make_candidate_set(SHA_IN),
-            git=_mock_git(),
-            max_turns=3,
-        )
-        result = inv.investigate()
-        assert result.suspects == []
-
-    def test_respects_max_tool_calls(self):
-        many_calls = "\n".join(
-            f'```tool\n{{"tool": "get_commit_diff", "args": {{"commit_id": "{SHA_IN}"}}}}\n```'
-            for _ in range(20)
-        )
-        inv = ScopedInvestigator(
-            llm=_StaticLLM(many_calls),
-            problem=ProblemStatement(title="Bug", description="desc", project="TEST"),
-            candidate_set=_make_candidate_set(SHA_IN),
-            git=_mock_git(),
-            max_tool_calls=15,
-            max_turns=1,
-        )
-        result = inv.investigate()
-        assert len(result.tool_trace) == 15
-
-    def test_empty_candidate_set_returns_empty_suspects(self):
-        inv = ScopedInvestigator(
-            llm=MockLLMProvider(),
-            problem=ProblemStatement(title="Bug", description="desc", project="TEST"),
-            candidate_set=CandidateSet(),
-            git=_mock_git(),
-            max_turns=2,
-        )
-        result = inv.investigate()
-        assert isinstance(result, ScopedInvestigationResult)
-        assert result.suspects == []
-
-    def test_nudges_when_no_tools_or_suspects(self):
-        inv = ScopedInvestigator(
-            llm=_StaticLLM("Still thinking..."),
-            problem=ProblemStatement(title="Bug", description="desc", project="TEST"),
-            candidate_set=_make_candidate_set(SHA_IN),
-            git=_mock_git(),
-            max_turns=2,
-        )
-        result = inv.investigate()
-        assert result.suspects == []
-        assert result.metadata["tool_calls"] == 0
-
-    def test_respects_max_turns(self):
-        llm = _CountingLLM()
-        inv = ScopedInvestigator(
-            llm=llm,
-            problem=ProblemStatement(title="Bug", description="desc", project="TEST"),
-            candidate_set=_make_candidate_set(SHA_IN),
-            git=_mock_git(),
-            max_turns=3,
-        )
-        result = inv.investigate()
-        assert llm.complete_count == 3
-        assert result.suspects == []
-
-    def test_ec1_out_of_set_sha_continues_investigation(self):
-        inv = ScopedInvestigator(
-            llm=_OosThenValidLLM(SHA_IN),
-            problem=ProblemStatement(title="Bug", description="desc", project="TEST"),
-            candidate_set=_make_candidate_set(SHA_IN),
-            git=_mock_git(),
-        )
-        result = inv.investigate()
-        assert len(result.suspects) == 1
-        assert result.suspects[0]["commit_id"] == SHA_IN
-        assert len(result.tool_trace) == 2
-        assert "not in the CandidateSet" in result.tool_trace[0].result_preview
-
-
-class TestRunScopedInvestigation:
-    def test_returns_v4_investigation_result(self, tmp_path: Path):
-        candidate = CandidateCommit(
-            commit_id=SHA_IN,
-            rank=1,
-            retrieval_signal="test",
-            summary="s",
-            files_changed=["f.java"],
-            date="2024-01-01",
-        )
-        retrieval = RetrievalResult(
-            problem_statement=ProblemStatement(title="T", description="D", project="TEST"),
-            candidate_set=CandidateSet(commits=[candidate], temporal_bound="abc~1"),
-            metadata={},
-        )
-        llm = _ToolThenSuspectsLLM(SHA_IN)
-
-        with patch(
-            "commit_investigator.harness.scoped_runner.prepare_investigation",
-            return_value=retrieval,
-        ), patch(
-            "commit_investigator.harness.scoped_runner.GitContextProvider",
-            return_value=_mock_git(),
-        ), patch(
-            "commit_investigator.harness.scoped_runner.TraceWriter.write",
-            return_value=tmp_path / "trace.json",
-        ) as write_trace:
-            result = run_scoped_investigation(
-                title="T",
-                description="D",
-                project="TEST",
-                issue_key="TEST-1",
-                repo_path=tmp_path,
-                temporal_bound="abc123~1",
-                ground_truth_sha=SHA_IN,
-                llm=llm,
-                traces_dir=tmp_path,
-            )
-
-        assert isinstance(result, InvestigationResult)
-        assert len(result.suspects) == 1
-        assert isinstance(result.trace, InvestigationTrace)
-        assert result.trace.temporal_bound == "abc123~1"
-        write_trace.assert_called_once()
-
-    def test_temporal_bound_not_doubled(self, tmp_path: Path):
-        captured: dict[str, str] = {}
-
-        class _CapturingGit:
-            def __init__(self, repo_path, temporal_bound):
-                captured["bound"] = temporal_bound
-
-        retrieval = RetrievalResult(
-            problem_statement=ProblemStatement(title="T", description="D", project="TEST"),
-            candidate_set=_make_candidate_set(SHA_IN),
-            metadata={},
-        )
-        with patch(
-            "commit_investigator.harness.scoped_runner.prepare_investigation",
-            return_value=retrieval,
-        ), patch(
-            "commit_investigator.harness.scoped_runner.GitContextProvider",
-            _CapturingGit,
-        ), patch(
-            "commit_investigator.harness.scoped_runner.TraceWriter.write",
-            return_value=tmp_path / "trace.json",
-        ):
-            run_scoped_investigation(
-                title="T",
-                description="D",
-                project="TEST",
-                issue_key="TEST-1",
-                repo_path=tmp_path,
-                temporal_bound="abc123~1",
-                ground_truth_sha=SHA_IN,
-                llm=_ToolThenSuspectsLLM(SHA_IN),
-            )
-
-        assert captured["bound"] == "abc123~1"
-        assert not captured["bound"].endswith("~1~1")
-
-
-SCOPED_E2E_CASES = [
-    ("CASSANDRA-7570", "CASSANDRA", "7fa93a2ca7febbff593aafef0265daa8799a9fb3~1", "data/repos/cassandra"),
-    ("SPARK-2583", "SPARK", "17caae48b3608552dd6e3ae652043831f932ce95~1", "data/repos/spark"),
-    ("SPARK-19033", "SPARK", "4a4c3dc9ca10e52f7981b225ec44e97247986905~1", "data/repos/spark"),
-]
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize("issue_key,project,temporal_bound,repo_rel", SCOPED_E2E_CASES)
-def test_run_scoped_investigation_e2e_real_repo(
-    issue_key: str, project: str, temporal_bound: str, repo_rel: str, tmp_path: Path,
-) -> None:
-    """AC5: full run_scoped_investigation on real repo yields parseable suspects."""
-    repo = Path(repo_rel)
-    if not (repo / ".git").exists():
-        pytest.skip(f"{repo} not cloned")
-
-    jira_path = Path("data/jira_cache") / f"{issue_key}.json"
-    if not jira_path.exists():
-        pytest.skip(f"no JIRA cache for {issue_key}")
-    raw = json.loads(jira_path.read_text(encoding="utf-8"))
-    title = raw["fields"]["summary"]
-    description = raw["fields"].get("description") or ""
-
-    retrieval = prepare_investigation(
-        source=(title, description),
-        repo_path=repo,
-        temporal_bound=temporal_bound,
-        project=project,
-        issue_key=issue_key,
-    )
-    assert retrieval.candidate_set.commits, f"{issue_key}: empty CandidateSet"
-    top_sha = retrieval.candidate_set.commits[0].commit_id
-
-    result = run_scoped_investigation(
-        title=title,
-        description=description,
-        project=project,
-        issue_key=issue_key,
-        repo_path=repo,
-        temporal_bound=temporal_bound,
-        ground_truth_sha=top_sha,
-        llm=_ToolThenSuspectsLLM(top_sha),
-        traces_dir=tmp_path / "traces",
-    )
-    assert isinstance(result, InvestigationResult)
-    assert result.error is None
-    assert len(result.suspects) >= 1
-    assert result.suspects[0].get("commit_id")
-    assert result.trace is not None
-    assert result.trace.issue_key == issue_key
-    assert result.trace.temporal_bound == temporal_bound
 
 
 class TestSuspect:

@@ -25,7 +25,7 @@ These metrics evaluate the quality of the LLM's output independent of whether it
 | Metric | Type | Question answered | Owner | Status |
 |--------|------|-------------------|-------|--------|
 | **D6 Evidence Grounding** | Continuous [0, 1] per case | Are the evidence quotes from real diffs? | Script | Implemented |
-| **D3 Attribution Quality** | 0-4 scale per case | Does the causal mechanism explain how the suspect introduced the bug? | LLM judge | Removed — pending V4.2 eval module |
+| **D3 Attribution Quality** | 0-4 scale per case | Does the causal mechanism explain how the suspect introduced the bug? | LLM judge | Planned — `eval/metrics.py` implements funnel metrics; D3 judge TBD |
 
 ---
 
@@ -171,7 +171,7 @@ aggregated = mean(case_score for all cases)
 
 **Why separate from Hit@k:** An agent can find the right commit (Hit@1 = 1) with a bad explanation (D3 = 1), or miss the right commit (Hit@1 = 0) but produce excellent reasoning about a plausible alternative (D3 = 3). Both cases are informative.
 
-**Implementation status:** Removed during V4.2 prep cleanup. D3 rubric preserved here; V4.2 eval module will re-implement LLM-as-judge scoring.
+**Implementation status:** `eval/metrics.py` implements the 5-stage funnel (Hit@k, MRR, FunnelMetrics). D3 LLM-as-judge scoring is planned but not yet implemented in the eval module.
 
 ---
 
@@ -214,7 +214,15 @@ Baselines establish the performance floor. The agent must beat these to justify 
 
 **Expected Hit@5:** ~0.01 (1 in ~10K commits). Useful only as an absolute floor reference.
 
-**Implementation status:** Removed during V4.2 prep cleanup. Baseline methods documented above; V4.2 eval module will re-implement.
+**Implementation status:** Baseline methods documented above. `eval/metrics.py` implements the core scoring (Hit@k, MRR, FunnelMetrics). Baseline runners not yet re-implemented.
+
+### V4.2 Results
+
+| Configuration | Hit@5 | MRR | n | Notes |
+|---------------|-------|-----|---|-------|
+| V4.2 Cursor SDK (claude-sonnet-4-6) | 0.800 | 0.600 | 5 | Cloud model via CursorSDKProvider |
+| V4.2 local gemma3:12b (q8_0) | 0.250 | 0.225 | 20 | Local Ollama, full eval set |
+| V3 fully agentic (historical) | 0.500 | 0.304 | 20 | Full repo tools, deleted |
 
 ---
 
@@ -272,7 +280,7 @@ These thresholds are **provisional** — they will be calibrated after the first
 | Pre-score may drop GT | If GT ranks 16+ by pre_score, Recall@15 = 0 | Pre-implementation gate: measure Recall@15 on n=20 oracle before locking weights |
 | Triage may veto GT | Deterministic triage could exclude GT from must-examine + watchlist if GT ranks 8+ by pre_score | Script-anchored triage: top 3 by pre_score are must-examine, next 4 are watchlist — fully deterministic |
 | Provider-dependent tool format | ```tool block compliance varies by model | Compliance spike required before n=20 eval |
-| No V4.2 eval data yet | Funnel metrics are designed but unmeasured | Pre-implementation gates G1-G3 must pass before build |
+| V4.2 eval data limited | Cursor SDK eval n=5 only; local model n=20 shows lower performance | Expand Cursor SDK eval to n=20 for statistical significance |
 | Skills mechanism not integrated | Prompts don't inject investigation skills yet | Deferred to V4.2 — skills integration TBD |
 
 ---

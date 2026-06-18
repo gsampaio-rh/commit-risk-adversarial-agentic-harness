@@ -1,6 +1,6 @@
 # Glossary
 
-## Architecture (V4.2 — Target)
+## Architecture (V4.2)
 
 | Term | Definition |
 |------|------------|
@@ -24,12 +24,21 @@
 | **Nudge Ladder** | 4-tier state-based nudge system: idle turn 1 (gentle), idle turn 2 (budget warning), idle turn 3 (force conclude), suspects without diff (reject). |
 | **InvestigationExitReason** | Enum tracking why an investigation ended: normal, budget_exhausted, max_turns, forced_conclude, stall, provider_error, empty_candidates, watchlist_expansion_exhausted, watchlist_skipped. |
 | **Harness-Managed Context** | Context model where the harness maintains a rolling working summary (≤2K tokens) + last-turn tool results, rather than unbounded message accumulation. |
+| **Phase2Result** | Output of Phase 2 scoped investigation (suspects, tool_trace, exit_reason, metadata). Produced by RevisedScopedInvestigator. |
+| **Phase2bResult** | Output of Phase 2b watchlist expansion (suspects, tool_calls, turns, trigger_reason). |
+| **RevisedScopedInvestigator** | V4.2 investigation engine with must-examine gate, 4-tier nudge ladder, tool call cache, rolling summary. Replaces V4.1 ScopedInvestigator. |
+| **ToolCallCache** | Deduplication cache keyed by (tool_name, args). Returns cached result on duplicate calls. |
+| **RollingSummary** | Harness-maintained context summary (≤2K chars) that replaces unbounded message accumulation. |
+| **FunnelMetrics** | Dataclass tracking all 5 funnel stages (recall_100 through hit_at_5) plus MRR and hit_rank. |
+| **CursorSDKProvider** | LLMProvider implementation using Cursor Agent.prompt() API. Used for cloud model evaluation. |
+| **NudgeLadder** | 4-tier escalation system for idle LLM turns (directive → warning → force_conclude → reject_suspects). |
+| **MustExamineGate** | Verification that LLM has diffed at least 1 must-examine SHA before accepting suspects. |
 
-## V4.1 Scoped Tools (Current Implementation)
+## V4.1 Scoped Tools (Historical Baseline)
 
 | Term | Definition |
 |------|------------|
-| **ScopedInvestigator** | Multi-turn loop in `harness/scoped_runner.py`. Assembles system prompt with 20 candidates + tool descriptions, dispatches tool calls, parses suspects. V4.1 architecture — predecessor to V4.2. |
+| **ScopedInvestigator** | (Deleted) V4.1 multi-turn loop that assembled system prompt with 20 candidates + tool descriptions, dispatched tool calls, and parsed suspects. Replaced by `RevisedScopedInvestigator` in V4.2. Code removed during repo audit; results in [exp19b retrospective](../.harness/docs/exp19b-retrospective.md). |
 | **Scoped Tools** | Examination tools registered via `build_scoped_tools()` in `agent/tools.py`. SHA-taking tools validate against `CandidateSet` before execution. Includes `get_commit_diff`, `get_commit_message`, `get_file_at_commit`, `get_blame`. |
 | **SHA Validator** | `_build_sha_validator()` — builds a closure that checks 12-char SHA prefixes against the CandidateSet. Returns error message for out-of-set SHAs, `None` for valid ones. |
 | **CandidateSet** | Ranked set of 50-100 commits produced by the input pipeline's retrieval stage. The agent's tools are scoped to this set — it does not search the full repo. |
