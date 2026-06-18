@@ -2,17 +2,17 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v42-proven",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-18T11:30:00Z",
+  "updated": "2026-06-18T13:39:00Z",
   "schema_version": 5,
-  "_archive": "V2 archived to state-v2-archive.json. V4.0-V4.2 build tasks (22 tasks) archived to state-v42-archive.json.",
-  "vision": "Build a plan-driven bug attribution agent with internal governance. The system separates concerns into three pipelines: (1) Input Pipeline \u2014 deterministic extraction and candidate retrieval at zero LLM cost; (2) Agent Pipeline \u2014 LLM plans, examines, and attributes within an InvestigationBrief, governed by an investigation harness with rules and skills; (3) Evaluation Pipeline \u2014 oracle scores output. The agent receives a CandidateSet (not raw repo access), operates within completion criteria (not just budget), produces structured InvestigationTraces for learning, and improves over time via skills derived from traces. Evaluated via Hit@k, MRR, D3, D6, and Retrieval Recall against ApacheJIT ground truth.",
-  "direction": "ARCHITECTURE V4.2: PROVEN. Revised Hierarchical Pipeline \u2014 script pre-score (100\u219215) \u2192 deterministic triage (15\u21927: 3 must-examine + 4 watchlist, zero LLM) \u2192 scoped investigation (ReAct) \u2192 conditional watchlist expansion. Hit@5=0.800, MRR=0.600 with Cursor SDK (claude-sonnet-4-6). Local gemma3:12b achieves Hit@5=0.250, MRR=0.225. Exceeds V3 baseline (Hit@5=0.50) by 60%. Bottleneck is model quality, not pipeline structure.",
+  "_archive": "V2 archived to state-v2-archive.json. V4.0-V4.2 build tasks (22 tasks) archived to state-v42-archive.json. Code quality + repo audit archived this session.",
+  "vision": "Build a plan-driven bug attribution agent with internal governance. The system separates concerns into three pipelines: (1) Input Pipeline — deterministic extraction and candidate retrieval at zero LLM cost; (2) Agent Pipeline — LLM plans, examines, and attributes within an InvestigationBrief, governed by an investigation harness with rules and skills; (3) Evaluation Pipeline — oracle scores output. The agent receives a CandidateSet (not raw repo access), operates within completion criteria (not just budget), produces structured InvestigationTraces for learning, and improves over time via skills derived from traces. Evaluated via Hit@k, MRR, D3, D6, and Retrieval Recall against ApacheJIT ground truth.",
+  "direction": "ARCHITECTURE V4.2: PROVEN. Revised Hierarchical Pipeline — script pre-score (100→15) → deterministic triage (15→7: 3 must-examine + 4 watchlist, zero LLM) → scoped investigation (ReAct) → conditional watchlist expansion. Hit@5=0.800, MRR=0.600 with Cursor SDK (claude-sonnet-4-6). Local gemma3:12b achieves Hit@5=0.250, MRR=0.225. Exceeds V3 baseline (Hit@5=0.50) by 60%. Bottleneck is model quality, not pipeline structure.",
   "invariants": {
-    "temporal_bound": "Temporal bound (COMMIT_B~1) constrains the ENTIRE system \u2014 input pipeline retrieval and agent tools. In eval mode, bound comes from fix_hash. In production mode (future), from bug report date or HEAD.",
-    "llm_reasons_scripts_retrieve": "Scripts own retrieval (candidate set assembly) and evidence verification. LLM owns planning, examination reasoning, and attribution. The LLM never searches from scratch \u2014 it receives a curated CandidateSet.",
-    "agent_is_governed": "The investigation harness governs the LLM. The LLM does not self-govern. The harness manages state, transitions, and completion criteria. Budget is a hard stop, not the primary exit signal.",
-    "observable_by_design": "Every investigation produces a structured InvestigationTrace. No investigation is a black box. Traces are the substrate for skill emergence.",
-    "ground_truth": "GroundTruthGraph provides bug_hash from commit_links.csv. SZZ-based labeling has known noise -- Hit@5 is primary metric, not Hit@1."
+    "temporal_bound": "Temporal bound (COMMIT_B~1) constrains the ENTIRE system — input pipeline retrieval and agent tools. In eval mode, bound comes from fix_hash.",
+    "llm_reasons_scripts_retrieve": "Scripts own retrieval (candidate set assembly) and evidence verification. LLM owns planning, examination reasoning, and attribution.",
+    "agent_is_governed": "The investigation harness governs the LLM. The harness manages state, transitions, and completion criteria.",
+    "observable_by_design": "Every investigation produces a structured InvestigationTrace. Traces are the substrate for skill emergence.",
+    "ground_truth": "GroundTruthGraph provides bug_hash from commit_links.csv. SZZ-based labeling has known noise — Hit@5 is primary metric, not Hit@1."
   },
   "cost_budget": {
     "per_investigation": {
@@ -20,236 +20,31 @@
       "max_tokens": 100000,
       "max_cost_usd": 0.5,
       "latency_target_s": 300
-    },
-    "per_eval_run_n20": {
-      "estimated_cost_usd": "4-6",
-      "estimated_latency_min": "60-90"
-    },
-    "actual_first_eval": {
-      "ollama_qwen3_8b": {
-        "cost_per_case_usd": 0.024,
-        "avg_tokens_per_case": 8152,
-        "avg_tool_calls_per_case": 2.95,
-        "avg_latency_s": 65.7,
-        "total_cost_usd": 0.49,
-        "total_latency_min": 22,
-        "within_budget": true
-      },
-      "cursor_sdk_sonnet": {
-        "cost_per_case_usd": 0.0022,
-        "avg_tokens_per_case": 732,
-        "avg_tool_calls_per_case": "N/A (internal agent tools, not tracked)",
-        "avg_latency_s": 312,
-        "total_cost_usd": 0.044,
-        "total_latency_min": 104,
-        "within_budget": true,
-        "note": "Cost is 10x cheaper than Ollama. Latency 5x higher due to Cursor agent overhead + bridge restarts."
-      },
-      "cursor_sdk_multi_turn": {
-        "cost_per_case_usd": 0.055,
-        "avg_tokens_per_case": 18000,
-        "avg_calls_per_case": 7.5,
-        "avg_latency_s": 718,
-        "total_cost_n6": 0.33,
-        "total_latency_min_n6": 72,
-        "within_budget": true,
-        "hit_at_5": 0.0,
-        "retrieval_recall": 0.5,
-        "n_completed": 6,
-        "note": "SUPERSEDED by cursor_sdk_v42. Old V4.0 metadata-only approach. ADR: .harness/docs/cursor-sdk-multi-turn.md"
-      },
-      "cursor_sdk_v42": {
-        "avg_latency_s": 80,
-        "total_latency_min_n5": 6.7,
-        "within_budget": true,
-        "hit_at_5": 0.8,
-        "mrr": 0.6,
-        "n_completed": 5,
-        "note": "V4.2 pipeline + Agent.prompt() per turn (isolated cwd, no-tools notice). 4x faster than old SDK impl (80s vs 312s). GATE PASSED. Bottleneck confirmed as model quality."
-      }
     }
-  },
-  "acceptance_thresholds": {
-    "n_iteration": 20,
-    "primary_metric": "Hit@5",
-    "gate": {
-      "Hit@5": 0.2,
-      "MRR": 0.1,
-      "D6_evidence": 0.4,
-      "Retrieval_Recall": 0.15
-    },
-    "target": {
-      "Hit@5": 0.4,
-      "MRR": 0.25,
-      "D3_attribution": 0.4,
-      "D6_evidence": 0.6,
-      "Retrieval_Recall": 0.4
-    },
-    "note": "V4.2 PROVEN: Hit@5=0.800 (Cursor SDK n=5), MRR=0.600. Exceeds V3 baseline and all targets. Local models: gemma3:12b Hit@5=0.250 (MRR gate passes, Hit@5 gate fails). Full n=20 SDK eval pending."
   },
   "baselines": {
-    "v2_final": {
-      "note": "V2 final scores (different problem, not directly comparable). Archived for reference.",
-      "scores": {
-        "D1": 0.72,
-        "D3": 0.31,
-        "D6": 0.78
-      }
-    },
-    "v3_best": {
-      "date": "2026-06-16",
-      "seed": 42,
-      "n": 20,
-      "method": "Task Subagent V2 prompt (fully-agentic LLM search+reason)",
-      "results": {
-        "Hit@1": 0.2,
-        "Hit@3": 0.35,
-        "Hit@5": 0.5,
-        "MRR": 0.304,
-        "Evidence_Grounding": 0.61
-      },
-      "hit_cases": [
-        {
-          "case": "CASSANDRA-7570",
-          "rank": 1
-        },
-        {
-          "case": "SPARK-19033",
-          "rank": 4
-        },
-        {
-          "case": "GROOVY-8298",
-          "rank": 1
-        },
-        {
-          "case": "SPARK-27907",
-          "rank": 1
-        },
-        {
-          "case": "SPARK-946",
-          "rank": 4
-        },
-        {
-          "case": "AMQ-4338",
-          "rank": 1
-        },
-        {
-          "case": "HDFS-7734",
-          "rank": 2
-        },
-        {
-          "case": "GROOVY-7014",
-          "rank": 2
-        },
-        {
-          "case": "GROOVY-8416",
-          "rank": 3
-        },
-        {
-          "case": "IGNITE-1787",
-          "rank": 4
-        }
-      ],
-      "results_dir": "results/v3-subagent-eval-v2"
-    },
-    "retrieval_spike": {
-      "date": "2026-06-16",
-      "combined_recall_at_100": 0.45,
-      "recommended_k": 100,
-      "level1_extraction": "regex-based (files, symbols, keywords)",
-      "best_individual_strategy": "blame (recall@100=0.35)",
-      "gate": 0.35,
-      "target": 0.6,
-      "adr": ".harness/docs/retrieval-spike-findings.md"
-    },
-    "v42_cursor_sdk": {
-      "date": "2026-06-18",
-      "seed": 42,
-      "n": 5,
-      "method": "V4.2 pipeline + Cursor SDK (claude-sonnet-4-6)",
-      "results": {
-        "Hit@5": 0.8,
-        "MRR": 0.6,
-        "Recall@100": 0.8,
-        "PreScore_Recall@15": 0.8,
-        "TriageRecall@7": 0.8,
-        "ExamRecall": 0.8
-      },
-      "results_dir": "results/2026-06-18T09-31-scoped-eval-cursor-sdk-claude-sonnet-4-6-n5/"
-    },
-    "v42_local_gemma3": {
-      "date": "2026-06-18",
-      "seed": 42,
-      "n": 20,
-      "method": "V4.2 pipeline + local gemma3:12b-it-q8_0 (Ollama)",
-      "results": {
-        "Hit@5": 0.25,
-        "MRR": 0.225,
-        "Recall@100": 0.684,
-        "PreScore_Recall@15": 0.579,
-        "TriageRecall@7": 0.579,
-        "ExamRecall": 0.421
-      },
-      "results_dir": "results/2026-06-18T01-01-scoped-eval-gemma3-12b-it-q8_0-n20/"
-    }
+    "v3_fully_agentic": { "hit_at_5": 0.50, "mrr": 0.304, "note": "Code deleted, results in exp19b retrospective" },
+    "v42_cursor_sdk": { "hit_at_5": 0.800, "mrr": 0.600, "model": "claude-sonnet-4-6", "n": 5 },
+    "v42_gemma3_12b": { "hit_at_5": 0.250, "mrr": 0.225, "model": "gemma3:12b-it-q8_0", "n": 20 },
+    "v42_qwen3_8b": { "hit_at_5": 0.158, "mrr": 0.113, "model": "qwen3:8b", "n": 20 }
   },
   "completed_milestones": [
-    "v3-state-zero: Archive V2, clean codebase, rewrite docs",
-    "v3-foundations: Temporal enforcement, search tools, problem extractor",
-    "v3-baselines: Deterministic baselines (git-blame-naive, file-history-recency)",
-    "v3-attribution-agent: Multi-phase attribution agent with tool-use",
-    "v3-eval: Eval metrics (Hit@k, MRR, D3, D6) + eval runner",
-    "v3-post-processing-a: In-pipeline evidence scoring \u2014 attach grounding metadata, no re-rank",
-    "data-infra: 10 Apache repos cloned (7.8GB), JIRA cache warmed (108 entries), 20/20 eval cases runnable",
-    "arch-spec-rewrite: 7-stage Agentic Loop spec in system-specification.md + Stage-to-Metric Mapping in evaluation-framework.md",
-    "first-live-eval: n=20 seed=42 \u2014 baselines=0.0, Ollama-8B Hit@5=0.05, Cursor-SDK-sonnet Hit@5=0.10. Thresholds calibrated.",
-    "task-subagent-breakthrough: Hit@5=0.35 (7/20), MRR=0.242 via Cursor Task subagents. Architecture blocker RESOLVED.",
-    "prompt-v2: Hit@5=0.50 (10/20), MRR=0.304. +43% Hit@5, +26% MRR over V1. Exceeds target (0.40).",
-    "v2-stub-cleanup: Dead V2 code (eval_harness, eval_judge, report) moved to _v2_archive",
-    "spike-early-exit: EARLY_EXIT_NUDGE_THRESHOLD=8 in orchestrator, configurable",
-    "spike-prompt-engineering: Prompt iteration with V3 agent \u2014 improved grounding but model-limited",
-    "random-baseline: random_commit baseline (pool=500, picks=5) wired into run_eval.py",
-    "d3-llm-judge: D3 Attribution LLM judge (0-4 rubric, top-3 suspects, any LLMProvider). 17 tests.",
-    "src-package-separation: Reorganized into extraction/, agent/, eval/, infra/ packages. 165 tests pass.",
-    "tech-debt-cleanup-post-reorg: Deleted dead Python/tests, fixed stale paths in docs/scripts, pruned unused deps",
-    "gt-noise-analysis: SZZ noise rate 35% (4 noise + 6 questionable / 20). Adjusted Hit@5 on clean data: 0.70",
-    "topology-debate: ADR at .harness/docs/topology-debate.md \u2014 three pipelines, agent boundary, InvestigationBrief, fallback paths",
-    "mechanism-design: ADR at .harness/docs/mechanism-design.md \u2014 hybrid rules YAML, hybrid skills MD, prompt assembly, trace schema JSON, completion thresholds, brief validation, artifact ownership. Seed governance files.",
-    "retrieval-spike: Combined recall@100=0.45 (9/20), blame strongest at 0.35. K=100 recommended. Gate>=0.35, target>=0.60. Level 2 needed. ADR at .harness/docs/retrieval-spike-findings.md",
-    "v4-audit-fixes: Level 1 extraction (regex files/symbols/keywords + infer-from-symbols), recall@100 validation, cross-package integration test. 330\u2192372 tests.",
-    "v4-input-pipeline: prepare_investigation() wiring extraction+retrieval, brief-validation retry (2x widened), RetrievalResult dataclass",
-    "v4-checkpoint-retrieval: Recall@100=0.400 (8/20), GATE PASSED. All 4 strategies contribute.",
-    "v4-investigation-harness: State machine (Stages 2\u21923\u21924), BriefValidator, CompletionEvaluator, LLMProvider protocol, confidence tracking, per-turn traces",
-    "v4-trace-and-eval: TraceWriter JSON per investigation, run_v4_investigation() top-level runner, V4InvestigationResult",
-    "v42-gate-recall15: Recall@15=0.846 (11/13), GATE PASSED. All weight variants identical. Default weights confirmed.",
-    "v42-gate-triage-smoke: TriageRecall@7=1.00 (5/5), GATE PASSED. llama3.1:8b local. Both hard cases (rank 5) caught via watchlist. 100% parse. Triage prompt validated.",
-    "v4-core-models: V4 build: core data structures \u2014 CandidateSet, InvestigationBrief, InvestigationState, InvestigationTrace",
-    "v4-governance-loaders: V4 build: governance loaders \u2014 YAML rule loader + Markdown skill retriever",
-    "v4-retrieval-module: V4 build: deterministic retrieval module \u2014 CandidateSet from git signals",
-    "v4-prompt-assembler: V4 build: PromptAssembler \u2014 10-section ordered template with truncation policy",
-    "v4-input-pipeline: V4 build: input pipeline entry \u2014 Stage 0 extraction + Stage 1 retrieval wired",
-    "v4-checkpoint-retrieval: V4 checkpoint: Retrieval Recall@100 on n=20 eval cases (Recall@100=0.4)",
-    "v4-investigation-harness: V4 build: investigation harness \u2014 state machine, brief validator, completion criteria, scoped tools",
-    "v4-trace-and-eval-integration: V4 build: trace writer + run_eval integration \u2014 V4 path with Retrieval Recall metric",
-    "v4-checkpoint-full-eval: V4 checkpoint: full n=20 eval \u2014 Hit@5, MRR, D6 vs V3 baselines (Hit@5=0.062)",
-    "v4-scoped-tools: V4.1: Scoped Tools \u2014 retrieval + V3-style examination tools restricted to CandidateSet",
-    "v42-architecture-debate: V4.2 architecture debate \u2014 research-grounded topology, loop, model, contract decisions",
-    "v42-gate-recall15: V4.2 pre-implementation gate: Recall@15 ablation (Recall@15=0.846)",
-    "v42-gate-triage-smoke: V4.2 pre-implementation gate: triage smoke test",
-    "v42-phase1a-prescore: V4.2 build: Phase 1 narrowing module (pre-score + deterministic triage)",
-    "v42-checkpoint-phase1: V4.2 checkpoint: Phase 1 funnel metrics (Recall@15 + TriageRecall@7) (Recall@15=0.846)",
-    "v42-phase2-revised-investigation: V4.2 build: Phase 2 revised scoped investigation",
-    "v42-phase2b-watchlist: V4.2 build: Phase 2b watchlist expansion + merge",
-    "v42-funnel-metrics: V4.2 build: 5-stage funnel evaluation metrics",
-    "v42-checkpoint-eval: V4.2 checkpoint: full n=20 eval with funnel metrics (Hit@5=0.158)",
-    "v42-cursor-sdk-eval: V4.2 Cursor SDK eval: cloud model comparison (Hit@5=0.8)"
+    "v42-phase1a-scoring: Phase 1a pre-score formula (Recall@15=0.846)",
+    "v42-checkpoint-phase1: Phase 1 funnel metrics (Recall@15=0.846, TriageRecall@7=1.00)",
+    "v42-phase2-revised-investigation: Phase 2 revised scoped investigation",
+    "v42-phase2b-watchlist: Phase 2b watchlist expansion + merge",
+    "v42-funnel-metrics: 5-stage funnel evaluation metrics",
+    "v42-checkpoint-eval: Full n=20 eval (Hit@5=0.158 local, 0.800 Cursor SDK)",
+    "v42-cursor-sdk-eval: Cloud model comparison (Hit@5=0.8)",
+    "v42-repo-audit: Full repo audit — dead code, stale docs, state cleanup",
+    "v42-code-quality: Code quality refactor (12 subtasks) + module naming restructure"
   ],
   "cancelled_tasks": [
-    "v3-post-processing-b (P12): V3 re-ranking \u2014 superseded by V4 investigation harness",
-    "eval-n50 (P10): Scale V3 eval to n=50 \u2014 defer to V4 pipeline",
-    "ci-pipeline (P11): Automated eval CI \u2014 premature, no V4 pipeline yet",
-    "v42-gate-provider-compliance: V4.2 pre-implementation gate: provider + tool-block compliance",
-    "v42-phase1b-triage: V4.2 build: Phase 1b LLM triage (CANCELLED \u2014 merged into P14)"
+    "v3-post-processing-b: V3 re-ranking — superseded by V4",
+    "eval-n50: Scale V3 eval to n=50 — deferred",
+    "ci-pipeline: Automated eval CI — premature",
+    "v42-gate-provider-compliance: Pre-implementation gate (merged into build)",
+    "v42-phase1b-triage: Phase 1b LLM triage (merged into P14)"
   ],
   "tasks": [
     {
@@ -258,14 +53,9 @@
       "type": "checkpoint",
       "status": "pending",
       "priority": 19.1,
-      "depends_on": [
-        "v42-checkpoint-eval"
-      ],
       "scope": "Run n=5 eval (subset with ExamRecall=true) on multiple local models to find best candidate for full n=20 re-eval. Models: qwen3.6:35b-a3b (MoE, thinking OFF), qwen3:8b (thinking ON, max_tokens=16384), gemma3:12b-it-q8_0. Compare Hit@5, conversion rate, speed. Pick best for full re-eval.",
-      "gate": {
-        "hit_at_5_of_5": 2
-      },
-      "note": "qwen3:8b baseline: 3/19 Hit@5. Research shows qwen3.6:35b-a3b is state-of-the-art for local tool-calling (BFCL). Models already on machine (M1 Max 32GB, 100% GPU for all MoE/8B/12B)."
+      "gate": { "hit_at_5_of_5": 2 },
+      "note": "qwen3:8b baseline: 3/19 Hit@5. Research shows qwen3.6:35b-a3b is state-of-the-art for local tool-calling (BFCL). Models already on machine (M1 Max 32GB)."
     },
     {
       "id": "spike-level2-extractor",
@@ -273,263 +63,8 @@
       "type": "feature",
       "status": "pending",
       "priority": 22,
-      "depends_on": [
-        "v42-checkpoint-eval"
-      ],
-      "scope": "LLM-synthesized extraction hints (files, symbols, keywords) to complement Level 1 regex extraction. Expected to lift recall@100 from 0.45 toward 0.60 target. Deferred from retrieval-spike \u2014 see .harness/docs/retrieval-spike-findings.md \u00a7Level2.",
+      "scope": "LLM-synthesized extraction hints (files, symbols, keywords) to complement Level 1 regex extraction. Expected to lift recall@100 from 0.45 toward 0.60 target.",
       "note": "Optional enhancement. Level 1 meets gate (0.35) but not target (0.60). Deferred until V4.2 pipeline proves Hit@5 viability."
-    },
-    {
-      "id": "v42-repo-audit",
-      "name": "Full repo audit: dead code, stale docs, state cleanup, refactoring",
-      "type": "chore",
-      "status": "committed",
-      "priority": 19.5,
-      "depends_on": [
-        "v42-cursor-sdk-eval"
-      ],
-      "scope": "Comprehensive repo health audit. 5 categories, 16 subtasks. Execute sequentially by category: state cleanup \u2192 dead code \u2192 docs (critical) \u2192 refactoring \u2192 test coverage.",
-      "note": "Post-milestone cleanup. V4.2 pipeline is proven (Hit@5=0.800 with Cursor SDK, exceeds V3 baseline of 0.50). Chore work \u2014 skip adversarial harness (no contract needed).",
-      "subtasks": [
-        {
-          "id": "audit-1-archive-tasks",
-          "name": "Archive 18 completed/cancelled tasks from state.json",
-          "category": "state",
-          "severity": "fix",
-          "status": "completed",
-          "action": "Run `python scripts/archive-tasks.py`. Verify state.json retains only active/pending tasks + the audit task itself. Archive should go to .harness/state-archive.json or similar."
-        },
-        {
-          "id": "audit-2-prune-breadcrumbs",
-          "name": "Prune 91 breadcrumbs to last ~10",
-          "category": "state",
-          "severity": "fix",
-          "status": "completed",
-          "action": "Run `make harness-prune`. Verify breadcrumbs.jsonl retains only recent entries (last ~10 lines). Old breadcrumbs provide no value and bloat context windows."
-        },
-        {
-          "id": "audit-3-delete-stale-contract",
-          "name": "Delete stale contract.json (references v42-funnel-metrics, already verified)",
-          "category": "state",
-          "severity": "fix",
-          "status": "completed",
-          "action": "Delete .harness/contract.json. It references the completed v42-funnel-metrics task (verified=true). No active build needs it."
-        },
-        {
-          "id": "audit-4-update-arch-status",
-          "name": "Update state.json direction text: V4.2 is now PROVEN, not just target",
-          "category": "state",
-          "severity": "fix",
-          "status": "completed",
-          "action": "Update state.json 'direction' field to reflect V4.2 as current proven architecture (Hit@5=0.800, MRR=0.600 with Cursor SDK). Remove 'target' language."
-        },
-        {
-          "id": "audit-5-dead-v41-investigator",
-          "name": "Assess V4.1 ScopedInvestigator \u2014 still needed for baseline?",
-          "category": "dead_code",
-          "severity": "warn",
-          "status": "completed",
-          "action": "ScopedInvestigator (lines 225+) and build_scoped_system_prompt() are V4.1 code preserved 'for baseline comparison'. V4.2 has RevisedScopedInvestigator. Check if any tests or scripts import the old class. If unused except by dead tests, delete. If used by active tests, mark as baseline-only with a clear comment or extract to a separate baseline module."
-        },
-        {
-          "id": "audit-6-coverage-module",
-          "name": "Decide on eval/coverage.py \u2014 keep, test, or delete",
-          "category": "dead_code",
-          "severity": "note",
-          "status": "completed",
-          "action": "coverage.py is a standalone CLI tool for ground truth chain validation. Only imported by __main__.py. It works and serves a data-quality purpose. Decision: KEEP (data quality utility) but note it has no tests. Low priority \u2014 not part of the pipeline."
-        },
-        {
-          "id": "audit-7-serde-module",
-          "name": "Verify models/_serde.py is still used",
-          "category": "dead_code",
-          "severity": "note",
-          "status": "completed",
-          "action": "_serde.py provides value_to_dict() and instance_to_dict(). Imported by candidates.py and narrowing/models.py. KEEP \u2014 actively used. No action needed."
-        },
-        {
-          "id": "audit-8-main-module",
-          "name": "Verify __main__.py is functional",
-          "category": "dead_code",
-          "severity": "note",
-          "status": "completed",
-          "action": "__main__.py delegates to eval.coverage.main(). This means `python -m commit_investigator` runs the coverage report CLI. Functional but potentially confusing \u2014 the main CLI entry is a ground truth coverage tool, not the investigation pipeline. Decision: KEEP as-is or update to be a proper CLI entry point. Low priority."
-        },
-        {
-          "id": "audit-9-docs-system-spec",
-          "name": "[CRITICAL] Update system-specification.md: V4.2 is CURRENT, not target",
-          "category": "docs",
-          "severity": "fix",
-          "status": "completed",
-          "action": "Fix stale claims: (1) Title says 'V4.2 Target Architecture' \u2192 'V4.2 Architecture'. (2) Banner says 'V4.1 is current, V4.2 is target' \u2192 V4.2 is current, proven at Hit@5=0.800. (3) Line 322 comparison table says 'V4.1 (current impl) | V4.2 (target)' \u2192 update labels. (4) Remove references to scoped-tools-adr.md as relevant to 'current' architecture \u2014 it's historical (V4\u2192V4.1 pivot)."
-        },
-        {
-          "id": "audit-10-docs-agent-loop",
-          "name": "[CRITICAL] Rewrite agent-loop.md: include ACTUAL prompts, reflect V4.2 as current",
-          "category": "docs",
-          "severity": "fix",
-          "status": "completed",
-          "action": "Major rewrite: (1) Banner says 'V4.2 is target, V4.1 is current' \u2192 V4.2 IS the current architecture. (2) Line 208 'V4.1 Scoped Investigation (Current Implementation)' \u2192 relabel as 'V4.1 (Historical, Preserved for Baseline)'. (3) ADD the actual Phase 2 prompt template from build_phase2_system_prompt() in scoped_prompts.py \u2014 include full template structure: system role, tool invocation format (```tool), strategy section (must-examine SHAs enforcement), output format (```suspects), bug report section, candidate formatting with pre_score/file_overlap. (4) ADD the actual Phase 2b prompt template from build_phase2b_system_prompt() \u2014 include watchlist framing, reference suspect section (conditional). (5) ADD tool invocation format details: ```tool\\n{\"tool\": \"<name>\", \"args\": {...}}\\n``` and ```suspects\\n[{...}]\\n```. (6) Document the nudge ladder tiers (directive \u2192 warning \u2192 force_conclude \u2192 reject_suspects). (7) Document must-examine gate (suspects only accepted after \u22651 diff on must-examine SHA). (8) Document context compression: ToolCallCache dedup + RollingSummary (\u22642K chars)."
-        },
-        {
-          "id": "audit-11-docs-glossary",
-          "name": "Update glossary.md: V4.2 is current, remove 'Target' labels",
-          "category": "docs",
-          "severity": "fix",
-          "status": "completed",
-          "action": "Fix: (1) Section header 'Architecture (V4.2 \u2014 Target)' \u2192 'Architecture (V4.2)'. (2) Section 'V4.1 Scoped Tools (Current Implementation)' \u2192 'V4.1 Scoped Tools (Baseline, Historical)'. (3) Add missing V4.2 terms: Phase2Result, Phase2bResult, RevisedScopedInvestigator, ToolCallCache, RollingSummary, FunnelMetrics, CursorSDKProvider. (4) Verify existing definitions match current code."
-        },
-        {
-          "id": "audit-12-docs-agents-md",
-          "name": "Update AGENTS.md: V4.2 is current and proven, fix pipeline table",
-          "category": "docs",
-          "severity": "fix",
-          "status": "completed",
-          "action": "Fix: (1) Line 30 'target architecture is V4.2... current implementation is V4.1' \u2192 V4.2 is the current proven architecture. (2) Line 34 'V4.2 targets Hit@5 \u2265 0.40' \u2192 V4.2 ACHIEVED Hit@5=0.800 (Cursor SDK) and 0.250 (local gemma3:12b). (3) Pipeline table lines 84-85: 'Watchlist expansion: TBD' and 'Evaluation: TBD' \u2192 both are IMPLEMENTED (phase2b.py and eval/metrics.py). (4) eval/ listing should include metrics.py, helpers.py. (5) harness/ listing should include phase2b.py. (6) Update Baselines section with V4.2 results."
-        },
-        {
-          "id": "audit-13-docs-readme",
-          "name": "Update README.md: V4.2 is proven, update baselines",
-          "category": "docs",
-          "severity": "fix",
-          "status": "completed",
-          "action": "Fix: (1) 'Architecture (V4.2 \u2014 Target)' \u2192 'Architecture (V4.2)'. (2) Line 80 'V4.2 target: Hit@5 >= 0.40' \u2192 'V4.2 proven: Hit@5=0.800 (Cursor SDK), 0.250 (local gemma3:12b)'. (3) Package layout: add narrowing/, phase2b.py, metrics.py, helpers.py to listing. (4) eval/ shows only 'ground_truth.py, coverage.py' \u2014 add metrics.py, helpers.py."
-        },
-        {
-          "id": "audit-14-docs-eval-framework",
-          "name": "Update evaluation-framework.md: verify 5-stage funnel section is accurate",
-          "category": "docs",
-          "severity": "warn",
-          "status": "completed",
-          "action": "Check: (1) D3 says 'Removed \u2014 pending V4.2 eval module' \u2014 still accurate? (2) Verify baselines section includes V4.2 results. (3) Verify 5-stage funnel documentation matches compute_funnel() implementation. (4) Check for stale file references."
-        },
-        {
-          "id": "audit-15-refactoring",
-          "name": "Catalog refactoring opportunities (DRY, sizing, types)",
-          "category": "refactoring",
-          "severity": "note",
-          "status": "completed",
-          "action": "Known issues from prior evaluator audits: (1) run_single_case() in run_scoped_eval.py is 93 lines (over 50-line target). (2) build_v42_trace() is 51 lines. (3) Shared eval helpers already extracted to eval/helpers.py (DRY issue was fixed). Catalog remaining issues but defer fixes \u2014 these are warn-level, not blockers. Focus: identify any NEW DRY violations or sizing issues introduced since last cleanup."
-        },
-        {
-          "id": "audit-16-test-coverage",
-          "name": "Catalog test coverage gaps",
-          "category": "tests",
-          "severity": "note",
-          "status": "completed",
-          "action": "Known untested modules: (1) eval/coverage.py \u2014 no tests (standalone CLI, low priority). (2) eval/helpers.py \u2014 no dedicated test file (tested indirectly via scripts). (3) infra/llm.py CursorSDKProvider \u2014 no unit tests (requires live Cursor SDK). (4) infra/smart_diff.py \u2014 has test_smart_diff.py. (5) Verify no tests import deleted classes or reference removed modules. Catalog gaps but defer fixes \u2014 test additions are separate tasks."
-        }
-      ]
-    },
-    {
-      "id": "v42-code-quality",
-      "name": "Full code review and refactor: DRY, KISS, SOLID, Clean Architecture",
-      "type": "chore",
-      "status": "completed",
-      "priority": 20,
-      "depends_on": [
-        "v42-repo-audit"
-      ],
-      "scope": "Comprehensive code quality pass across all src/commit_investigator/ modules. 16 functions >50 lines (5 critical >70), 3 files over 300-line limit, 3 DRY violations. Execute subtasks sequentially: critical function splits → DRY extraction → file sizing → minor improvements.",
-      "note": "Planner analysis found: 16 functions >50 lines (worst: run_phase1_checkpoint.main at 198), 3 files >300 lines (git_context 404, scoped_runner 390, llm 371), prompt template duplication (phase2/phase2b share 80%), trace builder duplication (build_v42_trace/build_scoped_trace share 80%), candidate formatter duplication. 12 subtasks across 5 categories. Chore work — skip adversarial harness.",
-      "subtasks": [
-        {
-          "id": "cq-1",
-          "name": "Split run_phase1_checkpoint.main (198 lines → 4-5 functions)",
-          "category": "solid",
-          "severity": "fix",
-          "status": "verified",
-          "action": "Extract from main() in scripts/run_phase1_checkpoint.py: (1) run_single_phase1_case(case, gt) → handles JIRA load, repo check, prepare_investigation, recall@100, narrow_candidates, compute triage recall for one case. Returns case result dict. (2) compute_phase1_aggregates(case_results) → computes n_retrievable, recall rates, tier breakdown, gate pass/fail. (3) print_phase1_summary(aggregates) → prints formatted results table. (4) build_phase1_output(aggregates, case_results, elapsed) → builds summary dict for JSON. Leave main() as orchestrator: load GT, build cases, loop calling run_single_phase1_case, aggregate, print, write. Target: main <40 lines, each helper <50 lines. Single file change."
-        },
-        {
-          "id": "cq-2",
-          "name": "DRY: Extract shared prompt template in scoped_prompts.py",
-          "category": "dry",
-          "severity": "fix",
-          "status": "verified",
-          "action": "In harness/scoped_prompts.py: (1) Merge _format_must_examine (lines 22-31) and _format_candidates (lines 92-102) into one _format_candidates(candidates: list[TriagedCandidate]) function — they have identical format strings. (2) Extract shared prompt sections into helpers: _tools_section(registry), _output_format_section(), _bug_report_section(problem). These are duplicated verbatim between build_phase2_system_prompt (56 lines) and build_phase2b_system_prompt (69 lines). After extraction, both builders become thin orchestrators composing section strings. Target: both builders <30 lines each. Single file change."
-        },
-        {
-          "id": "cq-3",
-          "name": "Extract scoped_runner support classes (390 → <300 lines)",
-          "category": "clean_arch",
-          "severity": "fix",
-          "status": "verified",
-          "action": "scoped_runner.py contains 9 classes/types — too many concerns. Extract to harness/investigation_support.py: NudgeAction, NudgeResult, NudgeLadder, MustExamineGate, ToolCallCache, RollingSummary, ToolCallRecord, Phase2Result. Keep only RevisedScopedInvestigator in scoped_runner.py (imports support classes). Also split investigate() (75 lines) by extracting _execute_tool_calls(parsed, trace, calls_used) as a helper method. Target: scoped_runner.py <200 lines, investigation_support.py <200 lines. 2 files changed + update imports in phase2b.py, run_scoped_eval.py, eval/metrics.py."
-        },
-        {
-          "id": "cq-4",
-          "name": "Refactor build_scoped_tools (90 → <50 lines)",
-          "category": "solid",
-          "severity": "fix",
-          "status": "verified",
-          "action": "In agent/tools.py: build_scoped_tools registers 4 tools with repetitive boilerplate (same parameter schema pattern, same SHA validation pattern). Refactor: (1) Extract a _register_scoped_tool(registry, name, description, params, handler, validate_sha, validator) helper that handles the SHA-validation-then-execute pattern. (2) Define tool specs as data (name, description, param schema, git method) and register in a loop. Target: build_scoped_tools <30 lines, helper <25 lines. Single file change."
-        },
-        {
-          "id": "cq-5",
-          "name": "Split assemble_diff budget allocation (82 → <50 lines)",
-          "category": "solid",
-          "severity": "fix",
-          "status": "verified",
-          "action": "In infra/smart_diff.py: assemble_diff mixes ranking, budget allocation, and output assembly. Extract: (1) _allocate_budget(ranked_files: list[FileDiff], max_chars: int) → returns (sections, included_files, truncated_files) — the for-loop at lines 181-201 that handles full/minimal/skip decisions per file. assemble_diff becomes: parse → rank → allocate → join. Target: assemble_diff <40 lines, _allocate_budget <30 lines. Single file change."
-        },
-        {
-          "id": "cq-6",
-          "name": "Refactor warm_cache (71 → <50 lines)",
-          "category": "solid",
-          "severity": "fix",
-          "status": "verified",
-          "action": "In scripts/warm_jira_cache.py: warm_cache has a deep loop body mixing fetch, cache check, selection, and stats tracking. Extract: (1) _process_candidate(jira, candidate, stats) → returns Optional[dict] (selected case or None). (2) Move stats tracking and progress logging into the main loop, keep single-candidate logic in helper. Target: warm_cache <45 lines, helper <25 lines. Single file change."
-        },
-        {
-          "id": "cq-7",
-          "name": "DRY: Consolidate trace builders in trace_writer.py",
-          "category": "dry",
-          "severity": "fix",
-          "status": "verified",
-          "action": "In harness/trace_writer.py: build_v42_trace (lines 183-218) and build_scoped_trace (lines 221-251) share ~80% code — both build InvestigationTrace with identical patterns for candidates_examined, examination_turns, stage_timings, and outcome. Consolidate into a single build_trace() function with optional funnel parameter: when funnel is provided, populate recall/triage metrics; otherwise, accept recall_found bool for backward compat. Delete build_scoped_trace (check if any callers remain — likely dead after V4.1 cleanup). Update callers (run_scoped_eval.py). Target: one builder <40 lines. 2 files changed."
-        },
-        {
-          "id": "cq-8",
-          "name": "Split git_context.py (404 → <300 lines)",
-          "category": "clean_arch",
-          "severity": "fix",
-          "status": "verified",
-          "action": "infra/git_context.py has 404 lines — GitContextProvider does too many things: commit inspection, file access, search, blame, and date range queries. Extract search/query methods to infra/git_search.py: search_commits_by_file, search_commits_by_keyword, search_commits_by_pickaxe, list_commits_in_date_range, list_recent_commits, resolve_file_path (lines 207-362, ~155 lines). These are used by retrieval/strategies.py and retrieval/retriever.py. Option: create a GitSearchProvider that wraps GitContextProvider, or make them standalone functions accepting a GitContextProvider. Target: git_context.py <250 lines, git_search.py <180 lines. 2-3 files changed (+ update imports in strategies.py)."
-        },
-        {
-          "id": "cq-9",
-          "name": "Refactor llm.py providers (371 → <300 lines)",
-          "category": "clean_arch",
-          "severity": "fix",
-          "status": "verified",
-          "action": "infra/llm.py has 371 lines with 5 classes + 2 factory functions. Options: (A) Extract CursorSDKProvider (lines 90-207, 117 lines) to infra/cursor_sdk_provider.py — it's self-contained with its own imports (cursor_sdk, tempfile). OpenAIProvider + get_provider stay in llm.py. (B) Alternatively, just reduce OpenAIProvider.complete (62 lines) by extracting _build_payload() and _parse_response() helpers, and reduce get_provider (52 lines) by extracting _try_cursor_provider(), _try_openai_provider(). Either approach gets llm.py under 300. Option A preferred for clean separation. Target: llm.py <260 lines. 2 files changed."
-        },
-        {
-          "id": "cq-10",
-          "name": "Minor function splits: borderline 55-69 line functions",
-          "category": "solid",
-          "severity": "note",
-          "status": "verified",
-          "action": "Address remaining functions in the 55-69 range IF natural extraction points exist. Candidates: (1) build_phase2b_system_prompt (69 lines, but should shrink naturally from cq-2 DRY extraction). (2) OpenAIProvider.complete (62 lines, should shrink from cq-9). (3) retrieve_candidates (59 lines) — extract fallback recency logic into _apply_recency_fallback(). (4) compute_pre_scores (58 lines) — extract per-candidate scoring into _score_candidate(). Skip functions that are coherent single-purpose at ~52-56 lines (coverage_report, run_phase2b, get_provider, CursorSDKProvider.complete, prepare_investigation). Target: reduce each addressed function to <50 lines. 3 files max."
-        },
-        {
-          "id": "cq-11",
-          "name": "Fix Any overuse and add missing type hints",
-          "category": "typing",
-          "severity": "note",
-          "status": "verified",
-          "action": "Fix type safety issues: (1) trace_writer.py build_v42_trace takes funnel: Any (comment says 'to avoid circular import') — fix with TYPE_CHECKING import. (2) run_scoped_eval.py _run_pipeline returns dict[str, Any] — replace with a typed dataclass or TypedDict. (3) _dicts_to_suspects in phase2b.py takes list[dict[str, Any]] — already has typed Suspect, just ensure callers use it. (4) eval/helpers.py write_run_config takes **kwargs: Any — acceptable for config, skip. Target: eliminate unnecessary Any usage in 3-4 files."
-        },
-        {
-          "id": "cq-12",
-          "name": "Naming improvements across modules",
-          "category": "naming",
-          "severity": "note",
-          "status": "verified",
-          "action": "Improve vague/short names: (1) scoped_runner.py: _summary._lines.append — accessing private field directly, add a method like _summary.add_harness_note(). (2) retriever.py: pre_trim → ranked_candidates (more descriptive). (3) scoring.py: fo, sc, w → file_overlap_score, signal_count, weights (already good in context, low priority). (4) phase2b.py: p2_s, p2b_s → phase2_suspect, phase2b_suspect. Scan for other single-letter or cryptic variable names. Target: improve 10-15 variable names across 4-5 files."
-        }
-      ]
     }
   ]
 }
