@@ -2,11 +2,11 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v42-proven",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-18T14:14:00Z",
+  "updated": "2026-06-18T18:14:00Z",
   "schema_version": 5,
   "_archive": "V2 archived to state-v2-archive.json. V4.0-V4.2 build tasks (22 tasks) archived to state-v42-archive.json. Code quality + repo audit archived this session.",
   "vision": "Build a plan-driven bug attribution agent with internal governance. The system separates concerns into three pipelines: (1) Input Pipeline — deterministic extraction and candidate retrieval at zero LLM cost; (2) Agent Pipeline — LLM plans, examines, and attributes within an InvestigationBrief, governed by an investigation harness with rules and skills; (3) Evaluation Pipeline — oracle scores output. The agent receives a CandidateSet (not raw repo access), operates within completion criteria (not just budget), produces structured InvestigationTraces for learning, and improves over time via skills derived from traces. Evaluated via Hit@k, MRR, D3, D6, and Retrieval Recall against ApacheJIT ground truth.",
-  "direction": "ARCHITECTURE V4.2: PROVEN. Revised Hierarchical Pipeline — script pre-score (100→15) → deterministic triage (15→7: 3 must-examine + 4 watchlist, zero LLM) → scoped investigation (ReAct) → conditional watchlist expansion. Hit@5=0.800, MRR=0.600 with Cursor SDK (claude-sonnet-4-6). Local gemma3:12b achieves Hit@5=0.250, MRR=0.225. Exceeds V3 baseline (Hit@5=0.50) by 60%. Bottleneck is model quality, not pipeline structure.",
+  "direction": "ARCHITECTURE V4.2: PROVEN at scale (n=20, 6 cloud models). Best: gpt-5.3-codex Hit@5=0.500, MRR=0.400, 62s/case — ties claude-sonnet-4-6 Hit@5=0.500, MRR=0.354, 125s/case but 2x faster. Budget models viable: claude-haiku-4-5 (0.450), gpt-5.4-nano (0.400). gemini-3-flash (0.000) and composer-2.5 (0.400 partial, latency-aborted) not viable. Pipeline ceiling appears to be Hit@5=0.500 at n=20 — bottleneck is Recall@100=0.700 (6 cases never enter the funnel). Prior n=5 baseline (0.800) was overfit to easy cases.",
   "invariants": {
     "temporal_bound": "Temporal bound (COMMIT_B~1) constrains the ENTIRE system — input pipeline retrieval and agent tools. In eval mode, bound comes from fix_hash.",
     "llm_reasons_scripts_retrieve": "Scripts own retrieval (candidate set assembly) and evidence verification. LLM owns planning, examination reasoning, and attribution.",
@@ -24,9 +24,22 @@
   },
   "baselines": {
     "v3_fully_agentic": { "hit_at_5": 0.50, "mrr": 0.304, "note": "Code deleted, results in exp19b retrospective" },
-    "v42_cursor_sdk": { "hit_at_5": 0.800, "mrr": 0.600, "model": "claude-sonnet-4-6", "n": 5 },
+    "v42_cursor_sdk_n5": { "hit_at_5": 0.800, "mrr": 0.600, "model": "claude-sonnet-4-6", "n": 5, "note": "Overfit to easy subset — n=20 shows 0.500" },
     "v42_gemma3_12b": { "hit_at_5": 0.250, "mrr": 0.225, "model": "gemma3:12b-it-q8_0", "n": 20 },
-    "v42_qwen3_8b": { "hit_at_5": 0.158, "mrr": 0.113, "model": "qwen3:8b", "n": 20 }
+    "v42_qwen3_8b": { "hit_at_5": 0.158, "mrr": 0.113, "model": "qwen3:8b", "n": 20 },
+    "v42_scaled_eval_n20": {
+      "date": "2026-06-18",
+      "n": 20,
+      "note": "6 cloud models via Cursor SDK. 2 aborted by early-stopping. Recall@100=0.700 caps the pipeline.",
+      "models": {
+        "gpt-5.3-codex":    { "hit_at_5": 0.500, "mrr": 0.400, "avg_latency_s": 62,  "n": 20, "status": "completed" },
+        "claude-sonnet-4-6": { "hit_at_5": 0.500, "mrr": 0.354, "avg_latency_s": 125, "n": 20, "status": "completed" },
+        "claude-haiku-4-5":  { "hit_at_5": 0.450, "mrr": 0.400, "avg_latency_s": 110, "n": 20, "status": "completed" },
+        "gpt-5.4-nano":      { "hit_at_5": 0.400, "mrr": 0.279, "avg_latency_s": 93,  "n": 20, "status": "completed" },
+        "composer-2.5":      { "hit_at_5": 0.400, "mrr": 0.350, "avg_latency_s": 641, "n": 10, "status": "aborted", "reason": "latency ceiling 600s" },
+        "gemini-3-flash":    { "hit_at_5": 0.000, "mrr": 0.000, "avg_latency_s": 152, "n": 10, "status": "aborted", "reason": "performance floor 0.20" }
+      }
+    }
   },
   "completed_milestones": [
     "v42-phase1a-scoring: Phase 1a pre-score formula (Recall@15=0.846)",
@@ -37,7 +50,8 @@
     "v42-checkpoint-eval: Full n=20 eval (Hit@5=0.158 local, 0.800 Cursor SDK)",
     "v42-cursor-sdk-eval: Cloud model comparison (Hit@5=0.8)",
     "v42-repo-audit: Full repo audit — dead code, stale docs, state cleanup",
-    "v42-code-quality: Code quality refactor (12 subtasks) + module naming restructure"
+    "v42-code-quality: Code quality refactor (12 subtasks) + module naming restructure",
+    "v42-scaled-eval: 6-model cloud eval n=20 via Cursor SDK. Best: codex=sonnet=0.500 Hit@5. Early-stopping validated (gemini aborted, composer aborted). Recall@100=0.700 is pipeline ceiling."
   ],
   "cancelled_tasks": [
     "v3-post-processing-b: V3 re-ranking — superseded by V4",
@@ -61,7 +75,7 @@
       "id": "v42-scaled-eval",
       "name": "Scaled eval across 6 cloud models via Cursor SDK",
       "type": "checkpoint",
-      "status": "building",
+      "status": "completed",
       "priority": 19,
       "scope": "Run eval on all available ground truth cases (~20) across 6 cloud models via Cursor SDK Agent.prompt(). Models: claude-sonnet-4-6 (baseline), claude-haiku-4-5, gpt-5.4-nano, gpt-5.3-codex, gemini-3-flash, composer-2.5. Compare Hit@5, MRR, avg latency, cost/case. Implement automatic early-stopping.",
       "models": [
@@ -127,11 +141,25 @@
           "id": "v42-scaled-eval-7-preflight",
           "name": "Add model validation pre-flight check",
           "type": "feature",
-          "status": "pending",
+          "status": "cancelled",
           "scope": "Before starting the run, validate all requested model IDs against the Cursor SDK. Use Cursor.models.list() (from cursor_sdk) to fetch valid model slugs and warn/abort if any requested model is not in the list. This prevents wasting time on models that will just error out on every case. Handle gracefully: if models.list() fails (network, auth), log a warning and proceed without validation. Touch: run_scaled_eval.py only."
         }
       ],
-      "note": "claude-sonnet-4-6 achieved Hit@5=0.800 on n=5. This scales to max available cases and adds model diversity. Expect cheaper models (haiku, nano, flash) to underperform but at 10-50x lower cost. Execution (actually running the eval) is a manual step after code is built. Planner review (2026-06-18) found 3 bugs in resume path and threshold calibration — subtasks 5-7 added."
+      "note": "COMPLETED 2026-06-18. 6 models evaluated (n=20 each, 2 early-stopped). Best: gpt-5.3-codex (Hit@5=0.500, 62s/case). Sonnet dropped from n=5 baseline 0.800 to 0.500 at n=20. Early-stopping saved ~50% time on gemini-3-flash (perf floor) and composer-2.5 (latency ceiling). Pipeline ceiling is Recall@100=0.700. Results in results/2026-06-18T14-41-scaled-eval/ (main), results/2026-06-18T17-06-scaled-eval/ (codex), results/2026-06-18T17-30-scaled-eval/ (sonnet)."
+    },
+    {
+      "id": "spike-trace-analysis",
+      "name": "Trace analysis: sonnet vs codex failure modes and improvement hypotheses",
+      "type": "spike",
+      "status": "pending",
+      "priority": 20,
+      "scope": "Analyze investigation traces from the n=20 scaled eval for claude-sonnet-4-6 and gpt-5.3-codex. Both hit 10/20 — the SAME 10 cases. Focus on the 10 misses: (1) How many are Recall@100 misses (bug never in candidate set)? (2) How many survive to ExamRecall but fail attribution? (3) What patterns distinguish hits from misses? (4) Are misses due to weak retrieval, bad triage, poor investigation reasoning, or noisy ground truth? Produce hypotheses for what could lift Hit@5 from 0.500 toward 0.700+. Output: structured analysis document with per-case miss breakdown, failure taxonomy, and ranked improvement hypotheses.",
+      "inputs": [
+        "results/2026-06-18T17-06-scaled-eval/ (codex traces)",
+        "results/2026-06-18T17-30-scaled-eval/ (sonnet traces)",
+        "results/2026-06-18T14-41-scaled-eval/ (nano, haiku, gemini, composer traces)"
+      ],
+      "note": "Both top models hit the same 10 cases — suggests the pipeline has a structural ceiling, not a model reasoning ceiling. Recall@100=0.700 means 6 cases are lost before the LLM even sees them. This spike determines whether the next investment is retrieval (lift Recall@100) or investigation (lift ExamRecall→Hit@5 conversion)."
     },
     {
       "id": "spike-level2-extractor",

@@ -17,3 +17,5 @@
 {"ts":"2026-06-18T14:34:00Z","role":"evaluator","type":"eval","feat":"v42-scaled-eval","msg":"All 8 AC pass, 3 EC pass, 310 tests pass. Verified. Warnings: float drift, checkpoint key semantics, typing.","result":"pass"}
 {"ts":"2026-06-18T14:34:00Z","role":"evaluator","type":"eval","feat":"v42-scaled-eval-5-and-6","msg":"PASS 8/8 AC, 3/3 EC, 310 tests pass. Verdict: pass. Recommendation: proceed. Report at .harness/evals/eval-v42-scaled-eval-5-and-6.json","result":"pass"}
 {"ts":"2026-06-18T14:38:07","role":"builder","type":"checkpoint","feat":"v42-scaled-eval-5-and-6","msg":"Commit:  (3 files)"}
+{"ts":"2026-06-18T18:14:00Z","role":"builder","type":"checkpoint","feat":"v42-scaled-eval","msg":"Scaled eval complete. 6 models, n=20: codex=sonnet=0.500 Hit@5, haiku=0.450, nano=0.400, composer=0.400(aborted), gemini=0.000(aborted). Early-stopping worked on 2 models. State updated with full results.","result":"pass"}
+{"ts":"2026-06-18T18:16:40","role":"builder","type":"checkpoint","feat":"v42-scaled-eval-5-and-6","msg":"Commit:  (3 files)"}

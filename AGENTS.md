@@ -99,5 +99,17 @@ All `results/` content is local, gitignored, and reproducible from scripts. New 
 ## Baselines
 
 V3 (fully agentic, full repo tools): Hit@5=0.50, MRR=0.304. Code deleted during cleanup; results preserved in [exp19b retrospective](.harness/docs/exp19b-retrospective.md).
-V4.2 (Cursor SDK, claude-sonnet-4-6): Hit@5=0.800, MRR=0.600 (n=5).
 V4.2 (local gemma3:12b): Hit@5=0.250, MRR=0.225 (n=20).
+
+### V4.2 Scaled Eval (n=20, 6 cloud models via Cursor SDK, 2026-06-18)
+
+| Model | Hit@5 | MRR | Lat/case | N | Status |
+|---|---|---|---|---|---|
+| gpt-5.3-codex | **0.500** | **0.400** | 62s | 20 | completed |
+| claude-sonnet-4-6 | 0.500 | 0.354 | 125s | 20 | completed |
+| claude-haiku-4-5 | 0.450 | 0.400 | 110s | 20 | completed |
+| gpt-5.4-nano | 0.400 | 0.279 | 93s | 20 | completed |
+| composer-2.5 | 0.400 | 0.350 | 641s | 10 | aborted (latency) |
+| gemini-3-flash | 0.000 | 0.000 | 152s | 10 | aborted (perf floor) |
+
+Pipeline ceiling: Recall@100=0.700 (6/20 cases never enter the funnel). Prior n=5 baseline (0.800) was overfit to easy cases.
