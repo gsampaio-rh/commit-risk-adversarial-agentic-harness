@@ -112,4 +112,22 @@ V4.2 (local gemma3:12b): Hit@5=0.250, MRR=0.225 (n=20).
 | composer-2.5 | 0.400 | 0.350 | 641s | 10 | aborted (latency) |
 | gemini-3-flash | 0.000 | 0.000 | 152s | 10 | aborted (perf floor) |
 
-Pipeline ceiling: Recall@100=0.700 (6/20 cases never enter the funnel). Prior n=5 baseline (0.800) was overfit to easy cases.
+### V4.2 Post-P21/P22/P22.5 (n=20, 2026-06-18)
+
+After: always-trigger phase2b (P21), extended symbol extraction + pickaxe (P22), shortlist 20 + adaptive weights (P22.5).
+
+| Model | Hit@5 | MRR | Recall@100 | Lat/case | N | New hits | Regressions |
+|---|---|---|---|---|---|---|---|
+| gpt-5.3-codex | **0.600** | 0.378 | **0.800** | 104s | 20 | SPARK-946, IGNITE-1787 | 0 |
+
+Recall@100 lifted from 0.700→0.800 (4/20 cases still not retrieved). Phase2b rescued 2 cases beyond Exam Recall (Hit@5 > ExamRecall).
+
+### V4.2 Post-P24 (n=20, 2026-06-18)
+
+P24 quick wins: triage expansion (WATCHLIST_SIZE 4→7) REVERTED after consistent -3/-4 regression. --first-parent removal from keyword_grep/file_log KEPT (no structural regression).
+
+| Model | Hit@5 | MRR | Recall@100 | Lat/case | N | Lost | Note |
+|---|---|---|---|---|---|---|---|
+| gpt-5.3-codex | 0.550 | 0.358 | 0.800 | 97s | 20 | HDFS-7734 | LLM variance (exam_recall=true) |
+
+Deterministic pipeline unchanged (Recall@100=0.800, Triage=12/20). The -1 is stochastic at investigation phase.

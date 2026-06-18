@@ -1,27 +1,28 @@
 {
-  "task_id": "adaptive-scoring",
-  "feature": "Expand shortlist to 20 + adaptive weights when extracted_files is empty",
-  "problem": "HBASE-4577 GT at rank 17 (barely outside top 15). When JIRA has no file hints, file_overlap=0 for ALL candidates and the 50% weight is wasted — scoring degenerates to rank preservation only. GROOVY-5775 (rank 31) and IGNITE-1787 (rank 29) are deeper and may need future formula work, but the simple expansion + adaptive weights covers the clearest win.",
-  "proposed_solution": "Two changes in scoring.py: (1) DEFAULT_SHORTLIST_SIZE from 15 to 20. (2) When problem.extracted_files is empty, use adaptive weights {file_overlap: 0.0, signal_count: 0.6, rank: 0.4} since file_overlap is meaningless without file hints. Both are zero-LLM-cost changes.",
+  "task_id": "quick-wins-triage-firstparent",
+  "feature": "Expand triage watchlist 4→7 and remove --first-parent from keyword/file_log search",
+  "problem": "P22.5 expanded shortlist to 20 but triage still cuts at 7 (3+4), creating a dead zone at positions 8-10. GT cases like GROOVY-8298 and SPARK-23059 are stuck in this dead zone. Additionally, search_commits_by_keyword and get_file_history still use --first-parent, missing commits introduced via merged branches. Pickaxe had this fixed in P22 but keyword_grep and file_log were missed.",
+  "proposed_solution": "Two independent one-liner changes: (1) WATCHLIST_SIZE 4→7 in triage.py, expanding total triage from 7 to 10 (3 must-examine + 7 watchlist). (2) Remove --first-parent from search_commits_by_keyword in git_search.py and get_file_history in git_context.py, matching the P22 pickaxe fix.",
   "acceptance_criteria": [
-    "AC1: DEFAULT_SHORTLIST_SIZE is 20",
-    "AC2: When extracted_files is empty, file_overlap weight is 0.0 and signal_count is 0.6, rank is 0.4",
-    "AC3: When extracted_files is non-empty, default weights are unchanged (0.5/0.3/0.2)",
-    "AC4: Custom weights parameter still overrides adaptive logic",
-    "AC5: All existing tests pass (some may need shortlist_size adjustment)",
-    "AC6: Only scoring.py and test_narrowing.py changed"
+    "AC1: WATCHLIST_SIZE constant in triage.py equals 7",
+    "AC2: assign_tiers() with default params produces 3 must_examine + 7 watchlist for a shortlist of >=10",
+    "AC3: narrow_candidates() default watchlist_size is 7 (inherited from constant)",
+    "AC4: search_commits_by_keyword in git_search.py does NOT contain --first-parent",
+    "AC5: get_file_history in git_context.py does NOT contain --first-parent",
+    "AC6: search_commits_by_pickaxe (already fixed in P22) still does NOT contain --first-parent",
+    "AC7: Docstrings in search_commits_by_keyword and get_file_history no longer reference --first-parent",
+    "AC8: All existing tests in tests/test_narrowing.py pass with assertions updated to reflect WATCHLIST_SIZE=7 (specifically: test_watchlist_gets_next4 renamed/updated, tier_rank list extended, and all hardcoded == 4 watchlist assertions changed to == 7)",
+    "AC9: SCOPE GUARD — list_recent_commits and list_commits_in_date_range in git_search.py RETAIN --first-parent unchanged (these use linear history intentionally for overview/browsing, unlike keyword search which needs merge traversal)"
   ],
   "edge_cases": [
-    "EC1: Empty candidate set + empty extracted_files returns empty shortlist (no crash)",
-    "EC2: Single candidate + empty extracted_files produces valid score",
-    "EC3: extracted_files=[''] (whitespace-only) still counts as non-empty (existing behavior preserved)"
+    "EC1: Shortlist with fewer than 10 candidates — triage fills what's available without error (e.g., 8 candidates → 3 must-examine + 5 watchlist)",
+    "EC2: Shortlist with exactly 3 candidates — all go to must_examine, watchlist is empty",
+    "EC3: Shortlist with exactly 10 candidates — all slots filled exactly (3 must-examine + 7 watchlist), no IndexError or off-by-one"
   ],
-  "verification_method": "Evaluator should: (1) Read scoring.py and verify adaptive weight logic. (2) Verify DEFAULT_SHORTLIST_SIZE == 20. (3) Run full test suite. (4) Verify only scoring.py and test_narrowing.py changed.",
-  "rubrics": [
-    "code-quality"
-  ],
+  "verification_method": "Run pytest full suite (pytest tests/test_narrowing.py). Verify constants and git args by reading source. Grep git_search.py for --first-parent: should appear in list_recent_commits and list_commits_in_date_range ONLY.",
+  "rubrics": ["code-quality"],
   "rubric_mode": "warn",
-  "negotiation_rounds": 0,
+  "negotiation_rounds": 2,
   "phase": "evaluating",
   "verified": true
 }

@@ -1,0 +1,24 @@
+{
+  "task_id": "quick-wins-triage-firstparent",
+  "verdict": "pass",
+  "criteria": {
+    "AC1": "PASS — triage.py line 20: WATCHLIST_SIZE = 7",
+    "AC2": "PASS — assign_tiers() defaults to MUST_EXAMINE_SIZE=3, WATCHLIST_SIZE=7; loop assigns positions 0-2 to must_examine, 3-9 to watchlist. Verified by test_default_tier_sizes (38/38 pass).",
+    "AC3": "PASS — pipeline.py narrow_candidates() signature has watchlist_size: int = WATCHLIST_SIZE (imported from triage), docstring says 'default: 7'.",
+    "AC4": "PASS — search_commits_by_keyword args list (git_search.py lines 56-61) does NOT contain --first-parent. Grep confirms --first-parent only in list_recent_commits (line 80) and list_commits_in_date_range (line 142).",
+    "AC5": "PASS — get_file_history args list (git_context.py line 167) does NOT contain --first-parent. Grep confirms no --first-parent in git_context.py args (only docstring reference at line 163).",
+    "AC6": "PASS — search_commits_by_pickaxe args list (git_search.py lines 117-120) does NOT contain --first-parent.",
+    "AC7": "PASS — Docstrings in search_commits_by_keyword and get_file_history document '(no --first-parent)' to explain traversal behavior. They no longer claim --first-parent IS used. Explanatory references are appropriate documentation.",
+    "AC8": "PASS — 38/38 tests pass. Key assertions verified: test_watchlist_gets_next7 asserts range(3,10), test_tier_rank_sequential asserts [1..7], test_full_pipeline asserts watchlist==7, test_watchlist_shas_property asserts len==7, test_triage_result_round_trip asserts restored.watchlist==7.",
+    "AC9": "PASS — SCOPE GUARD: list_recent_commits (line 80) and list_commits_in_date_range (line 142) both RETAIN --first-parent. These are the ONLY two occurrences in git_search.py args. Intentional for linear history browsing."
+  },
+  "edge_cases": {
+    "EC1": "PASS — test_small_shortlist_partial_fill: shortlist of 5 → 3 must_examine + 2 watchlist. Loop naturally stops at end of candidates list. No error.",
+    "EC2": "PASS — test_shortlist_smaller_than_must_examine: shortlist of 2 → 2 must_examine + 0 watchlist. Loop assigns all to must_examine, watchlist stays empty.",
+    "EC3": "PASS — Code logic: for 10 candidates, positions 0-2 → must_examine (3), positions 3-9 → watchlist (7). Loop condition (i < must_examine_size + watchlist_size = 10) correctly bounds. No IndexError or off-by-one."
+  },
+  "test_result": "38 passed in 0.09s",
+  "warnings": [
+    "AC7 note: Docstrings reference '--first-parent' in explanatory context ('no --first-parent') rather than removing all mentions. This is better documentation than silence — documents intent. Acceptable."
+  ]
+}

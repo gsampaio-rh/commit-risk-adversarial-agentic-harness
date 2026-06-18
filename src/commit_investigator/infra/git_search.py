@@ -49,13 +49,13 @@ class GitSearchMixin:
     ) -> list[FileHistoryEntry]:
         """Search commit messages for a keyword (case-insensitive).
 
-        Uses git log --grep with --first-parent for linear history.
+        Traverses ALL commits (no --first-parent) to reach commits
+        introduced via merged branches/PRs.
         Bounded by temporal_bound when set.
         """
         args = [
             "log", f"-{max_results}",
             "--format=%H|%an|%ai|%s",
-            "--first-parent",
             "--grep", keyword,
             "-i",
         ]

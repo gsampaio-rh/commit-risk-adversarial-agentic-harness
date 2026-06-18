@@ -2,11 +2,11 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v42-proven",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-18T18:14:00Z",
+  "updated": "2026-06-18T21:10:00Z",
   "schema_version": 5,
   "_archive": "V2 archived to state-v2-archive.json. V4.0-V4.2 build tasks (22 tasks) archived to state-v42-archive.json. Code quality + repo audit archived this session.",
   "vision": "Build a plan-driven bug attribution agent with internal governance. The system separates concerns into three pipelines: (1) Input Pipeline — deterministic extraction and candidate retrieval at zero LLM cost; (2) Agent Pipeline — LLM plans, examines, and attributes within an InvestigationBrief, governed by an investigation harness with rules and skills; (3) Evaluation Pipeline — oracle scores output. The agent receives a CandidateSet (not raw repo access), operates within completion criteria (not just budget), produces structured InvestigationTraces for learning, and improves over time via skills derived from traces. Evaluated via Hit@k, MRR, D3, D6, and Retrieval Recall against ApacheJIT ground truth.",
-  "direction": "ARCHITECTURE V4.2: PROVEN at scale (n=20, 6 cloud models). Best: gpt-5.3-codex Hit@5=0.500, MRR=0.400, 62s/case — ties claude-sonnet-4-6 Hit@5=0.500, MRR=0.354, 125s/case but 2x faster. Budget models viable: claude-haiku-4-5 (0.450), gpt-5.4-nano (0.400). gemini-3-flash (0.000) and composer-2.5 (0.400 partial, latency-aborted) not viable. Pipeline ceiling appears to be Hit@5=0.500 at n=20 — bottleneck is Recall@100=0.700 (6 cases never enter the funnel). Prior n=5 baseline (0.800) was overfit to easy cases.",
+  "direction": "V4.2 PROVEN at Hit@5=0.600 (baseline). P24 quick wins: triage expansion REVERTED (dilutes LLM attention), --first-parent removal KEPT (structurally correct, no regression). Current effective Hit@5=0.550-0.600 (LLM variance). Next phase: CAUSAL TRACING. Phase 0 (bug localization + targeted blame via reverse SZZ) addresses the 8 structural misses. Validated by diagnostic spike (P25) before full build (P26). Embedding retrieval (P27) is fallback if Phase 0 insufficient.",
   "invariants": {
     "temporal_bound": "Temporal bound (COMMIT_B~1) constrains the ENTIRE system — input pipeline retrieval and agent tools. In eval mode, bound comes from fix_hash.",
     "llm_reasons_scripts_retrieve": "Scripts own retrieval (candidate set assembly) and evidence verification. LLM owns planning, examination reasoning, and attribution.",
@@ -39,6 +39,15 @@
         "composer-2.5":      { "hit_at_5": 0.400, "mrr": 0.350, "avg_latency_s": 641, "n": 10, "status": "aborted", "reason": "latency ceiling 600s" },
         "gemini-3-flash":    { "hit_at_5": 0.000, "mrr": 0.000, "avg_latency_s": 152, "n": 10, "status": "aborted", "reason": "performance floor 0.20" }
       }
+    },
+    "v42_post_p21_p22_p225": {
+      "date": "2026-06-18",
+      "n": 20,
+      "note": "After P21 (always-trigger phase2b) + P22 (extended symbols + pickaxe) + P22.5 (shortlist 20 + adaptive weights). Zero regressions vs prior baseline.",
+      "features": ["phase2b-always-trigger", "extend-keyword-sources", "adaptive-scoring"],
+      "models": {
+        "gpt-5.3-codex": { "hit_at_5": 0.600, "mrr": 0.378, "avg_latency_s": 104, "recall_at_100": 0.800, "n": 20, "status": "completed", "new_hits": ["SPARK-946", "IGNITE-1787"], "lost_hits": [] }
+      }
     }
   },
   "completed_milestones": [
@@ -51,14 +60,23 @@
     "v42-cursor-sdk-eval: Cloud model comparison (Hit@5=0.8)",
     "v42-repo-audit: Full repo audit — dead code, stale docs, state cleanup",
     "v42-code-quality: Code quality refactor (12 subtasks) + module naming restructure",
-    "v42-scaled-eval: 6-model cloud eval n=20 via Cursor SDK. Best: codex=sonnet=0.500 Hit@5. Early-stopping validated (gemini aborted, composer aborted). Recall@100=0.700 is pipeline ceiling."
+    "v42-scaled-eval: 6-model cloud eval n=20 via Cursor SDK. Best: codex=0.500, sonnet=0.500 Hit@5. Early-stopping validated. Recall@100=0.700 ceiling.",
+    "spike-trace-analysis: Sonnet vs codex failure modes — same 10 hits, structural ceiling not model ceiling. Led to P21-P22.5.",
+    "phase2b-always-trigger (P21): Always-trigger phase2b. Verified.",
+    "diag-prescore-rank (P21.1): GT rank for 3 funnel failures. HBASE-4577@17 (expansion), GROOVY-5775@31, IGNITE-1787@29 (formula).",
+    "diag-keyword-recall (P21.2): Symbol extraction diagnostic for 6 recall failures. 2/6 rescuable by regex, +1 by pickaxe flag.",
+    "extend-keyword-sources (P22): Acronym/lowerCamelCase regexes + pickaxe --first-parent removal. Verified.",
+    "adaptive-scoring (P22.5): Shortlist 15→20 + adaptive weights for empty extracted_files. Verified.",
+    "p21-p22-p225-validation: gpt-5.3-codex n=20 eval post-improvements. Hit@5=0.500→0.600, Recall@100=0.700→0.800. +2 hits (SPARK-946, IGNITE-1787), 0 regressions.",
+    "quick-wins-triage-firstparent (P24): Triage 7→10 REVERTED (-3/-4 regression). --first-parent removal KEPT (no structural regression). Hit@5=0.550 (stochastic -1 vs 0.600)."
   ],
   "cancelled_tasks": [
     "v3-post-processing-b: V3 re-ranking — superseded by V4",
     "eval-n50: Scale V3 eval to n=50 — deferred",
     "ci-pipeline: Automated eval CI — premature",
     "v42-gate-provider-compliance: Pre-implementation gate (merged into build)",
-    "v42-phase1b-triage: Phase 1b LLM triage (merged into P14)"
+    "v42-phase1b-triage: Phase 1b LLM triage (merged into P14)",
+    "spike-level2-extractor: Level 2 LLM extraction — superseded by Phase 0 bug localization (P26)"
   ],
   "tasks": [
     {
@@ -66,158 +84,56 @@
       "name": "V4.2 model comparison: local models n=5 eval",
       "type": "checkpoint",
       "status": "pending",
-      "priority": 19.1,
-      "scope": "Run n=5 eval (subset with ExamRecall=true) on multiple local models to find best candidate for full n=20 re-eval. Models: qwen3.6:35b-a3b (MoE, thinking OFF), qwen3:8b (thinking ON, max_tokens=16384), gemma3:12b-it-q8_0. Compare Hit@5, conversion rate, speed. Pick best for full re-eval.",
-      "gate": { "hit_at_5_of_5": 2 },
-      "note": "qwen3:8b baseline: 3/19 Hit@5. Research shows qwen3.6:35b-a3b is state-of-the-art for local tool-calling (BFCL). Models already on machine (M1 Max 32GB)."
+      "priority": 30,
+      "scope": "Run n=5 eval on local models (qwen3.6:35b-a3b, qwen3:8b, gemma3:12b-it-q8_0). Compare Hit@5, speed. Pick best for full re-eval.",
+      "note": "DEFERRED: cloud models significantly outperform local. Revisit after Phase 0 work stabilizes."
     },
     {
-      "id": "v42-scaled-eval",
-      "name": "Scaled eval across 6 cloud models via Cursor SDK",
-      "type": "checkpoint",
-      "status": "completed",
-      "priority": 19,
-      "scope": "Run eval on all available ground truth cases (~20) across 6 cloud models via Cursor SDK Agent.prompt(). Models: claude-sonnet-4-6 (baseline), claude-haiku-4-5, gpt-5.4-nano, gpt-5.3-codex, gemini-3-flash, composer-2.5. Compare Hit@5, MRR, avg latency, cost/case. Implement automatic early-stopping.",
-      "models": [
-        { "id": "claude-sonnet-4-6", "role": "baseline", "note": "Proven Hit@5=0.800 on n=5" },
-        { "id": "claude-haiku-4-5", "role": "budget-claude", "note": "Fast, cheap Anthropic model" },
-        { "id": "gpt-5.4-nano", "role": "ultra-budget-gpt", "note": "Cheapest OpenAI model" },
-        { "id": "gpt-5.3-codex", "role": "code-specialized", "note": "Code-optimized GPT" },
-        { "id": "gemini-3-flash", "role": "budget-gemini", "note": "Fast Gemini model" },
-        { "id": "composer-2.5", "role": "cursor-composite", "note": "Cursor's composite model" }
-      ],
-      "hard_stops": {
-        "performance_floor": "Hit@5 < 0.20 after first 20 cases → abort model",
-        "latency_ceiling": "Avg > 600s/case (rolling window of 10) → abort model",
-        "cost_ceiling_per_model": "$15 → abort model",
-        "error_rate": "> 30% failures/timeouts in 10 consecutive → abort model",
-        "global_budget": "$50 total → abort entire run"
-      },
-      "output": "Per-model summary (Hit@5, MRR, avg_latency_s, cost_per_case, total_cost, abort_reason if applicable). Side-by-side comparison table. All traces saved to results/.",
-      "subtasks": [
-        {
-          "id": "v42-scaled-eval-1-provider",
-          "name": "Parameterize CursorSDKProvider model in get_provider",
-          "type": "feature",
-          "status": "completed",
-          "scope": "Add a `model` kwarg to get_provider() so callers can request a specific Cursor SDK model. When CURSOR_API_KEY is set and model is specified, pass it through to CursorSDKProvider(model=...). The existing default (claude-sonnet-4-6) stays unchanged when no model is specified. Touch: llm_providers.py only."
-        },
-        {
-          "id": "v42-scaled-eval-2-monitor",
-          "name": "Early-stopping monitor module",
-          "type": "feature",
-          "status": "completed",
-          "scope": "New module (likely src/commit_investigator/eval/run_monitor.py or similar) that tracks per-model running metrics and checks all 5 hard-stop rules after each case. Inputs: case result dict (has elapsed_ms, hit_at_5, status, estimated cost). Outputs: continue/abort decision with reason string. Also tracks global spend across models for the $50 budget cap. Must be stateful per model (rolling windows, cumulative counters) but simple — a class with an update() method returning a verdict."
-        },
-        {
-          "id": "v42-scaled-eval-3-runner",
-          "name": "Multi-model runner script",
-          "type": "feature",
-          "status": "completed",
-          "scope": "New script scripts/run_scaled_eval.py. Orchestrates: (1) load eval cases once, (2) iterate models sequentially, (3) for each model: create CursorSDKProvider with that model, create run folder, run cases calling run_single_case() from run_scoped_eval.py, check monitor after each case, write per-model summary.json on completion or abort. Support checkpoint/resume: persist progress to a checkpoint file in the run folder, skip completed cases on restart, skip fully-completed models. Accept CLI args: --models (comma-separated, default all 6), --max-n (case limit), --resume (path to previous run to continue). Import run_single_case from run_scoped_eval — do NOT duplicate pipeline logic."
-        },
-        {
-          "id": "v42-scaled-eval-4-report",
-          "name": "Comparison report generator",
-          "type": "feature",
-          "status": "completed",
-          "scope": "After all models complete (or abort), produce a combined comparison summary. Output: results/{timestamp}-scaled-eval-comparison/comparison.json with per-model rows (model, hit_at_5, mrr, n_completed, n_aborted, avg_latency_s, cost_per_case, total_cost, abort_reason). Also print a formatted ASCII table to stdout. Can be a function in the runner script or a separate small module — builder decides. Must handle partial results (some models aborted)."
-        },
-        {
-          "id": "v42-scaled-eval-5-resume-fix",
-          "name": "Fix resume bugs (monitor state, duplicate folders, checkpoint consistency)",
-          "type": "bug",
-          "status": "completed",
-          "scope": "Three resume-related bugs: (1) EarlyStopMonitor state is not restored on resume — prior case results must be replayed through monitor.update() so hard-stop rules have correct history. Add a replay_checkpoint() method or similar. (2) _run_model() unconditionally calls create_run_folder() — on resume, reuse the existing model folder from checkpoint instead of creating a new timestamped folder (store model_dir path in checkpoint). (3) Abort-triggering case is in case_results but not in local completed_keys — after the break, the checkpoint save at line 311 derives completed_keys from status=='completed' which correctly includes it, so this is actually fine for checkpoint. But the monitor sees it counted while completed_keys doesn't, creating a discrepancy within the same run. Move completed_keys.add() before the abort check, or document the intentional gap. Touch: run_scaled_eval.py, run_monitor.py."
-        },
-        {
-          "id": "v42-scaled-eval-6-threshold-tuning",
-          "name": "Tune early-stop thresholds for n=20 dataset",
-          "type": "bug",
-          "status": "completed",
-          "scope": "perf_min_cases=20 is useless — there are exactly 20 eval cases, so the performance floor only fires after ALL cases complete. Lower to 10 for meaningful early detection. Also: the flat $0.000003/token cost rate is model-agnostic and based on word count, not real tokens. Since all calls go through Cursor SDK (subscription-based, not direct API billing), the cost numbers in the comparison report are rough proxies at best. Options: (A) add per-model cost multipliers as a config dict, (B) accept the limitation and add a clear note in comparison.json output that costs are estimated, or (C) query actual Cursor usage after the run. Recommend option B — accuracy isn't critical since the $15/$50 caps are safety nets, not billing controls. Touch: run_monitor.py (threshold), run_scaled_eval.py (cost note in comparison output)."
-        },
-        {
-          "id": "v42-scaled-eval-7-preflight",
-          "name": "Add model validation pre-flight check",
-          "type": "feature",
-          "status": "cancelled",
-          "scope": "Before starting the run, validate all requested model IDs against the Cursor SDK. Use Cursor.models.list() (from cursor_sdk) to fetch valid model slugs and warn/abort if any requested model is not in the list. This prevents wasting time on models that will just error out on every case. Handle gracefully: if models.list() fails (network, auth), log a warning and proceed without validation. Touch: run_scaled_eval.py only."
-        }
-      ],
-      "note": "COMPLETED 2026-06-18. 6 models evaluated (n=20 each, 2 early-stopped). Best: gpt-5.3-codex (Hit@5=0.500, 62s/case). Sonnet dropped from n=5 baseline 0.800 to 0.500 at n=20. Early-stopping saved ~50% time on gemini-3-flash (perf floor) and composer-2.5 (latency ceiling). Pipeline ceiling is Recall@100=0.700. Results in results/2026-06-18T14-41-scaled-eval/ (main), results/2026-06-18T17-06-scaled-eval/ (codex), results/2026-06-18T17-30-scaled-eval/ (sonnet)."
-    },
-    {
-      "id": "spike-trace-analysis",
-      "name": "Trace analysis: sonnet vs codex failure modes and improvement hypotheses",
-      "type": "spike",
-      "status": "completed",
-      "priority": 20,
-      "scope": "Analyze investigation traces from the n=20 scaled eval for claude-sonnet-4-6 and gpt-5.3-codex. Both hit 10/20 — the SAME 10 cases. Focus on the 10 misses: (1) How many are Recall@100 misses (bug never in candidate set)? (2) How many survive to ExamRecall but fail attribution? (3) What patterns distinguish hits from misses? (4) Are misses due to weak retrieval, bad triage, poor investigation reasoning, or noisy ground truth? Produce hypotheses for what could lift Hit@5 from 0.500 toward 0.700+. Output: structured analysis document with per-case miss breakdown, failure taxonomy, and ranked improvement hypotheses.",
-      "inputs": [
-        "results/2026-06-18T17-06-scaled-eval/ (codex traces)",
-        "results/2026-06-18T17-30-scaled-eval/ (sonnet traces)",
-        "results/2026-06-18T14-41-scaled-eval/ (nano, haiku, gemini, composer traces)"
-      ],
-      "note": "Both top models hit the same 10 cases — suggests the pipeline has a structural ceiling, not a model reasoning ceiling. Recall@100=0.700 means 6 cases are lost before the LLM even sees them. This spike determines whether the next investment is retrieval (lift Recall@100) or investigation (lift ExamRecall→Hit@5 conversion)."
-    },
-    {
-      "id": "phase2b-always-trigger",
-      "name": "Always-trigger phase2b watchlist expansion",
+      "id": "quick-wins-triage-firstparent",
+      "name": "Quick wins: remove --first-parent from keyword_grep/file_log (triage expansion reverted)",
       "type": "feature",
-      "status": "verified",
-      "priority": 21,
-      "scope": "Remove the confidence threshold gate in should_trigger_phase2b() so watchlist candidates are ALWAYS examined. Change CONFIDENCE_THRESHOLD to 1.0 or remove the check. Validates: GROOVY-8298 rescued (Hit@5 0.500→0.550). Verify no regression on 10 passing cases. Touch: watchlist_expansion.py only.",
-      "gate": { "groovy_8298_hit": true, "no_regression": true },
-      "note": "Debate conclusion: always-trigger is safe (within 300s budget, +30s/case average). Merge logic handles garbage from watchlist. Lowest-effort highest-certainty gain."
-    },
-    {
-      "id": "diag-prescore-rank",
-      "name": "Diagnostic: actual pre-score rank of ground truth for 3 failures",
-      "type": "spike",
       "status": "completed",
-      "priority": 21.1,
-      "scope": "Re-run compute_pre_scores() on HBASE-4577, GROOVY-5775, IGNITE-1787 with debug output. For each: (1) what rank does the ground truth commit get? (2) what's its file_overlap, signal_count, pre_score? (3) is it at position 16-20 (simple expansion works) or 25+ (formula change needed)? Output: table with per-case rank, score components, and recommendation.",
-      "note": "Informs whether H2 is 'expand to 20' or 'adaptive formula.' Must run before any scoring changes."
+      "priority": 24,
+      "scope": "Original: two changes. (1) Triage expansion WATCHLIST_SIZE 4→7 — REVERTED after consistent -3 to -4 regression across 2 eval runs (diluted LLM attention with more watchlist candidates). (2) --first-parent removal from keyword_grep/file_log — KEPT, structurally correct. Eval confirmed zero impact on deterministic pipeline (Recall@100, Triage Recall unchanged). The -1 Hit@5 (0.550 vs 0.600) is LLM variance on HDFS-7734 (exam_recall=true both runs).",
+      "gate": { "no_regression": true, "result": "no structural regression; -1 stochastic at LLM layer" },
+      "eval_results": {
+        "first_parent_only": { "hit_at_5": 0.550, "mrr": 0.358, "recall_100": 0.800, "n": 20, "lost": ["HDFS-7734"], "new": [] },
+        "triage_expansion_run1": { "hit_at_5": 0.400, "n": 20, "note": "WATCHLIST_SIZE=7, -4 regressions" },
+        "triage_expansion_run2": { "hit_at_5": 0.450, "n": 20, "note": "WATCHLIST_SIZE=7, -3 regressions" }
+      }
     },
     {
-      "id": "diag-keyword-recall",
-      "name": "Diagnostic: keyword extraction vs ground truth commit messages for 6 recall failures",
+      "id": "spike-phase0-feasibility",
+      "name": "Diagnostic: Phase 0 bug localization feasibility on 8 misses",
       "type": "spike",
-      "status": "completed",
-      "priority": 21.2,
-      "scope": "For each of the 6 Recall@100 failures (SPARK-20123, GROOVY-5003, SPARK-27907, SPARK-946, GROOVY-7014, SPARK-23059): (1) extract CamelCase symbols from description (not just title), (2) check if ground truth commit MESSAGE contains any of these symbols, (3) check if ground truth commit DIFF adds/removes any of these symbols (pickaxe hit). Output: table showing which cases WOULD be rescued by extending keyword_grep to description symbols.",
-      "note": "Informs H1 (keyword expansion) and H4 (Level 2 necessity). If 3+ cases rescued by simple keyword expansion, Level 2 is unnecessary."
+      "status": "pending",
+      "priority": 25,
+      "depends_on": ["quick-wins-triage-firstparent"],
+      "scope": "For each of the 8 remaining misses: (1) Stack trace fast path — parse (file:line) from JIRA stack traces, resolve in repo at fix_hash~1, git blame those lines, check if blame SHA matches any GT bug_hash. (2) LLM localization — for cases without stack traces, manually identify the likely buggy code area from JIRA + code reading, blame it, check. Output: table with columns [case, has_stack_trace, localized_file, localized_lines, blame_sha, gt_match, notes]. Gate: if blame yields GT for 5+ of 8 cases → build Phase 0 module (P26). If <5 → add embedding retrieval as primary strategy instead.",
+      "gate": { "min_rescues": 5, "decision": "5+ → build P26. <5 → pivot to embeddings (P27)" },
+      "note": "This is the critical experiment. The hypothesis (reverse SZZ via JIRA-guided localization) is strong but untested. The diagnostic costs ~1 hour and determines the entire next phase."
     },
     {
-      "id": "extend-keyword-sources",
-      "name": "Extend symbol extraction (acronym CamelCase + lowerCamelCase) and remove --first-parent from pickaxe",
-      "type": "feature",
-      "status": "verified",
-      "priority": 22,
-      "scope": "Scope updated from original based on P21.2 diagnostic. Three changes: (1) Added _ACRONYM_CAMEL_RE for identifiers like HiveUDAF (SPARK-27907). (2) Added _LOWER_CAMEL_RE for identifiers like globalTempDB (SPARK-23059). (3) Removed --first-parent from pickaxe so merge-branch commits are found (SPARK-946). keyword_grep symbol feeding dropped — diagnostic showed symbols don't appear in commit messages.",
-      "depends_on": ["diag-keyword-recall"],
-      "note": "Diagnostic P21.2 proved 2/6 rescuable by regex fix, +1 bonus by pickaxe flag. Expected: Recall@100 0.700→0.850."
-    },
-    {
-      "id": "adaptive-scoring",
-      "name": "Expand shortlist to 20 + adaptive weights when extracted_files empty",
-      "type": "feature",
-      "status": "verified",
-      "priority": 22.5,
-      "scope": "DEFAULT_SHORTLIST_SIZE 15→20 (rescues HBASE-4577 at rank 17). Adaptive weights {0.0/0.6/0.4} when extracted_files is empty (file_overlap meaningless without file hints). GROOVY-5775 (rank 31) and IGNITE-1787 (rank 29) need different approach — their file_overlap disadvantage comes from GT not touching the extracted files, not from missing extraction.",
-      "depends_on": ["diag-prescore-rank"],
-      "note": "Diagnostic showed: expansion rescues 1/3 (HBASE-4577). Other 2 need future formula work or better extraction."
-    },
-    {
-      "id": "spike-level2-extractor",
-      "name": "Level 2 LLM-assisted hint extraction for retrieval",
+      "id": "phase0-bug-localization",
+      "name": "Phase 0: bug localization + targeted blame retrieval strategy",
       "type": "feature",
       "status": "pending",
-      "priority": 23,
-      "scope": "LLM-synthesized extraction hints (files, symbols, keywords) to complement Level 1 regex extraction. Use cheap model (nano/haiku) to read JIRA and produce structured hints. Expected to lift Recall@100 by inferring symbols from natural language descriptions.",
-      "depends_on": ["extend-keyword-sources"],
-      "note": "Debate conclusion: DEFERRED until simpler keyword expansion (P22) is tried. Only needed if simple approaches fail to rescue 2+ cases. Escalation path, not first action."
+      "priority": 26,
+      "depends_on": ["spike-phase0-feasibility"],
+      "scope": "New pipeline phase before retrieval. Two paths: (A) Stack trace fast path — regex parses Java stack traces from JIRA description, extracts (file:line) pairs, resolves files via git ls-tree at fix_hash~1, blames those exact lines. Zero LLM cost. (B) LLM localization fallback — when no stack trace, cheap LLM (nano/haiku) reads JIRA description + top extracted files' source code at fix_hash~1, returns structured bug locations [{file, line_start, line_end, reason}]. Blame those lines. Both paths produce StrategyHit objects with strategy='localization_blame' that merge into the existing candidate set via merge_hits(). Additive — if Phase 0 produces nothing, existing pipeline runs unchanged. Touch: new module src/commit_investigator/localization/, changes to retriever.py (add strategy), problem_extractor.py (stack trace parser).",
+      "gate": { "hit_at_5_target": 0.800, "no_regression": true },
+      "note": "CONDITIONAL: only build if P25 diagnostic shows 5+ rescues. Architecture: Phase 0 sits between extraction and retrieval. It uses the LLM for code understanding (not search), which is a refinement of the 'LLM reasons, scripts retrieve' invariant — the LLM localizes the bug, scripts execute blame."
+    },
+    {
+      "id": "embedding-retrieval",
+      "name": "Embedding retrieval: bi-encoder ANN on commit message corpus",
+      "type": "feature",
+      "status": "pending",
+      "priority": 27,
+      "depends_on": ["phase0-bug-localization"],
+      "scope": "New retrieval strategy. Pre-compute embeddings of all commit messages (+ files_changed list) per repo using a local embedding model (nomic-embed-text or all-MiniLM-L6-v2). At retrieval time, embed JIRA title+description, find top-50 nearest commits by cosine similarity. Add as 'embedding' strategy hits in merge_hits(). Index stored per-repo under data/embedding_indexes/. One-time build cost (~30-60s per repo). Zero per-query LLM cost. Touch: new module src/commit_investigator/retrieval/embedding_strategy.py, changes to retriever.py.",
+      "gate": { "recall_100_lift": "+2 cases minimum" },
+      "note": "DECISION GATE: only build if Phase 0 alone doesn't achieve Hit@5 ≥ 0.800 on n=20 eval. If Phase 0 reaches 0.850+, embeddings are likely unnecessary. Evaluate after Phase 0 n=20 eval."
     }
   ]
 }

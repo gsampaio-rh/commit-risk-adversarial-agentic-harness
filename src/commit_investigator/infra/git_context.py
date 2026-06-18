@@ -160,10 +160,11 @@ class GitContextProvider(GitSearchMixin):
     ) -> list[FileHistoryEntry]:
         """Return last n commits touching the given file path.
 
-        When temporal_bound is set, restricts to commits reachable
-        from the bound ref using --first-parent for linear history.
+        Traverses ALL commits (no --first-parent) to reach commits
+        introduced via merged branches/PRs.
+        Bounded by temporal_bound when set.
         """
-        args = ["log", f"-{n}", "--format=%H|%an|%ai|%s", "--first-parent"]
+        args = ["log", f"-{n}", "--format=%H|%an|%ai|%s"]
         if self._temporal_bound:
             args.append(self._temporal_bound)
         args.extend(["--", path])
