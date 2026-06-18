@@ -388,16 +388,16 @@ class GitContextProvider:
                 ["git"] + args,
                 cwd=self._repo_path,
                 capture_output=True,
-                text=True,
                 timeout=30,
             )
             if result.returncode != 0:
-                if "unknown revision" in result.stderr or "bad object" in result.stderr:
+                stderr = result.stderr.decode("utf-8", errors="replace")
+                if "unknown revision" in stderr or "bad object" in stderr:
                     return None
-                if "does not have" in result.stderr or "not a valid" in result.stderr:
+                if "does not have" in stderr or "not a valid" in stderr:
                     return None
                 return None
-            return result.stdout
+            return result.stdout.decode("utf-8", errors="replace")
         except subprocess.TimeoutExpired:
             return None
         except FileNotFoundError:

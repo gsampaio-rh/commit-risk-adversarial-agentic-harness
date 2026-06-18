@@ -28,7 +28,10 @@ from commit_investigator.eval.helpers import (
     ZIP_PATH,
     EvalCase,
     build_eval_cases,
+    create_run_folder,
     load_jira_text,
+    update_latest_symlink,
+    write_run_config,
 )
 from commit_investigator.eval.metrics import FunnelMetrics, compute_funnel
 from commit_investigator.harness.phase2b import run_phase2b
@@ -41,11 +44,8 @@ from commit_investigator.narrowing.scoring import compute_pre_scores
 from commit_investigator.narrowing.triage import assign_tiers
 from commit_investigator.retrieval import compute_recall_at_k, prepare_investigation
 
-RESULTS_PATH = Path(__file__).resolve().parents[1] / "results" / "v4-checkpoints" / "scoped-eval.json"
-TRACES_DIR = Path(__file__).resolve().parents[1] / "results" / "traces"
 
-
-def run_single_case(case: EvalCase, llm: Any) -> dict:
+def run_single_case(case: EvalCase, llm: Any, writer: TraceWriter) -> dict:
     """Run full V4.2 pipeline on a single eval case."""
     result: dict = {"issue_key": case.issue_key, "project": case.project}
 
@@ -69,7 +69,7 @@ def run_single_case(case: EvalCase, llm: Any) -> dict:
 
     pipeline = _run_pipeline(retrieval, case, llm)
     funnel = _compute_case_funnel(case.bug_hashes, retrieval, pipeline)
-    _write_case_trace(case, retrieval, pipeline, funnel)
+    _write_case_trace(case, retrieval, pipeline, funnel, writer)
 
     result.update(
         status="completed",
@@ -137,6 +137,7 @@ def _compute_case_funnel(
 
 def _write_case_trace(
     case: EvalCase, retrieval: Any, pipeline: dict, funnel: FunnelMetrics,
+    writer: TraceWriter,
 ) -> None:
     """Write investigation trace JSON for a case."""
     suspect_dicts = [s.to_dict() for s in pipeline["suspects"]]
@@ -151,7 +152,7 @@ def _write_case_trace(
         exit_reason=pipeline["exit_reason"].value if pipeline["exit_reason"] else "",
         agent_ms=pipeline["agent_ms"],
     )
-    TraceWriter(TRACES_DIR).write(trace)
+    writer.write(trace)
 
 
 def _best_gt_sha(bug_hashes: list[str], cs: Any) -> str:
@@ -220,15 +221,24 @@ def main() -> None:
 
     print("Building eval cases...")
     cases = build_eval_cases(gt, max_n=args.n)
-    print(f"  {len(cases)} cases resolved\n")
+    n_cases = len(cases)
+    print(f"  {n_cases} cases resolved\n")
 
     llm = get_provider(phase="investigation")
     print(f"  LLM provider: {llm.model_name}\n")
 
+    run_dir = create_run_folder("scoped-eval", model=llm.model_name, n=n_cases)
+    writer = TraceWriter(run_dir / "traces", flat=True)
+    write_run_config(
+        run_dir, label="scoped-eval", model=llm.model_name,
+        n=n_cases, seed=42, pipeline="v4.2",
+    )
+    print(f"  Run folder: {run_dir.name}\n")
+
     case_results: list[dict] = []
     for i, case in enumerate(cases, 1):
-        print(f"[{i:2d}/{len(cases)}] {case.issue_key:16s}", end="  ", flush=True)
-        result = run_single_case(case, llm)
+        print(f"[{i:2d}/{n_cases}] {case.issue_key:16s}", end="  ", flush=True)
+        result = run_single_case(case, llm, writer)
         case_results.append(result)
 
         status = result.get("status", "?")
@@ -243,16 +253,17 @@ def main() -> None:
 
     aggregates = print_results(case_results)
 
-    output = {
+    summary = {
         "checkpoint": "scoped-eval-v42",
         "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "model": llm.model_name,
         "aggregates": aggregates,
         "cases": case_results,
     }
-    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    RESULTS_PATH.write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
-    print(f"\nResults written to {RESULTS_PATH}")
+    summary_path = run_dir / "summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    update_latest_symlink(run_dir)
+    print(f"\nResults written to {run_dir}")
 
 
 if __name__ == "__main__":

@@ -1,22 +1,29 @@
 """Shared helpers for evaluation scripts.
 
 Provides JIRA loading, ground truth hash resolution, eval case construction,
-and standard paths. Used by both run_phase1_checkpoint.py and run_scoped_eval.py.
+run folder management, and standard paths. Used by run_phase1_checkpoint.py
+and run_scoped_eval.py.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from commit_investigator.eval.ground_truth import GroundTruthGraph
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+RESULTS_DIR = PROJECT_ROOT / "results"
 JIRA_CACHE_DIR = PROJECT_ROOT / "data" / "jira_cache"
 REPOS_DIR = PROJECT_ROOT / "data" / "repos"
 ZIP_PATH = PROJECT_ROOT / "data" / "apachejit" / "apachejit_dataset_replication.zip"
-RECALL100_PATH = PROJECT_ROOT / "results" / "v4-checkpoints" / "retrieval-recall.json"
+RECALL100_PATH = PROJECT_ROOT / "results" / "2026-06-16T20-08-v4-checkpoint-retrieval" / "summary.json"
 
 
 @dataclass
@@ -87,3 +94,55 @@ def gt_in_set(bug_hashes: list[str], sha_set: list[str]) -> bool:
     """Check if any bug hash appears in a SHA list (case-insensitive)."""
     targets = {bh.lower() for bh in bug_hashes}
     return bool(targets & {s.lower() for s in sha_set})
+
+
+def create_run_folder(label: str, model: str = "", n: int = 0) -> Path:
+    """Create a timestamped run folder under results/.
+
+    Naming: {YYYY-MM-DDTHH-MM}-{label}[-{model}-n{N}]
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M")
+    parts = [ts, label]
+    if model:
+        safe_model = model.replace("/", "-").replace(":", "-")
+        parts.append(safe_model)
+    if n > 0:
+        parts.append(f"n{n}")
+    name = "-".join(parts)
+    path = RESULTS_DIR / name
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "traces").mkdir(exist_ok=True)
+    return path
+
+
+def write_run_config(run_dir: Path, **kwargs: Any) -> Path:
+    """Write config.json capturing run parameters and environment."""
+    config: dict[str, Any] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "git_sha": _get_git_sha(),
+        **kwargs,
+    }
+    path = run_dir / "config.json"
+    path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def update_latest_symlink(run_dir: Path) -> None:
+    """Create or update results/latest symlink to the given run folder."""
+    link_path = RESULTS_DIR / "latest"
+    if link_path.is_symlink() or link_path.exists():
+        link_path.unlink()
+    link_path.symlink_to(run_dir.name)
+
+
+def _get_git_sha() -> str:
+    """Return current git HEAD short SHA, or empty string on failure."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=str(PROJECT_ROOT),
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except Exception:
+        return ""

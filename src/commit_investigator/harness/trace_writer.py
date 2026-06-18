@@ -123,17 +123,31 @@ class InvestigationTrace:
 
 
 class TraceWriter:
-    """Writes InvestigationTrace to disk as JSON."""
+    """Writes InvestigationTrace to disk as JSON.
 
-    def __init__(self, traces_dir: str | Path = "results/traces") -> None:
+    Two modes:
+      - flat=False (default): writes {traces_dir}/{issue_key}/{run_id}.json
+      - flat=True: writes {traces_dir}/{issue_key}.json (for run-scoped dirs)
+    """
+
+    def __init__(
+        self, traces_dir: str | Path = "results/traces", *, flat: bool = False,
+    ) -> None:
         self._traces_dir = Path(traces_dir)
+        self._flat = flat
 
     def write(self, trace: InvestigationTrace) -> Path:
-        """Write trace to results/traces/{issue_key}/{run_id}.json."""
-        safe_run_id = trace.run_id.replace(":", "-").replace("+", "")
-        dir_path = self._traces_dir / trace.issue_key
-        dir_path.mkdir(parents=True, exist_ok=True)
-        file_path = dir_path / f"{safe_run_id}.json"
+        """Write trace JSON. Filename depends on flat mode."""
+        self._traces_dir.mkdir(parents=True, exist_ok=True)
+
+        if self._flat:
+            file_path = self._traces_dir / f"{trace.issue_key}.json"
+        else:
+            safe_run_id = trace.run_id.replace(":", "-").replace("+", "")
+            dir_path = self._traces_dir / trace.issue_key
+            dir_path.mkdir(parents=True, exist_ok=True)
+            file_path = dir_path / f"{safe_run_id}.json"
+
         file_path.write_text(
             json.dumps(trace.to_dict(), indent=2) + "\n",
             encoding="utf-8",

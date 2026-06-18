@@ -27,13 +27,14 @@ from commit_investigator.eval.helpers import (
     ZIP_PATH,
     EvalCase,
     build_eval_cases,
+    create_run_folder,
     gt_in_set,
     load_jira_text,
+    update_latest_symlink,
+    write_run_config,
 )
 from commit_investigator.narrowing import narrow_candidates
 from commit_investigator.retrieval import compute_recall_at_k, prepare_investigation
-
-RESULTS_PATH = Path(__file__).resolve().parents[1] / "results" / "v4-checkpoints" / "phase1-funnel.json"
 
 GATE_RECALL_15 = 0.846
 GATE_TRIAGE_RECALL_7 = 1.00
@@ -202,6 +203,9 @@ def main() -> None:
     print(f"  Overall gate: {'PASS' if gate_passed else 'FAIL'}")
     print(f"{'='*72}")
 
+    run_dir = create_run_folder("phase1-checkpoint", n=n_total)
+    write_run_config(run_dir, label="phase1-checkpoint", pipeline="v4.2-phase1", n=n_total)
+
     output = {
         "checkpoint": "phase1-funnel",
         "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -228,9 +232,10 @@ def main() -> None:
         "cases": case_results,
     }
 
-    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    RESULTS_PATH.write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
-    print(f"\nResults written to {RESULTS_PATH}")
+    summary_path = run_dir / "summary.json"
+    summary_path.write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
+    update_latest_symlink(run_dir)
+    print(f"\nResults written to {run_dir}")
 
     sys.exit(0 if gate_passed else 1)
 
