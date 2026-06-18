@@ -1,26 +1,22 @@
 {
-  "task_id": "extend-keyword-sources",
-  "feature": "Extend symbol extraction (acronym CamelCase + lowerCamelCase) and remove --first-parent from pickaxe",
-  "problem": "3 Recall@100 failures are caused by: (1) CamelCase regex misses acronym identifiers like HiveUDAF (SPARK-27907), (2) regex misses lowerCamelCase like globalTempDB (SPARK-23059), (3) pickaxe --first-parent misses commits via merged PRs (SPARK-946). Diagnostic P21.2 proved all 3 are rescuable.",
-  "proposed_solution": "Add two new regexes to problem_extractor.py for acronym CamelCase and lowerCamelCase symbols. Remove --first-parent from pickaxe in git_search.py. Filter file inference to PascalCase only (lowerCamelCase shouldn't generate filenames). Scope updated from original P22 based on diagnostic findings — keyword_grep symbol feeding dropped (diagnostic showed symbols don't appear in commit messages).",
+  "task_id": "adaptive-scoring",
+  "feature": "Expand shortlist to 20 + adaptive weights when extracted_files is empty",
+  "problem": "HBASE-4577 GT at rank 17 (barely outside top 15). When JIRA has no file hints, file_overlap=0 for ALL candidates and the 50% weight is wasted — scoring degenerates to rank preservation only. GROOVY-5775 (rank 31) and IGNITE-1787 (rank 29) are deeper and may need future formula work, but the simple expansion + adaptive weights covers the clearest win.",
+  "proposed_solution": "Two changes in scoring.py: (1) DEFAULT_SHORTLIST_SIZE from 15 to 20. (2) When problem.extracted_files is empty, use adaptive weights {file_overlap: 0.0, signal_count: 0.6, rank: 0.4} since file_overlap is meaningless without file hints. Both are zero-LLM-cost changes.",
   "acceptance_criteria": [
-    "AC1: _extract_symbols('HiveUDAF should return NULL') includes 'HiveUDAF'",
-    "AC2: _extract_symbols('HiveUDAFFunction throws NPE') includes 'HiveUDAFFunction'",
-    "AC3: _extract_symbols('use globalTempDB and listTables') includes 'globalTempDB' and 'listTables'",
-    "AC4: _extract_symbols('call dropTempView and dropGlobalTempView') includes both",
-    "AC5: _extract_symbols('hiveUDFs are broken') includes 'hiveUDFs'",
-    "AC6: Existing PascalCase symbols (RouteBuilder, CqlPagingRecordReader, HistoryServer) still extracted — no regression",
-    "AC7: Short noise like 'aBC' or single-segment words NOT extracted (min length 6 or structural filter)",
-    "AC8: search_commits_by_pickaxe does NOT use --first-parent",
-    "AC9: _infer_files_from_symbols only generates filenames for PascalCase symbols (not lowerCamelCase)",
-    "AC10: All existing tests pass with no behavioral regression"
+    "AC1: DEFAULT_SHORTLIST_SIZE is 20",
+    "AC2: When extracted_files is empty, file_overlap weight is 0.0 and signal_count is 0.6, rank is 0.4",
+    "AC3: When extracted_files is non-empty, default weights are unchanged (0.5/0.3/0.2)",
+    "AC4: Custom weights parameter still overrides adaptive logic",
+    "AC5: All existing tests pass (some may need shortlist_size adjustment)",
+    "AC6: Only scoring.py and test_narrowing.py changed"
   ],
   "edge_cases": [
-    "EC1: Symbol preceded by dot (obj.HiveUDAF) should NOT match (word boundary preserved)",
-    "EC2: Symbol inside a URL or file path should not produce false lowerCamelCase matches",
-    "EC3: Empty text returns empty symbol list (both new regexes)"
+    "EC1: Empty candidate set + empty extracted_files returns empty shortlist (no crash)",
+    "EC2: Single candidate + empty extracted_files produces valid score",
+    "EC3: extracted_files=[''] (whitespace-only) still counts as non-empty (existing behavior preserved)"
   ],
-  "verification_method": "Evaluator should: (1) Read problem_extractor.py and verify both new regexes are correct with boundary guards. (2) Verify git_search.py pickaxe has no --first-parent. (3) Verify _infer_files_from_symbols filters lowerCamelCase. (4) Run pytest -v and verify all tests pass. (5) Manually test regex patterns against the diagnostic examples.",
+  "verification_method": "Evaluator should: (1) Read scoring.py and verify adaptive weight logic. (2) Verify DEFAULT_SHORTLIST_SIZE == 20. (3) Run full test suite. (4) Verify only scoring.py and test_narrowing.py changed.",
   "rubrics": [
     "code-quality"
   ],

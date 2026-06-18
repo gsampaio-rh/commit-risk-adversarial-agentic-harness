@@ -201,13 +201,13 @@
     },
     {
       "id": "adaptive-scoring",
-      "name": "Adaptive pre-score weights when file_overlap=0 for all candidates",
+      "name": "Expand shortlist to 20 + adaptive weights when extracted_files empty",
       "type": "feature",
-      "status": "pending",
+      "status": "verified",
       "priority": 22.5,
-      "scope": "When no candidate in the set has file_overlap > 0 (or when extracted_files is empty), redistribute the 0.5 file_overlap weight to signal_count (0.6) and rank (0.4). This prevents low-signal commits from being uniformly ranked by rank alone. Requires: diag-prescore-rank shows rank > 20 for failures. Full ablation on 20-case dataset to verify no regression. Touch: scoring.py.",
+      "scope": "DEFAULT_SHORTLIST_SIZE 15→20 (rescues HBASE-4577 at rank 17). Adaptive weights {0.0/0.6/0.4} when extracted_files is empty (file_overlap meaningless without file hints). GROOVY-5775 (rank 31) and IGNITE-1787 (rank 29) need different approach — their file_overlap disadvantage comes from GT not touching the extracted files, not from missing extraction.",
       "depends_on": ["diag-prescore-rank"],
-      "note": "Debate conclusion: only build if diagnostic shows expansion insufficient. Adaptive weights = more complex formula = regression risk."
+      "note": "Diagnostic showed: expansion rescues 1/3 (HBASE-4577). Other 2 need future formula work or better extraction."
     },
     {
       "id": "spike-level2-extractor",

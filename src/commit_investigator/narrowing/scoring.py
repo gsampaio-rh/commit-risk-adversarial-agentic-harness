@@ -1,9 +1,10 @@
 """Phase 1a: Pre-score formula for candidate narrowing.
 
 Scores each candidate using deterministic signals from retrieval metadata:
-  pre_score = 0.5·file_overlap + 0.3·norm(signal_count) + 0.2·(1 - norm(rank))
+  pre_score = w_fo·file_overlap + w_sc·norm(signal_count) + w_r·(1 - norm(rank))
 
-Weights confirmed by ablation (all 5 variants produce identical Recall@15=0.846).
+Default weights: 0.5/0.3/0.2. When the JIRA has no extracted files (file_overlap
+is meaningless for all candidates), weights adapt to 0.0/0.6/0.4.
 """
 
 from __future__ import annotations
@@ -13,7 +14,8 @@ from commit_investigator.models.candidates import CandidateCommit, CandidateSet
 from commit_investigator.narrowing.models import ScoredCandidate, ScoredShortlist
 
 DEFAULT_WEIGHTS = {"file_overlap": 0.5, "signal_count": 0.3, "rank": 0.2}
-DEFAULT_SHORTLIST_SIZE = 15
+ADAPTIVE_WEIGHTS_NO_FILES = {"file_overlap": 0.0, "signal_count": 0.6, "rank": 0.4}
+DEFAULT_SHORTLIST_SIZE = 20
 
 
 def _file_matches(changed_file: str, extracted_hint: str) -> bool:
@@ -59,12 +61,17 @@ def compute_pre_scores(
         candidate_set: Full retrieval output (typically 50-100 candidates).
         problem: Extracted problem statement with file/symbol hints.
         weights: Override pre-score weights (default: 0.5/0.3/0.2).
-        shortlist_size: How many top candidates to keep (default: 15).
+        shortlist_size: How many top candidates to keep (default: 20).
 
     Returns:
         ScoredShortlist containing the top-K candidates sorted by pre_score desc.
     """
-    w = weights or DEFAULT_WEIGHTS
+    if weights is not None:
+        w = weights
+    elif not problem.extracted_files:
+        w = ADAPTIVE_WEIGHTS_NO_FILES
+    else:
+        w = DEFAULT_WEIGHTS
     candidates = candidate_set.commits
 
     if not candidates:

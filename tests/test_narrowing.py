@@ -157,8 +157,8 @@ class TestComputePreScores:
     def test_shortlist_size_respected(self) -> None:
         cs = _make_candidate_set(50)
         problem = _make_problem()
-        result = compute_pre_scores(cs, problem, shortlist_size=15)
-        assert result.size == 15
+        result = compute_pre_scores(cs, problem, shortlist_size=20)
+        assert result.size == 20
         assert result.total_scored == 50
 
     def test_sorted_descending_by_prescore(self) -> None:
@@ -177,6 +177,60 @@ class TestComputePreScores:
         # Candidates 0-4 have TargetFile.java in their files
         expected_ids = {f"{i:040d}" for i in range(5)}
         assert top5_ids & expected_ids, "File-overlapping candidates should rank high"
+
+    def test_adaptive_weights_when_no_extracted_files(self) -> None:
+        """When extracted_files is empty, file_overlap weight is 0.0."""
+        cs = CandidateSet(commits=[
+            _make_candidate(commit_id="a" * 40, rank=1, signal="file_log,blame",
+                            files=["TargetFile.java"]),
+            _make_candidate(commit_id="b" * 40, rank=2, signal="file_log",
+                            files=[]),
+        ])
+        problem = ProblemStatement(
+            title="Bug", description="desc", project="test",
+            extracted_files=[], extracted_symbols=[], extracted_keywords=[],
+        )
+        result = compute_pre_scores(cs, problem)
+        # With no extracted_files: weights are 0.0/0.6/0.4
+        # Both have fo=0 (no extracted_files → compute_file_overlap returns 0)
+        # Candidate "a": sc=2, rank=1. norm_sc=1.0, norm_rank=0.0
+        #   score = 0.0*0 + 0.6*1.0 + 0.4*1.0 = 1.0
+        # Candidate "b": sc=1, rank=2. norm_sc=0.5, norm_rank=1.0
+        #   score = 0.0*0 + 0.6*0.5 + 0.4*0.0 = 0.3
+        assert result.candidates[0].commit_id == "a" * 40
+        assert result.candidates[0].file_overlap == 0.0
+        assert result.candidates[0].pre_score == pytest.approx(1.0)
+        assert result.candidates[1].pre_score == pytest.approx(0.3)
+
+    def test_default_weights_when_extracted_files_exist(self) -> None:
+        """When extracted_files is non-empty, default weights (0.5/0.3/0.2) apply."""
+        cs = CandidateSet(commits=[
+            _make_candidate(commit_id="a" * 40, rank=1, signal="file_log",
+                            files=["TargetFile.java"]),
+        ])
+        problem = _make_problem(extracted_files=["TargetFile.java"])
+        result = compute_pre_scores(cs, problem)
+        # fo=1.0, sc=1, norm_sc=1.0, norm_rank=0.0
+        # score = 0.5*1.0 + 0.3*1.0 + 0.2*1.0 = 1.0
+        assert result.candidates[0].pre_score == pytest.approx(1.0)
+
+    def test_custom_weights_override_adaptive(self) -> None:
+        """Explicit weights override adaptive logic even with empty extracted_files."""
+        cs = CandidateSet(commits=[
+            _make_candidate(commit_id="a" * 40, rank=1, signal="file_log,blame",
+                            files=[]),
+        ])
+        problem = ProblemStatement(
+            title="Bug", description="desc", project="test",
+            extracted_files=[], extracted_symbols=[], extracted_keywords=[],
+        )
+        result = compute_pre_scores(
+            cs, problem,
+            weights={"file_overlap": 0.5, "signal_count": 0.3, "rank": 0.2},
+        )
+        # Custom weights applied, NOT adaptive. fo=0, sc=2, norm_sc=1, norm_rank=0
+        # score = 0.5*0 + 0.3*1.0 + 0.2*1.0 = 0.5
+        assert result.candidates[0].pre_score == pytest.approx(0.5)
 
     def test_custom_weights(self) -> None:
         cs = CandidateSet(commits=[
@@ -292,7 +346,7 @@ class TestNarrowCandidates:
         assert len(result.must_examine) == 3
         assert len(result.watchlist) == 4
         assert result.total_scored == 50
-        assert result.shortlist_size == 15
+        assert result.shortlist_size == 20
 
     def test_empty_input(self) -> None:
         cs = CandidateSet(commits=[])

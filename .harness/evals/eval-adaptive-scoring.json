@@ -1,0 +1,62 @@
+{
+  "task_id": "adaptive-scoring",
+  "timestamp": "2026-06-18T19:43:00Z",
+  "overall": "PASS",
+  "computational_checks": {
+    "lint": "PASS — no linter errors in scoring.py or test_narrowing.py",
+    "types": "PASS — no type errors (ReadLints clean)",
+    "tests": "PASS — 321/321 tests pass (full suite), 38/38 narrowing tests pass",
+    "build": "PASS — module imports cleanly"
+  },
+  "criteria": [
+    {
+      "criterion": "AC1: DEFAULT_SHORTLIST_SIZE is 20",
+      "result": "PASS",
+      "evidence": "scoring.py line 18: DEFAULT_SHORTLIST_SIZE = 20. Verified via runtime import: DEFAULT_SHORTLIST_SIZE == 20."
+    },
+    {
+      "criterion": "AC2: When extracted_files is empty, file_overlap weight is 0.0 and signal_count is 0.6, rank is 0.4",
+      "result": "PASS",
+      "evidence": "scoring.py line 17: ADAPTIVE_WEIGHTS_NO_FILES = {\"file_overlap\": 0.0, \"signal_count\": 0.6, \"rank\": 0.4}. Lines 71-72: `elif not problem.extracted_files: w = ADAPTIVE_WEIGHTS_NO_FILES`. Runtime verified: 2 candidates with empty extracted_files produce scores 1.0 and 0.3, matching the 0.0/0.6/0.4 formula exactly."
+    },
+    {
+      "criterion": "AC3: When extracted_files is non-empty, default weights are unchanged (0.5/0.3/0.2)",
+      "result": "PASS",
+      "evidence": "scoring.py line 16: DEFAULT_WEIGHTS = {\"file_overlap\": 0.5, \"signal_count\": 0.3, \"rank\": 0.2}. Lines 73-74: else branch selects DEFAULT_WEIGHTS. Runtime verified: single candidate with extracted_files=['TargetFile.java'] scores 1.0 = 0.5*1.0 + 0.3*1.0 + 0.2*1.0."
+    },
+    {
+      "criterion": "AC4: Custom weights parameter still overrides adaptive logic",
+      "result": "PASS",
+      "evidence": "scoring.py lines 69-70: `if weights is not None: w = weights` — checked BEFORE adaptive branch. Runtime verified: passing weights={0.5, 0.3, 0.2} with empty extracted_files produces score 0.5 (not 1.0), proving custom weights override adaptive."
+    },
+    {
+      "criterion": "AC5: All existing tests pass (some may need shortlist_size adjustment)",
+      "result": "PASS",
+      "evidence": "Full suite: 321 passed in 20.57s. Narrowing tests: 38 passed in 0.09s. test_shortlist_size_respected now uses shortlist_size=20. test_full_pipeline asserts shortlist_size==20."
+    },
+    {
+      "criterion": "AC6: Only scoring.py and test_narrowing.py changed",
+      "result": "PASS",
+      "evidence": "git diff --name-only HEAD shows: .harness/breadcrumbs.jsonl, .harness/contract.json, src/commit_investigator/narrowing/scoring.py, tests/test_narrowing.py. Only 2 source/test files changed; harness files are expected workflow artifacts."
+    }
+  ],
+  "edge_cases": [
+    {
+      "case": "EC1: Empty candidate set + empty extracted_files returns empty shortlist (no crash)",
+      "result": "PASS",
+      "evidence": "Runtime: CandidateSet(commits=[]) + extracted_files=[] → ScoredShortlist(size=0, total_scored=0). No exception."
+    },
+    {
+      "case": "EC2: Single candidate + empty extracted_files produces valid score",
+      "result": "PASS",
+      "evidence": "Runtime: single candidate with files=['Foo.java'] + extracted_files=[] → file_overlap=0.0, pre_score=1.0 (0.0*0 + 0.6*1.0 + 0.4*1.0). Valid score, correct adaptive weights applied."
+    },
+    {
+      "case": "EC3: extracted_files=[''] (whitespace-only) still counts as non-empty (existing behavior preserved)",
+      "result": "PASS",
+      "evidence": "Runtime: extracted_files=[''] → default weights used (list is truthy), pre_score=0.5 (0.5*0 + 0.3*1 + 0.2*1). Confirms [''] is not treated as empty."
+    }
+  ],
+  "recommendation": "proceed",
+  "notes": "Minor warning: docstring on scoring.py line 64 says '(default: 15)' but actual default is now 20. Not a contract criterion, but should be fixed in the next edit to that file."
+}
