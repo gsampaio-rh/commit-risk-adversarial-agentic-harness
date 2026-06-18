@@ -68,6 +68,39 @@ def build_candidate_list(gt: GroundTruthGraph, seed: int) -> list[tuple[str, str
     return candidates
 
 
+def _process_candidate(
+    jira: JiraClient, bug_hash: str, fix_hash: str, project: str,
+    issue_key: str, stats: dict,
+) -> dict | None:
+    """Fetch one candidate's JIRA issue. Returns case dict if usable, else None."""
+    was_cached = jira.is_cached(issue_key)
+    try:
+        issue = jira.get_issue(issue_key)
+        if was_cached:
+            stats["cached"] += 1
+        else:
+            stats["fetched"] += 1
+            time.sleep(0.3)
+
+        has_desc = bool(issue.description and issue.description.strip())
+        if has_desc:
+            stats["has_desc"] += 1
+            return {
+                "bug_hash": bug_hash, "fix_hash": fix_hash,
+                "project": project, "issue_key": issue_key,
+                "repo_dir": PROJECT_TO_REPO.get(project, project.lower()),
+                "summary": issue.summary[:80],
+            }
+        stats["no_desc"] += 1
+        logger.debug("Skip %s — no description", issue_key)
+        return None
+
+    except JiraClientError as e:
+        stats["errors"] += 1
+        logger.warning("Error fetching %s: %s", issue_key, e)
+        return None
+
+
 def warm_cache(
     gt: GroundTruthGraph,
     jira: JiraClient,
@@ -81,53 +114,22 @@ def warm_cache(
 
     logger.info("Warming JIRA cache: fetching up to %d candidates to select %d cases", total_to_fetch, n)
 
-    selected = []
+    selected: list[dict] = []
     stats = {"fetched": 0, "cached": 0, "has_desc": 0, "no_desc": 0, "errors": 0}
 
     for i, (bug_hash, fix_hash, project, issue_key) in enumerate(candidates[:total_to_fetch]):
         if len(selected) >= n and i >= total_to_fetch:
             break
 
-        was_cached = jira.is_cached(issue_key)
-        try:
-            issue = jira.get_issue(issue_key)
-            if was_cached:
-                stats["cached"] += 1
-            else:
-                stats["fetched"] += 1
-                if not was_cached:
-                    time.sleep(0.3)
-
-            has_desc = bool(issue.description and issue.description.strip())
-            if has_desc:
-                stats["has_desc"] += 1
-                if len(selected) < n:
-                    selected.append({
-                        "bug_hash": bug_hash,
-                        "fix_hash": fix_hash,
-                        "project": project,
-                        "issue_key": issue_key,
-                        "repo_dir": PROJECT_TO_REPO.get(project, project.lower()),
-                        "summary": issue.summary[:80],
-                    })
-                    logger.info(
-                        "[%d/%d] SELECTED %s %s (repo=%s)",
-                        len(selected), n, project, issue_key,
-                        PROJECT_TO_REPO.get(project, project.lower()),
-                    )
-            else:
-                stats["no_desc"] += 1
-                logger.debug("Skip %s — no description", issue_key)
-
-        except JiraClientError as e:
-            stats["errors"] += 1
-            logger.warning("Error fetching %s: %s", issue_key, e)
+        case = _process_candidate(jira, bug_hash, fix_hash, project, issue_key, stats)
+        if case and len(selected) < n:
+            selected.append(case)
+            logger.info("[%d/%d] SELECTED %s %s (repo=%s)",
+                        len(selected), n, project, issue_key, case["repo_dir"])
 
         if (i + 1) % 10 == 0:
-            logger.info(
-                "Progress: %d/%d fetched, %d selected so far",
-                i + 1, total_to_fetch, len(selected),
-            )
+            logger.info("Progress: %d/%d fetched, %d selected so far",
+                        i + 1, total_to_fetch, len(selected))
 
     logger.info(
         "Done. fetched=%d, cached=%d, has_desc=%d, no_desc=%d, errors=%d, selected=%d",

@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from commit_investigator.harness.result import Suspect
-from commit_investigator.harness.scoped_runner import ToolCallRecord
+from commit_investigator.investigation.result import Suspect
+from commit_investigator.investigation.investigator import ToolCallRecord
 from commit_investigator.models.candidates import CandidateSet
 from commit_investigator.narrowing.models import ScoredShortlist, TriageResult
 

@@ -8,7 +8,7 @@ import pytest
 from commit_investigator.extraction.jira_client import JiraIssue
 from commit_investigator.infra.git_context import GitContextProvider, GitRepoNotFoundError
 from commit_investigator.models.candidates import CandidateCommit, CandidateSet
-from commit_investigator.retrieval.pipeline import (
+from commit_investigator.retrieval.prepare import (
     RetrievalResult,
     _widen_config,
     prepare_investigation,
@@ -74,8 +74,8 @@ class TestWidenConfig:
 
 
 class TestPrepareInvestigationWithJiraIssue:
-    @patch("commit_investigator.retrieval.pipeline.GitContextProvider")
-    @patch("commit_investigator.retrieval.pipeline.retrieve_candidates")
+    @patch("commit_investigator.retrieval.prepare.GitContextProvider")
+    @patch("commit_investigator.retrieval.prepare.retrieve_candidates")
     def test_normal_path(self, mock_retrieve, mock_git_cls) -> None:
         mock_git_cls.return_value = MagicMock()
         mock_retrieve.return_value = _make_candidate_set(20)
@@ -94,8 +94,8 @@ class TestPrepareInvestigationWithJiraIssue:
         assert len(result.candidate_set.commits) == 20
         assert result.metadata["retry_triggered"] is False
 
-    @patch("commit_investigator.retrieval.pipeline.GitContextProvider")
-    @patch("commit_investigator.retrieval.pipeline.retrieve_candidates")
+    @patch("commit_investigator.retrieval.prepare.GitContextProvider")
+    @patch("commit_investigator.retrieval.prepare.retrieve_candidates")
     def test_extracts_signals(self, mock_retrieve, mock_git_cls) -> None:
         mock_git_cls.return_value = MagicMock()
         mock_retrieve.return_value = _make_candidate_set(20)
@@ -113,8 +113,8 @@ class TestPrepareInvestigationWithJiraIssue:
 
 
 class TestPrepareInvestigationWithRawInput:
-    @patch("commit_investigator.retrieval.pipeline.GitContextProvider")
-    @patch("commit_investigator.retrieval.pipeline.retrieve_candidates")
+    @patch("commit_investigator.retrieval.prepare.GitContextProvider")
+    @patch("commit_investigator.retrieval.prepare.retrieve_candidates")
     def test_raw_tuple_input(self, mock_retrieve, mock_git_cls) -> None:
         mock_git_cls.return_value = MagicMock()
         mock_retrieve.return_value = _make_candidate_set(15)
@@ -134,8 +134,8 @@ class TestPrepareInvestigationWithRawInput:
 
 
 class TestRetryPath:
-    @patch("commit_investigator.retrieval.pipeline.GitContextProvider")
-    @patch("commit_investigator.retrieval.pipeline.retrieve_candidates")
+    @patch("commit_investigator.retrieval.prepare.GitContextProvider")
+    @patch("commit_investigator.retrieval.prepare.retrieve_candidates")
     def test_retry_when_few_candidates(self, mock_retrieve, mock_git_cls) -> None:
         """AC4: retry with widened config when < fallback_recency_threshold."""
         mock_git_cls.return_value = MagicMock()
@@ -157,8 +157,8 @@ class TestRetryPath:
         second_config = mock_retrieve.call_args_list[1][0][2]
         assert second_config.file_log_per_file == 100
 
-    @patch("commit_investigator.retrieval.pipeline.GitContextProvider")
-    @patch("commit_investigator.retrieval.pipeline.retrieve_candidates")
+    @patch("commit_investigator.retrieval.prepare.GitContextProvider")
+    @patch("commit_investigator.retrieval.prepare.retrieve_candidates")
     def test_no_retry_when_enough_candidates(self, mock_retrieve, mock_git_cls) -> None:
         mock_git_cls.return_value = MagicMock()
         mock_retrieve.return_value = _make_candidate_set(20)
@@ -175,8 +175,8 @@ class TestRetryPath:
 
 
 class TestDegradedMode:
-    @patch("commit_investigator.retrieval.pipeline.GitContextProvider")
-    @patch("commit_investigator.retrieval.pipeline.retrieve_candidates")
+    @patch("commit_investigator.retrieval.prepare.GitContextProvider")
+    @patch("commit_investigator.retrieval.prepare.retrieve_candidates")
     def test_returns_even_with_zero_candidates(self, mock_retrieve, mock_git_cls) -> None:
         """AC5: degraded mode — returns result even if retry still produces few."""
         mock_git_cls.return_value = MagicMock()

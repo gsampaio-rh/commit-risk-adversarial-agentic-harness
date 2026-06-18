@@ -420,6 +420,116 @@
           "action": "Known untested modules: (1) eval/coverage.py \u2014 no tests (standalone CLI, low priority). (2) eval/helpers.py \u2014 no dedicated test file (tested indirectly via scripts). (3) infra/llm.py CursorSDKProvider \u2014 no unit tests (requires live Cursor SDK). (4) infra/smart_diff.py \u2014 has test_smart_diff.py. (5) Verify no tests import deleted classes or reference removed modules. Catalog gaps but defer fixes \u2014 test additions are separate tasks."
         }
       ]
+    },
+    {
+      "id": "v42-code-quality",
+      "name": "Full code review and refactor: DRY, KISS, SOLID, Clean Architecture",
+      "type": "chore",
+      "status": "completed",
+      "priority": 20,
+      "depends_on": [
+        "v42-repo-audit"
+      ],
+      "scope": "Comprehensive code quality pass across all src/commit_investigator/ modules. 16 functions >50 lines (5 critical >70), 3 files over 300-line limit, 3 DRY violations. Execute subtasks sequentially: critical function splits → DRY extraction → file sizing → minor improvements.",
+      "note": "Planner analysis found: 16 functions >50 lines (worst: run_phase1_checkpoint.main at 198), 3 files >300 lines (git_context 404, scoped_runner 390, llm 371), prompt template duplication (phase2/phase2b share 80%), trace builder duplication (build_v42_trace/build_scoped_trace share 80%), candidate formatter duplication. 12 subtasks across 5 categories. Chore work — skip adversarial harness.",
+      "subtasks": [
+        {
+          "id": "cq-1",
+          "name": "Split run_phase1_checkpoint.main (198 lines → 4-5 functions)",
+          "category": "solid",
+          "severity": "fix",
+          "status": "verified",
+          "action": "Extract from main() in scripts/run_phase1_checkpoint.py: (1) run_single_phase1_case(case, gt) → handles JIRA load, repo check, prepare_investigation, recall@100, narrow_candidates, compute triage recall for one case. Returns case result dict. (2) compute_phase1_aggregates(case_results) → computes n_retrievable, recall rates, tier breakdown, gate pass/fail. (3) print_phase1_summary(aggregates) → prints formatted results table. (4) build_phase1_output(aggregates, case_results, elapsed) → builds summary dict for JSON. Leave main() as orchestrator: load GT, build cases, loop calling run_single_phase1_case, aggregate, print, write. Target: main <40 lines, each helper <50 lines. Single file change."
+        },
+        {
+          "id": "cq-2",
+          "name": "DRY: Extract shared prompt template in scoped_prompts.py",
+          "category": "dry",
+          "severity": "fix",
+          "status": "verified",
+          "action": "In harness/scoped_prompts.py: (1) Merge _format_must_examine (lines 22-31) and _format_candidates (lines 92-102) into one _format_candidates(candidates: list[TriagedCandidate]) function — they have identical format strings. (2) Extract shared prompt sections into helpers: _tools_section(registry), _output_format_section(), _bug_report_section(problem). These are duplicated verbatim between build_phase2_system_prompt (56 lines) and build_phase2b_system_prompt (69 lines). After extraction, both builders become thin orchestrators composing section strings. Target: both builders <30 lines each. Single file change."
+        },
+        {
+          "id": "cq-3",
+          "name": "Extract scoped_runner support classes (390 → <300 lines)",
+          "category": "clean_arch",
+          "severity": "fix",
+          "status": "verified",
+          "action": "scoped_runner.py contains 9 classes/types — too many concerns. Extract to harness/investigation_support.py: NudgeAction, NudgeResult, NudgeLadder, MustExamineGate, ToolCallCache, RollingSummary, ToolCallRecord, Phase2Result. Keep only RevisedScopedInvestigator in scoped_runner.py (imports support classes). Also split investigate() (75 lines) by extracting _execute_tool_calls(parsed, trace, calls_used) as a helper method. Target: scoped_runner.py <200 lines, investigation_support.py <200 lines. 2 files changed + update imports in phase2b.py, run_scoped_eval.py, eval/metrics.py."
+        },
+        {
+          "id": "cq-4",
+          "name": "Refactor build_scoped_tools (90 → <50 lines)",
+          "category": "solid",
+          "severity": "fix",
+          "status": "verified",
+          "action": "In agent/tools.py: build_scoped_tools registers 4 tools with repetitive boilerplate (same parameter schema pattern, same SHA validation pattern). Refactor: (1) Extract a _register_scoped_tool(registry, name, description, params, handler, validate_sha, validator) helper that handles the SHA-validation-then-execute pattern. (2) Define tool specs as data (name, description, param schema, git method) and register in a loop. Target: build_scoped_tools <30 lines, helper <25 lines. Single file change."
+        },
+        {
+          "id": "cq-5",
+          "name": "Split assemble_diff budget allocation (82 → <50 lines)",
+          "category": "solid",
+          "severity": "fix",
+          "status": "verified",
+          "action": "In infra/smart_diff.py: assemble_diff mixes ranking, budget allocation, and output assembly. Extract: (1) _allocate_budget(ranked_files: list[FileDiff], max_chars: int) → returns (sections, included_files, truncated_files) — the for-loop at lines 181-201 that handles full/minimal/skip decisions per file. assemble_diff becomes: parse → rank → allocate → join. Target: assemble_diff <40 lines, _allocate_budget <30 lines. Single file change."
+        },
+        {
+          "id": "cq-6",
+          "name": "Refactor warm_cache (71 → <50 lines)",
+          "category": "solid",
+          "severity": "fix",
+          "status": "verified",
+          "action": "In scripts/warm_jira_cache.py: warm_cache has a deep loop body mixing fetch, cache check, selection, and stats tracking. Extract: (1) _process_candidate(jira, candidate, stats) → returns Optional[dict] (selected case or None). (2) Move stats tracking and progress logging into the main loop, keep single-candidate logic in helper. Target: warm_cache <45 lines, helper <25 lines. Single file change."
+        },
+        {
+          "id": "cq-7",
+          "name": "DRY: Consolidate trace builders in trace_writer.py",
+          "category": "dry",
+          "severity": "fix",
+          "status": "verified",
+          "action": "In harness/trace_writer.py: build_v42_trace (lines 183-218) and build_scoped_trace (lines 221-251) share ~80% code — both build InvestigationTrace with identical patterns for candidates_examined, examination_turns, stage_timings, and outcome. Consolidate into a single build_trace() function with optional funnel parameter: when funnel is provided, populate recall/triage metrics; otherwise, accept recall_found bool for backward compat. Delete build_scoped_trace (check if any callers remain — likely dead after V4.1 cleanup). Update callers (run_scoped_eval.py). Target: one builder <40 lines. 2 files changed."
+        },
+        {
+          "id": "cq-8",
+          "name": "Split git_context.py (404 → <300 lines)",
+          "category": "clean_arch",
+          "severity": "fix",
+          "status": "verified",
+          "action": "infra/git_context.py has 404 lines — GitContextProvider does too many things: commit inspection, file access, search, blame, and date range queries. Extract search/query methods to infra/git_search.py: search_commits_by_file, search_commits_by_keyword, search_commits_by_pickaxe, list_commits_in_date_range, list_recent_commits, resolve_file_path (lines 207-362, ~155 lines). These are used by retrieval/strategies.py and retrieval/retriever.py. Option: create a GitSearchProvider that wraps GitContextProvider, or make them standalone functions accepting a GitContextProvider. Target: git_context.py <250 lines, git_search.py <180 lines. 2-3 files changed (+ update imports in strategies.py)."
+        },
+        {
+          "id": "cq-9",
+          "name": "Refactor llm.py providers (371 → <300 lines)",
+          "category": "clean_arch",
+          "severity": "fix",
+          "status": "verified",
+          "action": "infra/llm.py has 371 lines with 5 classes + 2 factory functions. Options: (A) Extract CursorSDKProvider (lines 90-207, 117 lines) to infra/cursor_sdk_provider.py — it's self-contained with its own imports (cursor_sdk, tempfile). OpenAIProvider + get_provider stay in llm.py. (B) Alternatively, just reduce OpenAIProvider.complete (62 lines) by extracting _build_payload() and _parse_response() helpers, and reduce get_provider (52 lines) by extracting _try_cursor_provider(), _try_openai_provider(). Either approach gets llm.py under 300. Option A preferred for clean separation. Target: llm.py <260 lines. 2 files changed."
+        },
+        {
+          "id": "cq-10",
+          "name": "Minor function splits: borderline 55-69 line functions",
+          "category": "solid",
+          "severity": "note",
+          "status": "verified",
+          "action": "Address remaining functions in the 55-69 range IF natural extraction points exist. Candidates: (1) build_phase2b_system_prompt (69 lines, but should shrink naturally from cq-2 DRY extraction). (2) OpenAIProvider.complete (62 lines, should shrink from cq-9). (3) retrieve_candidates (59 lines) — extract fallback recency logic into _apply_recency_fallback(). (4) compute_pre_scores (58 lines) — extract per-candidate scoring into _score_candidate(). Skip functions that are coherent single-purpose at ~52-56 lines (coverage_report, run_phase2b, get_provider, CursorSDKProvider.complete, prepare_investigation). Target: reduce each addressed function to <50 lines. 3 files max."
+        },
+        {
+          "id": "cq-11",
+          "name": "Fix Any overuse and add missing type hints",
+          "category": "typing",
+          "severity": "note",
+          "status": "verified",
+          "action": "Fix type safety issues: (1) trace_writer.py build_v42_trace takes funnel: Any (comment says 'to avoid circular import') — fix with TYPE_CHECKING import. (2) run_scoped_eval.py _run_pipeline returns dict[str, Any] — replace with a typed dataclass or TypedDict. (3) _dicts_to_suspects in phase2b.py takes list[dict[str, Any]] — already has typed Suspect, just ensure callers use it. (4) eval/helpers.py write_run_config takes **kwargs: Any — acceptable for config, skip. Target: eliminate unnecessary Any usage in 3-4 files."
+        },
+        {
+          "id": "cq-12",
+          "name": "Naming improvements across modules",
+          "category": "naming",
+          "severity": "note",
+          "status": "verified",
+          "action": "Improve vague/short names: (1) scoped_runner.py: _summary._lines.append — accessing private field directly, add a method like _summary.add_harness_note(). (2) retriever.py: pre_trim → ranked_candidates (more descriptive). (3) scoring.py: fo, sc, w → file_overlap_score, signal_count, weights (already good in context, low priority). (4) phase2b.py: p2_s, p2b_s → phase2_suspect, phase2b_suspect. Scan for other single-letter or cryptic variable names. Target: improve 10-15 variable names across 4-5 files."
+        }
+      ]
     }
   ]
 }

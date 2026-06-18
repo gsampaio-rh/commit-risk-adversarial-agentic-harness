@@ -110,7 +110,7 @@ The agent receives a `TriageResult` + `ProblemStatement` from the input pipeline
 
 | Aspect | Detail |
 |--------|--------|
-| **Owner** | `RevisedScopedInvestigator` (harness) + LLM |
+| **Owner** | `RevisedScopedInvestigator` (investigation) + LLM |
 | **Input** | Bug report + must-examine candidates (SHA + pre-score rank) + scoped tools |
 | **Output** | Ranked suspects with confidence, mechanism, evidence quotes |
 | **Budget** | 15 tool calls (soft), 8 turns |
@@ -127,7 +127,7 @@ The agent receives a `TriageResult` + `ProblemStatement` from the input pipeline
 
 ### Scoped Tools
 
-Tools are registered via `build_scoped_tools()` in `agent/tools.py`. SHA-taking tools validate that the commit exists in the CandidateSet before execution.
+Tools are registered via `build_scoped_tools()` in `investigation/tools.py`. SHA-taking tools validate that the commit exists in the CandidateSet before execution.
 
 | Tool | Scope | SHA validation |
 |------|-------|---------------|
@@ -225,7 +225,7 @@ class CandidateCommit:
 @dataclass
 class Suspect:
     """Ranked attribution suspect from Phase 2 investigation.
-    Replaces historical SuspectCommit. Defined in harness/result.py.
+    Replaces historical SuspectCommit. Defined in investigation/result.py.
     """
     commit_id: str                          # full SHA
     rank: int = 0                           # 1-based

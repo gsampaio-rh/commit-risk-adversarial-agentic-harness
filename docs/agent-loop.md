@@ -64,11 +64,11 @@ The agent loop is the reasoning core. It receives a `TriageResult` + `ProblemSta
 | 1a Pre-score | `narrowing/scoring.py` | `compute_pre_scores()` |
 | 1b Triage | `narrowing/triage.py` | `deterministic_triage()` |
 | 1a+1b Combined | `narrowing/pipeline.py` | `narrow_candidates()` |
-| 2 Investigation | `harness/scoped_runner.py` | `RevisedScopedInvestigator.investigate()` |
-| 2 Prompts | `harness/scoped_prompts.py` | `build_phase2_system_prompt()` |
-| 2b Expansion | `harness/phase2b.py` | `run_phase2b()` |
-| 2b Prompts | `harness/scoped_prompts.py` | `build_phase2b_system_prompt()` |
-| Tools | `agent/tools.py` | `build_scoped_tools()` |
+| 2 Investigation | `investigation/investigator.py` | `RevisedScopedInvestigator.investigate()` |
+| 2 Prompts | `investigation/prompts.py` | `build_phase2_system_prompt()` |
+| 2b Expansion | `investigation/watchlist_expansion.py` | `run_phase2b()` |
+| 2b Prompts | `investigation/prompts.py` | `build_phase2b_system_prompt()` |
+| Tools | `investigation/tools.py` | `build_scoped_tools()` |
 | Eval | `eval/metrics.py` | `compute_funnel()` |
 | Full Pipeline | `scripts/run_scoped_eval.py` | CLI entry point |
 
@@ -123,7 +123,7 @@ Phase 2 receives:
 **Harness controls:** tool dispatch, budget enforcement, turn counting, context management, exit conditions, temporal bound.
 **LLM controls:** which tools to call, reasoning about diffs/blame, suspect ranking.
 
-**Implementation:** `RevisedScopedInvestigator` in `harness/scoped_runner.py`.
+**Implementation:** `RevisedScopedInvestigator` in `investigation/investigator.py`.
 
 ### Entry conditions
 - Valid `TriageResult` with 3 must-examine + 4 watchlist candidates
@@ -132,7 +132,7 @@ Phase 2 receives:
 
 ### System Prompt Template
 
-The Phase 2 system prompt is assembled by `build_phase2_system_prompt()` in `harness/scoped_prompts.py`. Here is the full template structure:
+The Phase 2 system prompt is assembled by `build_phase2_system_prompt()` in `investigation/prompts.py`. Here is the full template structure:
 
 ```
 You are a bug attribution agent. Your task: examine candidate commits
@@ -236,7 +236,7 @@ Continue examining candidates or conclude with ```suspects.
 
 ### 4-Tier Nudge Ladder
 
-**Implementation:** `NudgeLadder` class in `harness/scoped_runner.py`.
+**Implementation:** `NudgeLadder` class in `investigation/loop_support.py`.
 
 The nudge ladder tracks consecutive idle turns (no tool calls and no suspects parsed) and produces escalating interventions:
 
@@ -251,7 +251,7 @@ The ladder resets (`consecutive_idle = 0`) whenever the LLM produces tool calls 
 
 ### Must-Examine Gate
 
-**Implementation:** `MustExamineGate` class in `harness/scoped_runner.py`.
+**Implementation:** `MustExamineGate` class in `investigation/loop_support.py`.
 
 Tracks which must-examine SHAs have been successfully diffed:
 
@@ -261,13 +261,13 @@ Tracks which must-examine SHAs have been successfully diffed:
 
 ### Context Compression (AgentSZZ-inspired, 3 layers)
 
-**Implementation:** `ToolCallCache` and `RollingSummary` in `harness/scoped_runner.py`.
+**Implementation:** `ToolCallCache` and `RollingSummary` in `investigation/loop_support.py`.
 
 | Layer | Mechanism | Effect |
 |-------|-----------|--------|
 | Cache deduplication | `ToolCallCache` — keyed by `(tool_name, sorted(args))` | Duplicate call → "Already examined" message, no re-execution, no budget cost |
 | Rolling summary | `RollingSummary(max_chars=2000)` — 1-line per tool result | Replaces unbounded message accumulation. FIFO eviction at 2K chars |
-| Output truncation | `_truncate(text, max_chars=8000)` in `agent/tools.py` | Long git output capped at 8000 chars |
+| Output truncation | `_truncate(text, max_chars=8000)` in `investigation/tools.py` | Long git output capped at 8000 chars |
 
 Context per turn is assembled by `_build_turn_messages()`:
 1. System prompt (stable across all turns)
@@ -277,7 +277,7 @@ No message history accumulation — each turn gets fresh system prompt + compres
 
 ### Tools Available
 
-Registered by `build_scoped_tools()` in `agent/tools.py`. SHA-taking tools validate against the CandidateSet (12-char prefix match) before execution:
+Registered by `build_scoped_tools()` in `investigation/tools.py`. SHA-taking tools validate against the CandidateSet (12-char prefix match) before execution:
 
 | Tool | Description | SHA validation | Truncation |
 |------|-------------|---------------|------------|
@@ -310,13 +310,13 @@ Search tools are **not registered** — retrieval is done by the input pipeline.
 | Min diff before suspects | ≥1 must-examine SHA | — | `MustExamineGate` |
 | Max idle before force-conclude | 3 | — | `NudgeLadder` |
 | Rolling summary size | — | 2000 chars | `RollingSummary(max_chars=2000)` |
-| Tool output truncation | — | 8000 chars | `_truncate()` in `agent/tools.py` |
+| Tool output truncation | — | 8000 chars | `_truncate()` in `investigation/tools.py` |
 
 ---
 
 ## Phase 2b: Watchlist Expansion (conditional)
 
-**Implementation:** `harness/phase2b.py`
+**Implementation:** `investigation/watchlist_expansion.py`
 
 ### Trigger logic
 
@@ -339,7 +339,7 @@ Search tools are **not registered** — retrieval is done by the input pipeline.
 
 ### Phase 2b System Prompt Template
 
-Assembled by `build_phase2b_system_prompt()` in `harness/scoped_prompts.py`:
+Assembled by `build_phase2b_system_prompt()` in `investigation/prompts.py`:
 
 ```
 You are a bug attribution agent. A prior investigation examined
@@ -399,7 +399,7 @@ This ensures the same nudge ladder, must-examine gate, and context compression a
 
 ### Merge Logic
 
-**Implementation:** `merge_suspects()` in `harness/phase2b.py`.
+**Implementation:** `merge_suspects()` in `investigation/watchlist_expansion.py`.
 
 1. **Deduplicate by full SHA** — identify suspects appearing in both Phase 2 and Phase 2b
 2. **Duplicates:** `confidence = max(P2, P2b)`, `evidence_quotes = union` (deduplicated), `mechanism = longer` string, `phase = "both"`
@@ -447,7 +447,7 @@ The V4.1 implementation ran a single multi-turn loop with 20 candidates in the s
 | Nudges | Single generic nudge | 4-tier state-based ladder |
 | Best result | Not evaluated at scale | Hit@5=0.800 (Cursor SDK), 0.250 (local) |
 
-V4.1 code (`ScopedInvestigator`, `build_scoped_system_prompt()`, `run_scoped_investigation()`) was deleted from `harness/scoped_runner.py` and `harness/scoped_prompts.py` during the V4.2 repo audit. Historical results in [exp19b retrospective](../.harness/docs/exp19b-retrospective.md).
+V4.1 code (`ScopedInvestigator`, `build_scoped_system_prompt()`, `run_scoped_investigation()`) was deleted from `investigation/investigator.py` and `investigation/prompts.py` during the V4.2 repo audit. Historical results in [exp19b retrospective](../.harness/docs/exp19b-retrospective.md).
 
 ---
 

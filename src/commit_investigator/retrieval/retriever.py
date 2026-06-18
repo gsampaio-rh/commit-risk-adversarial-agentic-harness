@@ -159,6 +159,28 @@ def _to_candidate_commit(
     )
 
 
+def _apply_recency_fallback(
+    candidates: list[MergedCandidate], git: GitContextProvider, max_results: int
+) -> None:
+    """Pad candidates with recent commits when signal count is low."""
+    existing_ids = {c.commit_id for c in candidates}
+    for entry in git.list_recent_commits(max_results=max_results):
+        sha = entry.commit_id.lower()
+        if sha in existing_ids:
+            continue
+        candidates.append(
+            MergedCandidate(
+                commit_id=sha,
+                strategies=set(),
+                best_rank=0,
+                message=entry.message.splitlines()[0] if entry.message else "",
+                date=entry.date,
+                is_fallback=True,
+            )
+        )
+        existing_ids.add(sha)
+
+
 def retrieve_candidates(
     problem: ProblemStatement,
     git: GitContextProvider,
@@ -174,29 +196,13 @@ def retrieve_candidates(
     signal_count = len(merged)
 
     fallback_triggered = signal_count < cfg.fallback_recency_threshold
-    pre_trim: list[MergedCandidate] = list(_rank_signal_candidates(merged))
+    ranked_candidates: list[MergedCandidate] = list(_rank_signal_candidates(merged))
 
     if fallback_triggered:
-        existing_ids = {candidate.commit_id for candidate in pre_trim}
-        recent_entries = git.list_recent_commits(max_results=cfg.max_candidates)
-        for entry in recent_entries:
-            sha = entry.commit_id.lower()
-            if sha in existing_ids:
-                continue
-            pre_trim.append(
-                MergedCandidate(
-                    commit_id=sha,
-                    strategies=set(),
-                    best_rank=0,
-                    message=entry.message.splitlines()[0] if entry.message else "",
-                    date=entry.date,
-                    is_fallback=True,
-                )
-            )
-            existing_ids.add(sha)
+        _apply_recency_fallback(ranked_candidates, git, cfg.max_candidates)
 
-    total_raw = len(pre_trim)
-    signal_counts = _build_signal_counts(pre_trim)
+    total_raw = len(ranked_candidates)
+    signal_counts = _build_signal_counts(ranked_candidates)
     metadata = {
         "strategies_used": enabled,
         "total_raw_candidates": total_raw,
@@ -208,7 +214,7 @@ def retrieve_candidates(
     if cfg.max_candidates <= 0:
         return CandidateSet(commits=[], retrieval_metadata=metadata, temporal_bound=temporal_bound)
 
-    trimmed = pre_trim[: cfg.max_candidates]
+    trimmed = ranked_candidates[: cfg.max_candidates]
     commits = [
         _to_candidate_commit(candidate, rank, git)
         for rank, candidate in enumerate(trimmed, start=1)

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Self
 
-from commit_investigator.harness.trace_writer import InvestigationTrace
+from commit_investigator.investigation.trace_writer import InvestigationTrace
 
 
 class InvestigationExitReason(str, Enum):

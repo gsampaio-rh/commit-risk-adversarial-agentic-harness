@@ -1,0 +1,25 @@
+{
+  "task_id": "module-naming-restructure",
+  "feature": "Rename folders and modules to use domain-driven names",
+  "problem": "Module names used pipeline-phase jargon (phase2b, scoped_runner, harness) instead of domain language",
+  "proposed_solution": "Rename harness/ to investigation/, merge agent/ into it, rename all opaque module names to descriptive ones",
+  "acceptance_criteria": [
+    "No folder named harness/ or agent/ exists under src/commit_investigator/",
+    "investigation/ folder contains: investigator.py, prompts.py, tools.py, watchlist_expansion.py, loop_support.py, result.py, trace_writer.py",
+    "infra/diff_assembler.py exists (was smart_diff.py), no smart_diff.py remains",
+    "retrieval/prepare.py exists (was pipeline.py), no retrieval/pipeline.py remains",
+    "All 310 tests pass without modification to test logic (only import paths changed)",
+    "No Python file in src/, tests/, or scripts/ contains import paths referencing 'commit_investigator.harness' or 'commit_investigator.agent'",
+    "AGENTS.md, docs/agent-loop.md, docs/system-specification.md, and .cursor/rules/project_domain.mdc reference new module paths"
+  ],
+  "edge_cases": [
+    "Re-exports in __init__.py files still work (e.g. from commit_investigator.investigation import InvestigationTrace)",
+    "Cross-module imports within investigation/ use new paths (no circular imports)"
+  ],
+  "verification_method": "Run pytest, grep for stale imports, verify folder structure, spot-check docs",
+  "rubrics": ["code-quality", "organization"],
+  "rubric_mode": "warn",
+  "negotiation_rounds": 0,
+  "phase": "evaluating",
+  "verified": true
+}

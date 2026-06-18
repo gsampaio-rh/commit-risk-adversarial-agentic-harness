@@ -62,10 +62,9 @@ Architecture decisions: [.harness/docs/](.harness/docs/)
 │   ├── extraction/       # problem_extractor.py, jira_client.py
 │   ├── retrieval/        # retriever.py, config.py, pipeline.py
 │   ├── models/           # candidates.py (CandidateSet, CandidateCommit)
-│   ├── agent/            # tools.py (build_scoped_tools, ToolRegistry)
-│   ├── harness/          # scoped_runner.py, scoped_prompts.py, result.py, trace_writer.py, phase2b.py
+│   ├── investigation/    # investigator.py, prompts.py, tools.py, watchlist_expansion.py, result.py, trace_writer.py
 │   ├── eval/             # ground_truth.py, coverage.py, metrics.py, helpers.py
-│   └── infra/            # llm.py, git_context.py, smart_diff.py
+│   └── infra/            # llm.py, git_context.py, diff_assembler.py
 ├── data/apachejit/        # Train/test CSVs + replication zip (gitignored)
 ├── data/repos/            # Local git clones of Apache projects (gitignored)
 ├── scripts/               # Data download, eval prep, smoke tests

@@ -10,8 +10,8 @@ from commit_investigator.eval.metrics import (
     compute_hit_at_k,
     compute_mrr,
 )
-from commit_investigator.harness.result import Suspect
-from commit_investigator.harness.scoped_runner import ToolCallRecord
+from commit_investigator.investigation.result import Suspect
+from commit_investigator.investigation.investigator import ToolCallRecord
 from commit_investigator.models.candidates import CandidateCommit, CandidateSet
 from commit_investigator.narrowing.models import (
     ScoredCandidate,
@@ -245,7 +245,7 @@ class TestComputeFunnel:
 # InvestigationTrace funnel fields + build_v42_trace
 # ---------------------------------------------------------------------------
 
-from commit_investigator.harness.trace_writer import (
+from commit_investigator.investigation.trace_writer import (
     InvestigationTrace,
     build_v42_trace,
 )

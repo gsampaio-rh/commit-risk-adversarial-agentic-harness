@@ -1,6 +1,6 @@
 """Deterministic retrieval — CandidateSet from git signals."""
 
-from commit_investigator.retrieval.pipeline import RetrievalResult, prepare_investigation
+from commit_investigator.retrieval.prepare import RetrievalResult, prepare_investigation
 from commit_investigator.retrieval.retriever import (
     RecallDiagnostic,
     RetrievalConfig,

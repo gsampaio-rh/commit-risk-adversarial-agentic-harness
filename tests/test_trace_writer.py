@@ -4,7 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from commit_investigator.harness.trace_writer import (
+from commit_investigator.investigation.trace_writer import (
     EvidenceRecord,
     InvestigationTrace,
     OutcomeRecord,

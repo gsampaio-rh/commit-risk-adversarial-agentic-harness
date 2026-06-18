@@ -11,7 +11,10 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from commit_investigator.eval.metrics import FunnelMetrics
 
 
 @dataclass
@@ -165,7 +168,7 @@ def _extract_examined_shas(tool_trace: list[dict[str, Any]]) -> list[str]:
 
 
 def _build_outcome(
-    suspects: list[dict[str, Any]], funnel: Any,
+    suspects: list[dict[str, Any]], funnel: FunnelMetrics,
 ) -> OutcomeRecord:
     """Build OutcomeRecord from suspects and funnel metrics."""
     top_conf = max((s.get("confidence", 0.0) for s in suspects), default=0.0)
@@ -186,16 +189,12 @@ def build_v42_trace(
     candidate_count: int,
     suspects: list[dict[str, Any]],
     tool_trace: list[dict[str, Any]],
-    funnel: Any,
+    funnel: FunnelMetrics,
     exit_reason: str = "",
     retrieval_ms: float = 0.0,
     agent_ms: float = 0.0,
 ) -> InvestigationTrace:
-    """Build a V4.2 InvestigationTrace with funnel metrics populated.
-
-    Args:
-        funnel: FunnelMetrics instance (imported as Any to avoid circular import).
-    """
+    """Build a V4.2 InvestigationTrace with funnel metrics populated."""
     return InvestigationTrace(
         issue_key=issue_key,
         temporal_bound=temporal_bound,
@@ -218,34 +217,3 @@ def build_v42_trace(
     )
 
 
-def build_scoped_trace(
-    issue_key: str,
-    temporal_bound: str,
-    suspects: list[dict[str, Any]],
-    tool_trace: list[dict[str, Any]],
-    candidate_count: int,
-    recall_found: bool,
-    retrieval_ms: float,
-    agent_ms: float,
-) -> InvestigationTrace:
-    """Build an InvestigationTrace from scoped investigation tool records."""
-    top_confidence = max((s.get("confidence", 0.0) for s in suspects), default=0.0)
-    return InvestigationTrace(
-        issue_key=issue_key,
-        temporal_bound=temporal_bound,
-        candidate_set_size=candidate_count,
-        retrieval_recall_100=recall_found,
-        candidates_examined=_extract_examined_shas(tool_trace),
-        examination_turns=[
-            TurnRecord(turn=i + 1, tool_calls=[{"tool": tc["tool"], "args": tc["args"]}])
-            for i, tc in enumerate(tool_trace)
-        ],
-        stage_timings={"retrieval": round(retrieval_ms, 1), "agent_total": round(agent_ms, 1)},
-        outcome=OutcomeRecord(
-            suspect_count=len(suspects),
-            top_confidence=top_confidence,
-            degraded=not suspects,
-            degraded_reason=None if suspects else "no_suspects",
-            suspects=suspects[:5],
-        ),
-    )

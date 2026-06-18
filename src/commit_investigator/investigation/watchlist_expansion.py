@@ -9,12 +9,12 @@ from __future__ import annotations
 from typing import Any
 
 from commit_investigator.extraction.problem_extractor import ProblemStatement
-from commit_investigator.harness.result import (
+from commit_investigator.investigation.result import (
     InvestigationExitReason,
     Phase2bResult,
     Suspect,
 )
-from commit_investigator.harness.scoped_runner import Phase2Result, RevisedScopedInvestigator
+from commit_investigator.investigation.investigator import Phase2Result, RevisedScopedInvestigator
 from commit_investigator.infra.git_context import GitContextProvider
 from commit_investigator.infra.llm import LLMProvider
 from commit_investigator.models.candidates import CandidateSet
@@ -75,18 +75,18 @@ def merge_suspects(
     ))
 
     for sha in all_shas:
-        p2_s = p2_by_sha.get(sha)
-        p2b_s = p2b_by_sha.get(sha)
+        phase2_suspect = p2_by_sha.get(sha)
+        phase2b_suspect = p2b_by_sha.get(sha)
 
-        if p2_s and p2b_s:
-            merged.append(_merge_duplicate(p2_s, p2b_s))
-        elif p2_s:
-            merged.append(p2_s)
-        elif p2b_s:
-            if p2b_s.confidence > top_p2_conf + PROMOTION_MARGIN:
-                promoted.append(p2b_s)
+        if phase2_suspect and phase2b_suspect:
+            merged.append(_merge_duplicate(phase2_suspect, phase2b_suspect))
+        elif phase2_suspect:
+            merged.append(phase2_suspect)
+        elif phase2b_suspect:
+            if phase2b_suspect.confidence > top_p2_conf + PROMOTION_MARGIN:
+                promoted.append(phase2b_suspect)
             else:
-                demoted.append(p2b_s)
+                demoted.append(phase2b_suspect)
 
     result = promoted + merged + demoted
     result.sort(key=lambda s: (-len(s.evidence_quotes), -s.confidence))

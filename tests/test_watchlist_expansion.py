@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from commit_investigator.harness.phase2b import (
+from commit_investigator.investigation.watchlist_expansion import (
     CONFIDENCE_THRESHOLD,
     MAX_FINAL_SUSPECTS,
     PHASE2B_MAX_TOOL_CALLS,
@@ -17,15 +17,15 @@ from commit_investigator.harness.phase2b import (
     run_phase2b,
     should_trigger_phase2b,
 )
-from commit_investigator.agent.tools import build_scoped_tools
+from commit_investigator.investigation.tools import build_scoped_tools
 from commit_investigator.extraction.problem_extractor import ProblemStatement
-from commit_investigator.harness.result import (
+from commit_investigator.investigation.result import (
     InvestigationExitReason,
     Phase2bResult,
     Suspect,
 )
-from commit_investigator.harness.scoped_prompts import build_phase2b_system_prompt
-from commit_investigator.harness.scoped_runner import Phase2Result
+from commit_investigator.investigation.prompts import build_phase2b_system_prompt
+from commit_investigator.investigation.investigator import Phase2Result
 from commit_investigator.models.candidates import CandidateCommit, CandidateSet
 from commit_investigator.narrowing.models import TriagedCandidate, TriageResult, TriageTier
 

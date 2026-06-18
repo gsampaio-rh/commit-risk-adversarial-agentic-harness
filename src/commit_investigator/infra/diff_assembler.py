@@ -172,33 +172,7 @@ def assemble_diff(
         return _file_rank(fd.path, file_diff_text)
 
     ranked = sorted(file_diffs, key=effective_rank)
-
-    included_files: list[str] = []
-    truncated_files: list[str] = []
-    sections: list[str] = []
-    budget = max_chars
-
-    for fd in ranked:
-        if not fd.hunks:
-            full_section = fd.header
-        else:
-            full_section = fd.header + "".join(fd.hunks)
-
-        if len(full_section) <= budget:
-            sections.append(full_section)
-            included_files.append(fd.path)
-            budget -= len(full_section)
-        else:
-            # Try to fit at least the first hunk (per-file minimum guarantee)
-            minimal = fd.header + (fd.hunks[0] if fd.hunks else "")
-            if len(minimal) <= budget:
-                sections.append(minimal)
-                included_files.append(fd.path)
-                budget -= len(minimal)
-                if len(fd.hunks) > 1:
-                    truncated_files.append(fd.path)
-            else:
-                truncated_files.append(fd.path)
+    sections, included_files, truncated_files = _allocate_budget(ranked, max_chars)
 
     text = "".join(sections)
     if len(text) > max_chars:
@@ -210,3 +184,33 @@ def assemble_diff(
         truncated_files=truncated_files,
         total_chars=len(text),
     )
+
+
+def _allocate_budget(
+    ranked_files: list[FileDiff], max_chars: int
+) -> tuple[list[str], list[str], list[str]]:
+    """Allocate char budget across ranked files. Returns (sections, included, truncated)."""
+    included_files: list[str] = []
+    truncated_files: list[str] = []
+    sections: list[str] = []
+    budget = max_chars
+
+    for fd in ranked_files:
+        full_section = fd.header + "".join(fd.hunks) if fd.hunks else fd.header
+
+        if len(full_section) <= budget:
+            sections.append(full_section)
+            included_files.append(fd.path)
+            budget -= len(full_section)
+        else:
+            minimal = fd.header + (fd.hunks[0] if fd.hunks else "")
+            if len(minimal) <= budget:
+                sections.append(minimal)
+                included_files.append(fd.path)
+                budget -= len(minimal)
+                if len(fd.hunks) > 1:
+                    truncated_files.append(fd.path)
+            else:
+                truncated_files.append(fd.path)
+
+    return sections, included_files, truncated_files

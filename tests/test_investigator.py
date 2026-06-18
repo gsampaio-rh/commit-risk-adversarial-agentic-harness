@@ -7,15 +7,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from commit_investigator.agent.tools import build_scoped_tools
+from commit_investigator.investigation.tools import build_scoped_tools
 from commit_investigator.extraction.problem_extractor import ProblemStatement
-from commit_investigator.harness.scoped_prompts import (
+from commit_investigator.investigation.prompts import (
     build_phase2_system_prompt,
     parse_suspects,
     parse_tool_calls,
 )
 from commit_investigator.narrowing.models import TriagedCandidate, TriageResult, TriageTier
-from commit_investigator.harness.scoped_runner import (
+from commit_investigator.investigation.investigator import (
     MustExamineGate,
     NudgeAction,
     NudgeLadder,
@@ -25,7 +25,7 @@ from commit_investigator.harness.scoped_runner import (
     RollingSummary,
     ToolCallCache,
 )
-from commit_investigator.harness.result import (
+from commit_investigator.investigation.result import (
     InvestigationExitReason,
     InvestigationResult,
     Suspect,

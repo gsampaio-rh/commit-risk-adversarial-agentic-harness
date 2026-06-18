@@ -34,10 +34,10 @@ from commit_investigator.eval.helpers import (
     write_run_config,
 )
 from commit_investigator.eval.metrics import FunnelMetrics, compute_funnel
-from commit_investigator.harness.phase2b import run_phase2b
-from commit_investigator.harness.result import Suspect
-from commit_investigator.harness.scoped_runner import RevisedScopedInvestigator
-from commit_investigator.harness.trace_writer import TraceWriter, build_v42_trace
+from commit_investigator.investigation.watchlist_expansion import run_phase2b
+from commit_investigator.investigation.result import Suspect
+from commit_investigator.investigation.investigator import RevisedScopedInvestigator
+from commit_investigator.investigation.trace_writer import TraceWriter, build_v42_trace
 from commit_investigator.infra.git_context import GitContextProvider
 from commit_investigator.infra.llm import get_provider
 from commit_investigator.narrowing.scoring import compute_pre_scores

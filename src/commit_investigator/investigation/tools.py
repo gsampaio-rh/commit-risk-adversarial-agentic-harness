@@ -98,17 +98,48 @@ def _build_sha_validator(candidate_set: CandidateSet) -> Callable[[str], str | N
     return validate
 
 
-def build_scoped_tools(
-    git: GitContextProvider, candidate_set: CandidateSet
-) -> ToolRegistry:
-    """Build examination-only tools scoped to a CandidateSet.
+_COMMIT_ID_PARAM = {"type": "string", "description": "Commit SHA from the candidate list"}
 
-    Only registers examination tools (diff, message, blame, file_at_commit).
-    Tools that take commit_id reject SHAs not in the CandidateSet.
-    No search tools — retrieval is done by the input pipeline.
-    """
-    registry = ToolRegistry()
-    validate_sha = _build_sha_validator(candidate_set)
+_TOOL_SPECS: list[dict[str, Any]] = [
+    {
+        "name": "get_commit_diff",
+        "description": "Get the unified diff (patch) for a candidate commit. Shows exactly what code changed.",
+        "parameters": {"type": "object", "properties": {"commit_id": _COMMIT_ID_PARAM}, "required": ["commit_id"]},
+    },
+    {
+        "name": "get_commit_message",
+        "description": "Get the full commit message for a candidate commit.",
+        "parameters": {"type": "object", "properties": {"commit_id": _COMMIT_ID_PARAM}, "required": ["commit_id"]},
+    },
+    {
+        "name": "get_blame",
+        "description": "Get git blame for a file, showing which commit last modified each line.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path to blame"},
+                "line_start": {"type": "integer", "description": "Start line number", "default": 1},
+                "line_end": {"type": "integer", "description": "End line number (omit for whole file)"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "get_file_at_commit",
+        "description": "Get file contents at a specific candidate commit.",
+        "parameters": {
+            "type": "object",
+            "properties": {"commit_id": _COMMIT_ID_PARAM, "path": {"type": "string", "description": "File path"}},
+            "required": ["commit_id", "path"],
+        },
+    },
+]
+
+
+def _build_scoped_handlers(
+    git: GitContextProvider, validate_sha: Callable[[str], str | None]
+) -> dict[str, Callable[..., str]]:
+    """Build SHA-validated handler functions for each scoped tool."""
 
     def _scoped_diff(commit_id: str) -> str:
         err = validate_sha(commit_id)
@@ -130,61 +161,36 @@ def build_scoped_tools(
             git.get_file_at_commit(commit_id, path) or f"File {path} not found at {commit_id}"
         )
 
-    registry.register(ToolDefinition(
-        name="get_commit_diff",
-        description="Get the unified diff (patch) for a candidate commit. Shows exactly what code changed.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "commit_id": {"type": "string", "description": "Commit SHA from the candidate list"},
-            },
-            "required": ["commit_id"],
-        },
-        handler=_scoped_diff,
-    ))
-
-    registry.register(ToolDefinition(
-        name="get_commit_message",
-        description="Get the full commit message for a candidate commit.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "commit_id": {"type": "string", "description": "Commit SHA from the candidate list"},
-            },
-            "required": ["commit_id"],
-        },
-        handler=_scoped_message,
-    ))
-
-    registry.register(ToolDefinition(
-        name="get_blame",
-        description="Get git blame for a file, showing which commit last modified each line.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "File path to blame"},
-                "line_start": {"type": "integer", "description": "Start line number", "default": 1},
-                "line_end": {"type": "integer", "description": "End line number (omit for whole file)"},
-            },
-            "required": ["path"],
-        },
-        handler=lambda path, line_start=1, line_end=None: _truncate(
+    def _blame(path: str, line_start: int = 1, line_end: int | None = None) -> str:
+        return _truncate(
             git.get_blame(path, line_start=line_start, line_end=line_end) or f"No blame for {path}"
-        ),
-    ))
+        )
 
-    registry.register(ToolDefinition(
-        name="get_file_at_commit",
-        description="Get file contents at a specific candidate commit.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "commit_id": {"type": "string", "description": "Commit SHA from the candidate list"},
-                "path": {"type": "string", "description": "File path"},
-            },
-            "required": ["commit_id", "path"],
-        },
-        handler=_scoped_file_at_commit,
-    ))
+    return {
+        "get_commit_diff": _scoped_diff,
+        "get_commit_message": _scoped_message,
+        "get_blame": _blame,
+        "get_file_at_commit": _scoped_file_at_commit,
+    }
+
+
+def build_scoped_tools(
+    git: GitContextProvider, candidate_set: CandidateSet
+) -> ToolRegistry:
+    """Build examination-only tools scoped to a CandidateSet.
+
+    Tools that take commit_id reject SHAs not in the CandidateSet.
+    No search tools — retrieval is done by the input pipeline.
+    """
+    registry = ToolRegistry()
+    handlers = _build_scoped_handlers(git, _build_sha_validator(candidate_set))
+
+    for spec in _TOOL_SPECS:
+        registry.register(ToolDefinition(
+            name=spec["name"],
+            description=spec["description"],
+            parameters=spec["parameters"],
+            handler=handlers[spec["name"]],
+        ))
 
     return registry

@@ -54,14 +54,13 @@ Before starting a new task: check if a contract exists, read the last 5 breadcru
 
 ```
 src/commit_investigator/
-├── extraction/        # problem_extractor, jira_client
-├── retrieval/         # retriever, config, pipeline (input pipeline)
-├── narrowing/         # Phase 1: pre-score + deterministic triage (ScoredShortlist → TriageResult)
-├── models/            # candidates (CandidateSet, CandidateCommit)
-├── agent/             # tools (build_scoped_tools, ToolRegistry)
-├── harness/           # scoped_runner, scoped_prompts, result, trace_writer, phase2b
-├── eval/              # ground_truth, coverage, metrics, helpers
-└── infra/             # llm, git_context, smart_diff (shared)
+├── extraction/      # problem_extractor, jira_client
+├── retrieval/       # retriever, prepare (input pipeline), strategies
+├── narrowing/       # Phase 1: pre-score + deterministic triage (ScoredShortlist → TriageResult)
+├── models/          # candidates (CandidateSet, CandidateCommit)
+├── investigation/   # investigator, prompts, tools, watchlist_expansion, loop_support, result, trace_writer
+├── eval/            # ground_truth, coverage, metrics, helpers
+└── infra/           # llm, git_context, git_search, diff_assembler
 ```
 
 ## Pipeline (V4.2 — Current)
@@ -78,10 +77,10 @@ Evaluation: 5-stage funnel (Recall@100→@15→@7→Exam→Hit@5)
 | Phase | Module | Owner |
 |-------|--------|-------|
 | Extraction | `extraction/problem_extractor.py` | Script |
-| Retrieval | `retrieval/pipeline.py` → `retrieval/retriever.py` | Script |
+| Retrieval | `retrieval/prepare.py` → `retrieval/retriever.py` | Script |
 | Pre-score + Triage | `narrowing/pipeline.py` (scoring.py, triage.py) | Script |
-| Scoped investigation | `harness/scoped_runner.py` + `agent/tools.py` | LLM + scoped tools |
-| Watchlist expansion | `harness/phase2b.py` | Harness + LLM |
+| Scoped investigation | `investigation/investigator.py` + `investigation/tools.py` | LLM + scoped tools |
+| Watchlist expansion | `investigation/watchlist_expansion.py` | Investigation + LLM |
 | Evaluation | `eval/metrics.py` | Oracle |
 
 The agent receives `TriageResult` + `ProblemStatement`, not raw repo access. Tools are scoped to CandidateSet SHAs.
