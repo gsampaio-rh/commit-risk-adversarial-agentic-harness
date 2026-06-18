@@ -245,10 +245,12 @@ def get_provider(
     *,
     phase: str | None = None,
     fail_fast: bool | None = None,
+    model: str | None = None,
 ) -> LLMProvider:
     """Factory: return real provider if available, otherwise mock.
 
     Priority: CURSOR_API_KEY -> OPENAI_API_KEY (+ OPENAI_BASE_URL) -> local Ollama -> Mock.
+    When ``model`` is specified with CURSOR_API_KEY, it's passed to CursorSDKProvider.
     """
     strict = fail_fast
     if strict is None:
@@ -266,13 +268,16 @@ def get_provider(
     if prefer_real:
         cursor_key = os.environ.get("CURSOR_API_KEY")
         if cursor_key:
-            return CursorSDKProvider(api_key=cursor_key)
+            sdk_kwargs: dict[str, str] = {"api_key": cursor_key}
+            if model:
+                sdk_kwargs["model"] = model
+            return CursorSDKProvider(**sdk_kwargs)
 
         openai_key = os.environ.get("OPENAI_API_KEY")
         if openai_key:
             base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-            model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-            return OpenAIProvider(api_key=openai_key, base_url=base_url, model=model)
+            openai_model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+            return OpenAIProvider(api_key=openai_key, base_url=base_url, model=openai_model)
 
         local = try_local_ollama_provider()
         if local is not None:

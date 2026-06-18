@@ -1,0 +1,26 @@
+{
+  "task_id": "v42-scaled-eval",
+  "date": "2026-06-18T14:10:00Z",
+  "criteria": [
+    {"id": "AC1", "description": "get_provider(model='claude-haiku-4-5') returns CursorSDKProvider with that model", "result": "pass", "evidence": "Inline test verified: returns CursorSDKProvider with _model='claude-haiku-4-5', model_name='cursor-sdk/claude-haiku-4-5'."},
+    {"id": "AC2", "description": "EarlyStopMonitor correctly triggers abort for each of the 5 hard-stop rules", "result": "pass", "evidence": "All 5 rules verified: perf floor, latency ceiling, cost ceiling, error rate, global budget. W1 fixed: cost now propagated via _CostTracker wrapper."},
+    {"id": "AC3", "description": "run_scaled_eval.py runs 6 models sequentially, calling run_single_case() per case", "result": "pass", "evidence": "Object identity check: run_scaled_eval.run_single_case IS run_scoped_eval.run_single_case. No duplication."},
+    {"id": "AC4", "description": "Runner produces per-model summary.json in separate results/ folders", "result": "pass", "evidence": "Each model gets own timestamped folder via create_run_folder()."},
+    {"id": "AC5", "description": "Runner implements checkpoint/resume: completed cases are skipped on restart", "result": "pass", "evidence": "checkpoint.json saved per model. W2 fixed: only completed results loaded on resume, no duplicates."},
+    {"id": "AC6", "description": "Comparison report produces comparison.json with per-model rows and prints ASCII table", "result": "pass", "evidence": "Verified with mock data. Handles partial results from aborted/exception models."},
+    {"id": "AC7", "description": "All existing tests pass (no regressions)", "result": "pass", "evidence": "310 passed in 17.92s after all fixes applied."}
+  ],
+  "edge_cases": [
+    {"id": "EC1", "description": "Model aborted mid-run: partial results saved, comparison includes abort_reason", "result": "pass", "evidence": "Abort reason propagated to summary and comparison.json."},
+    {"id": "EC2", "description": "Global budget exceeded: all remaining models skipped, partial comparison produced", "result": "pass", "evidence": "W3 fixed: verdict-based detection via is_global_abort flag, no string matching."},
+    {"id": "EC3", "description": "All cases error for a model: 100% error rate triggers abort after 10 cases", "result": "pass", "evidence": "Inline test: 100% error rate triggers ABORT_MODEL at case 10."}
+  ],
+  "warnings_fixed": [
+    {"id": "W1", "description": "Cost-based early stopping was inert", "fix": "Added _CostTracker wrapper in runner; injects estimated_cost into case results."},
+    {"id": "W2", "description": "Checkpoint/resume dedup gap", "fix": "Only load completed results from checkpoint (filter by completed_keys)."},
+    {"id": "W3", "description": "Global budget detection used fragile string matching", "fix": "Return (summary, is_global_abort) tuple from _run_model; check boolean flag instead of string prefix."}
+  ],
+  "overall": "pass",
+  "recommendation": "proceed",
+  "notes": "All 7 acceptance criteria pass. All 3 edge cases pass. 3 evaluator warnings addressed with code fixes. 310 tests pass with no regressions."
+}

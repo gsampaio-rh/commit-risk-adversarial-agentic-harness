@@ -1,0 +1,27 @@
+{
+  "task_id": "v42-scaled-eval-5-and-6",
+  "feature": "Fix resume bugs and tune early-stop thresholds for scaled eval runner",
+  "problem": "EarlyStopMonitor resets to zero on --resume, defeating all 5 hard-stop rules. Resume creates duplicate model folders splitting traces. perf_min_cases=20 is dead code with exactly 20 eval cases.",
+  "proposed_solution": "Add replay_checkpoint() to restore monitor state from checkpoint data. Store model_dir in checkpoint and reuse on resume. Move completed_keys.add() before abort check. Lower perf_min_cases to 10.",
+  "acceptance_criteria": [
+    "AC1: After replay_checkpoint(), monitor.global_cost equals sum of all prior estimated_cost values",
+    "AC2: After replay_checkpoint(), model_summary() for each replayed model shows correct n_completed, n_hits, total_cost, and avg_latency_s matching the replayed data",
+    "AC3: replay_checkpoint() does NOT return any abort verdict — it only rebuilds state",
+    "AC4: On --resume with a prior model_dir in checkpoint, _run_model() reuses the existing folder (no new timestamped folder created)",
+    "AC5: On fresh run (no checkpoint), _run_model() creates a new folder as before",
+    "AC6: completed_keys.add() happens before the abort check so the triggering case is tracked on abort",
+    "AC7: perf_min_cases defaults to 10, enabling the performance floor to fire at the halfway point",
+    "AC8: All 310 existing tests still pass with no behavioral changes"
+  ],
+  "edge_cases": [
+    "EC1: replay_checkpoint() with empty completed_models dict — monitor state should remain at zero",
+    "EC2: replay_checkpoint() with mixed statuses (completed + error + skipped) — only completed cases count toward n_completed/n_hits, but all contribute to cost and error windows",
+    "EC3: After replaying a model that was near the cost ceiling ($14.90 of $15), a single new case with $0.20 cost should trigger ABORT_MODEL"
+  ],
+  "verification_method": "Evaluator should: (1) Read run_monitor.py and verify replay_checkpoint() rebuilds all tracker fields correctly. (2) Read run_scaled_eval.py and verify checkpoint flow: load → replay → run → save with model_dir. (3) Write and run edge-case tests for EC1-EC3. (4) Verify completed_keys ordering in _run_model(). (5) Check perf_min_cases default. (6) Run full test suite.",
+  "rubrics": ["code-quality"],
+  "rubric_mode": "warn",
+  "negotiation_rounds": 0,
+  "phase": "evaluating",
+  "verified": true
+}

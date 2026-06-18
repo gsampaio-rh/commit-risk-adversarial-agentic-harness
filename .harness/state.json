@@ -2,7 +2,7 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v42-proven",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-18T13:39:00Z",
+  "updated": "2026-06-18T14:14:00Z",
   "schema_version": 5,
   "_archive": "V2 archived to state-v2-archive.json. V4.0-V4.2 build tasks (22 tasks) archived to state-v42-archive.json. Code quality + repo audit archived this session.",
   "vision": "Build a plan-driven bug attribution agent with internal governance. The system separates concerns into three pipelines: (1) Input Pipeline — deterministic extraction and candidate retrieval at zero LLM cost; (2) Agent Pipeline — LLM plans, examines, and attributes within an InvestigationBrief, governed by an investigation harness with rules and skills; (3) Evaluation Pipeline — oracle scores output. The agent receives a CandidateSet (not raw repo access), operates within completion criteria (not just budget), produces structured InvestigationTraces for learning, and improves over time via skills derived from traces. Evaluated via Hit@k, MRR, D3, D6, and Retrieval Recall against ApacheJIT ground truth.",
@@ -56,6 +56,82 @@
       "scope": "Run n=5 eval (subset with ExamRecall=true) on multiple local models to find best candidate for full n=20 re-eval. Models: qwen3.6:35b-a3b (MoE, thinking OFF), qwen3:8b (thinking ON, max_tokens=16384), gemma3:12b-it-q8_0. Compare Hit@5, conversion rate, speed. Pick best for full re-eval.",
       "gate": { "hit_at_5_of_5": 2 },
       "note": "qwen3:8b baseline: 3/19 Hit@5. Research shows qwen3.6:35b-a3b is state-of-the-art for local tool-calling (BFCL). Models already on machine (M1 Max 32GB)."
+    },
+    {
+      "id": "v42-scaled-eval",
+      "name": "Scaled eval across 6 cloud models via Cursor SDK",
+      "type": "checkpoint",
+      "status": "building",
+      "priority": 19,
+      "scope": "Run eval on all available ground truth cases (~20) across 6 cloud models via Cursor SDK Agent.prompt(). Models: claude-sonnet-4-6 (baseline), claude-haiku-4-5, gpt-5.4-nano, gpt-5.3-codex, gemini-3-flash, composer-2.5. Compare Hit@5, MRR, avg latency, cost/case. Implement automatic early-stopping.",
+      "models": [
+        { "id": "claude-sonnet-4-6", "role": "baseline", "note": "Proven Hit@5=0.800 on n=5" },
+        { "id": "claude-haiku-4-5", "role": "budget-claude", "note": "Fast, cheap Anthropic model" },
+        { "id": "gpt-5.4-nano", "role": "ultra-budget-gpt", "note": "Cheapest OpenAI model" },
+        { "id": "gpt-5.3-codex", "role": "code-specialized", "note": "Code-optimized GPT" },
+        { "id": "gemini-3-flash", "role": "budget-gemini", "note": "Fast Gemini model" },
+        { "id": "composer-2.5", "role": "cursor-composite", "note": "Cursor's composite model" }
+      ],
+      "hard_stops": {
+        "performance_floor": "Hit@5 < 0.20 after first 20 cases → abort model",
+        "latency_ceiling": "Avg > 600s/case (rolling window of 10) → abort model",
+        "cost_ceiling_per_model": "$15 → abort model",
+        "error_rate": "> 30% failures/timeouts in 10 consecutive → abort model",
+        "global_budget": "$50 total → abort entire run"
+      },
+      "output": "Per-model summary (Hit@5, MRR, avg_latency_s, cost_per_case, total_cost, abort_reason if applicable). Side-by-side comparison table. All traces saved to results/.",
+      "subtasks": [
+        {
+          "id": "v42-scaled-eval-1-provider",
+          "name": "Parameterize CursorSDKProvider model in get_provider",
+          "type": "feature",
+          "status": "completed",
+          "scope": "Add a `model` kwarg to get_provider() so callers can request a specific Cursor SDK model. When CURSOR_API_KEY is set and model is specified, pass it through to CursorSDKProvider(model=...). The existing default (claude-sonnet-4-6) stays unchanged when no model is specified. Touch: llm_providers.py only."
+        },
+        {
+          "id": "v42-scaled-eval-2-monitor",
+          "name": "Early-stopping monitor module",
+          "type": "feature",
+          "status": "completed",
+          "scope": "New module (likely src/commit_investigator/eval/run_monitor.py or similar) that tracks per-model running metrics and checks all 5 hard-stop rules after each case. Inputs: case result dict (has elapsed_ms, hit_at_5, status, estimated cost). Outputs: continue/abort decision with reason string. Also tracks global spend across models for the $50 budget cap. Must be stateful per model (rolling windows, cumulative counters) but simple — a class with an update() method returning a verdict."
+        },
+        {
+          "id": "v42-scaled-eval-3-runner",
+          "name": "Multi-model runner script",
+          "type": "feature",
+          "status": "completed",
+          "scope": "New script scripts/run_scaled_eval.py. Orchestrates: (1) load eval cases once, (2) iterate models sequentially, (3) for each model: create CursorSDKProvider with that model, create run folder, run cases calling run_single_case() from run_scoped_eval.py, check monitor after each case, write per-model summary.json on completion or abort. Support checkpoint/resume: persist progress to a checkpoint file in the run folder, skip completed cases on restart, skip fully-completed models. Accept CLI args: --models (comma-separated, default all 6), --max-n (case limit), --resume (path to previous run to continue). Import run_single_case from run_scoped_eval — do NOT duplicate pipeline logic."
+        },
+        {
+          "id": "v42-scaled-eval-4-report",
+          "name": "Comparison report generator",
+          "type": "feature",
+          "status": "completed",
+          "scope": "After all models complete (or abort), produce a combined comparison summary. Output: results/{timestamp}-scaled-eval-comparison/comparison.json with per-model rows (model, hit_at_5, mrr, n_completed, n_aborted, avg_latency_s, cost_per_case, total_cost, abort_reason). Also print a formatted ASCII table to stdout. Can be a function in the runner script or a separate small module — builder decides. Must handle partial results (some models aborted)."
+        },
+        {
+          "id": "v42-scaled-eval-5-resume-fix",
+          "name": "Fix resume bugs (monitor state, duplicate folders, checkpoint consistency)",
+          "type": "bug",
+          "status": "completed",
+          "scope": "Three resume-related bugs: (1) EarlyStopMonitor state is not restored on resume — prior case results must be replayed through monitor.update() so hard-stop rules have correct history. Add a replay_checkpoint() method or similar. (2) _run_model() unconditionally calls create_run_folder() — on resume, reuse the existing model folder from checkpoint instead of creating a new timestamped folder (store model_dir path in checkpoint). (3) Abort-triggering case is in case_results but not in local completed_keys — after the break, the checkpoint save at line 311 derives completed_keys from status=='completed' which correctly includes it, so this is actually fine for checkpoint. But the monitor sees it counted while completed_keys doesn't, creating a discrepancy within the same run. Move completed_keys.add() before the abort check, or document the intentional gap. Touch: run_scaled_eval.py, run_monitor.py."
+        },
+        {
+          "id": "v42-scaled-eval-6-threshold-tuning",
+          "name": "Tune early-stop thresholds for n=20 dataset",
+          "type": "bug",
+          "status": "completed",
+          "scope": "perf_min_cases=20 is useless — there are exactly 20 eval cases, so the performance floor only fires after ALL cases complete. Lower to 10 for meaningful early detection. Also: the flat $0.000003/token cost rate is model-agnostic and based on word count, not real tokens. Since all calls go through Cursor SDK (subscription-based, not direct API billing), the cost numbers in the comparison report are rough proxies at best. Options: (A) add per-model cost multipliers as a config dict, (B) accept the limitation and add a clear note in comparison.json output that costs are estimated, or (C) query actual Cursor usage after the run. Recommend option B — accuracy isn't critical since the $15/$50 caps are safety nets, not billing controls. Touch: run_monitor.py (threshold), run_scaled_eval.py (cost note in comparison output)."
+        },
+        {
+          "id": "v42-scaled-eval-7-preflight",
+          "name": "Add model validation pre-flight check",
+          "type": "feature",
+          "status": "pending",
+          "scope": "Before starting the run, validate all requested model IDs against the Cursor SDK. Use Cursor.models.list() (from cursor_sdk) to fetch valid model slugs and warn/abort if any requested model is not in the list. This prevents wasting time on models that will just error out on every case. Handle gracefully: if models.list() fails (network, auth), log a warning and proceed without validation. Touch: run_scaled_eval.py only."
+        }
+      ],
+      "note": "claude-sonnet-4-6 achieved Hit@5=0.800 on n=5. This scales to max available cases and adds model diversity. Expect cheaper models (haiku, nano, flash) to underperform but at 10-50x lower cost. Execution (actually running the eval) is a manual step after code is built. Planner review (2026-06-18) found 3 bugs in resume path and threshold calibration — subtasks 5-7 added."
     },
     {
       "id": "spike-level2-extractor",

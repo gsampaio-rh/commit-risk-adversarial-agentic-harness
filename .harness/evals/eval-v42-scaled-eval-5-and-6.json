@@ -1,0 +1,71 @@
+{
+  "task_id": "v42-scaled-eval-5-and-6",
+  "date": "2026-06-18T14:34:00Z",
+  "verdict": "pass",
+  "recommendation": "proceed",
+  "criteria": [
+    {
+      "id": "AC1",
+      "result": "pass",
+      "evidence": "replay_checkpoint() accumulates estimated_cost via `self._global_cost += cost` for every case_result. Verified by EC3 test: 14.90 replayed → global_cost == 14.90."
+    },
+    {
+      "id": "AC2",
+      "result": "pass",
+      "evidence": "replay_checkpoint() updates n_completed, n_hits, total_elapsed_s, and total_cost for completed cases. model_summary() computes avg_latency_s = total_elapsed_s / n_completed. EC2 test verified: 3 completed, 2 hits, cost 2.05, avg_latency 5.3s — all correct."
+    },
+    {
+      "id": "AC3",
+      "result": "pass",
+      "evidence": "replay_checkpoint() returns None (no return statement, typed -> None). It does not call _check_rules(). Structurally impossible to produce a verdict."
+    },
+    {
+      "id": "AC4",
+      "result": "pass",
+      "evidence": "In _run_model() lines 100-103: `saved_dir = model_cp.get('model_dir')` → if path exists, `model_dir = Path(saved_dir)`. Skips create_run_folder()."
+    },
+    {
+      "id": "AC5",
+      "result": "pass",
+      "evidence": "In _run_model() lines 105-115: else branch calls create_run_folder() and write_run_config(). This is the original fresh-run path."
+    },
+    {
+      "id": "AC6",
+      "result": "pass",
+      "evidence": "Line 146: `completed_keys.add(case.issue_key)` precedes line 148: `decision = monitor.update(model_id, result)`. The triggering case is tracked before any abort check."
+    },
+    {
+      "id": "AC7",
+      "result": "pass",
+      "evidence": "Line 53 of run_monitor.py: `perf_min_cases: int = 10`. With 20 eval cases, performance floor fires at the halfway point (case 10)."
+    },
+    {
+      "id": "AC8",
+      "result": "pass",
+      "evidence": "pytest tests/ -q --tb=short → 310 passed in 20.10s. Zero failures."
+    }
+  ],
+  "edge_cases": [
+    {
+      "id": "EC1",
+      "result": "pass",
+      "evidence": "replay_checkpoint({}) → global_cost=0.0, model_summary('nonexistent') shows all zeros. Monitor state untouched."
+    },
+    {
+      "id": "EC2",
+      "result": "pass",
+      "evidence": "Mixed statuses (3 completed, 1 error, 1 skipped): n_completed=3, n_hits=2, total_cost=2.05 (all 5 cases), avg_latency_s=5.3 (only completed). Error window correctly tracks 2/5 as errors."
+    },
+    {
+      "id": "EC3",
+      "result": "pass",
+      "evidence": "Replayed $14.90, then update() with $0.20 → total $15.10 > $15.00 ceiling → ABORT_MODEL with reason 'Model cost $15.10 exceeds $15 ceiling'."
+    }
+  ],
+  "warnings": [
+    "Minor float drift in cost accumulation (e.g. 2.0500000000000003). Acceptable for dollar-level thresholds but could accumulate over hundreds of cases.",
+    "completed_keys persisted to checkpoint only includes status=='completed' cases (line 331), but live set includes all processed cases. This means error/skipped cases get retried on resume — likely intentional but undocumented.",
+    "replay_checkpoint() parameter typed as dict[str, dict] — a TypedDict or Protocol would make the expected shape more explicit for future maintainers."
+  ],
+  "summary": "All 8 acceptance criteria pass. The replay_checkpoint() method correctly rebuilds monitor state without triggering rules, model_dir reuse works via checkpoint, completed_keys ordering is correct, perf_min_cases is 10, and all 310 tests pass. Edge cases EC1-EC3 all verified with assertions. Three minor code quality warnings noted (float drift, checkpoint key semantics, typing) — none are blockers."
+}
