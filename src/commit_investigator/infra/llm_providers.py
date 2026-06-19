@@ -256,7 +256,7 @@ def get_provider(
     if strict is None:
         strict = os.environ.get("EVAL_STRICT", "").lower() in ("1", "true", "yes")
 
-    if phase == "investigation":
+    if phase == "investigation" and not model:
         inv_model = os.environ.get("INVESTIGATION_MODEL")
         if inv_model:
             base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")

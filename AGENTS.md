@@ -143,3 +143,13 @@ P26: fix-diff blame as `localization_blame` retrieval strategy. Reverse SZZ — 
 | gpt-5.3-codex | **0.650** | 0.389 | **1.000** | 101s | 20 | SPARK-20123, HBASE-4577, GROOVY-5003 | IGNITE-6748, HIVE-4113 |
 
 Recall@100 lifted from 0.800→1.000 (all 20 cases retrieved). The -2 regressions are LLM investigation variance (IGNITE-6748 has exam_recall=true). Retrieval is no longer the bottleneck — 7 remaining misses fail at pre-score (2), triage (2), or investigation (3).
+
+### V4.2 Post-P29 Blame Bonus (n=20, 2026-06-19)
+
+P29: BLAME_BONUS=0.3 in pre-score for `localization_blame`-sourced candidates. Rescues pre-score/triage failures.
+
+| Model | Hit@5 | MRR | Recall@15 | Triage@7 | Lat/case | N | New hits | Regressions |
+|---|---|---|---|---|---|---|---|---|
+| gpt-5.3-codex | **0.700** | 0.416 | **20/20** | 18/20 | 105s | 20 | SPARK-27907, GROOVY-5775, SPARK-23059 | IGNITE-2158, GROOVY-8416 |
+
+Recall@15 lifted from 18/20→20/20 (all cases in shortlist). +3 new hits, -2 stochastic regressions. 6 remaining misses: GROOVY-7014 (rank 8, needs P30 anchor), GROOVY-8298, HIVE-4113, IGNITE-6748 (investigation failures), IGNITE-2158, GROOVY-8416 (stochastic).

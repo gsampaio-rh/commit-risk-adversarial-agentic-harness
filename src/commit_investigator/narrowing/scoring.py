@@ -16,6 +16,7 @@ from commit_investigator.narrowing.models import ScoredCandidate, ScoredShortlis
 DEFAULT_WEIGHTS = {"file_overlap": 0.5, "signal_count": 0.3, "rank": 0.2}
 ADAPTIVE_WEIGHTS_NO_FILES = {"file_overlap": 0.0, "signal_count": 0.6, "rank": 0.4}
 DEFAULT_SHORTLIST_SIZE = 20
+BLAME_BONUS = 0.3
 
 
 def _file_matches(changed_file: str, extracted_hint: str) -> bool:
@@ -88,11 +89,15 @@ def compute_pre_scores(
         norm_sc = sc / max_signals
         norm_rank = (c.rank - 1) / (n - 1) if n > 1 else 0.0
 
-        pre_score = (
+        base_score = (
             w["file_overlap"] * fo
             + w["signal_count"] * norm_sc
             + w["rank"] * (1 - norm_rank)
         )
+
+        has_blame = "localization_blame" in c.retrieval_signal
+        blame_bonus = BLAME_BONUS if has_blame else 0.0
+        pre_score = base_score + blame_bonus
 
         scored.append(ScoredCandidate(
             commit_id=c.commit_id,

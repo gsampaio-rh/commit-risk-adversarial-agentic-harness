@@ -213,10 +213,6 @@ def main() -> None:
     parser.add_argument("--model", type=str, default=None, help="INVESTIGATION_MODEL override")
     args = parser.parse_args()
 
-    if args.model:
-        import os
-        os.environ["INVESTIGATION_MODEL"] = args.model
-
     print("Loading ground truth graph...")
     gt = GroundTruthGraph.from_replication_zip(str(ZIP_PATH))
 
@@ -225,7 +221,7 @@ def main() -> None:
     n_cases = len(cases)
     print(f"  {n_cases} cases resolved\n")
 
-    llm = get_provider(phase="investigation")
+    llm = get_provider(phase="investigation", model=args.model)
     print(f"  LLM provider: {llm.model_name}\n")
 
     run_dir = create_run_folder("scoped-eval", model=llm.model_name, n=n_cases)
