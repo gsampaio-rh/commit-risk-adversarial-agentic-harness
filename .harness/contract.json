@@ -1,21 +1,32 @@
 {
-  "feature": "Pre-score blame bonus for localization_blame candidates",
-  "task_id": "prescore-blame-bonus",
+  "task_id": "p30-p31-triage-investigation",
+  "feature": "Blame anchor triage (P30) + investigation coverage improvements (P31)",
+  "problem": "GROOVY-7014 at rank 8 just misses the 7-slot triage window. HIVE-4113 not examined by LLM (exam_recall=false). IGNITE-6748/SPARK-23059 examined but ranked poorly.",
+  "proposed_solution": "P30: Add BLAME_ANCHOR_SLOTS=1 — scan positions 8+ for localization_blame candidates, add at most 1 extra watchlist entry. P31: Strengthen Phase 2/2b prompts with mandatory full-coverage examination + comparative analysis step. Bump Phase 2b budget 8→10 tool calls, 4→5 turns.",
   "acceptance_criteria": [
-    "AC1: scoring.py adds BLAME_BONUS constant (0.3) applied when retrieval_signal contains 'localization_blame'",
-    "AC2: Pre-score formula becomes: base_score + blame_bonus. Blame bonus is additive, not replacing existing formula",
-    "AC3: P28 pre-score failures rescued: SPARK-27907 (rank 46→top 20) and GROOVY-7014 (rank 29→top 20)",
-    "AC4: P28 triage failures rescued: GROOVY-5775 (rank 13→top 7) and GROOVY-8298 (rank 5→stabilized in top 7)",
-    "AC5: No regression on existing hits — cases already passing should not degrade",
-    "AC6: All existing tests pass (python -m pytest --tb=short -q)",
-    "AC7: ScoredCandidate gains optional blame_bonus field for observability in diagnostics"
+    "AC1: triage.py defines BLAME_ANCHOR_SLOTS=1 and _has_blame_signal() helper",
+    "AC2: assign_tiers() accepts blame_anchor_slots parameter with default=1",
+    "AC3: Blame anchor scans shortlist positions beyond standard window (must_examine_size + watchlist_size) for localization_blame candidates",
+    "AC4: At most blame_anchor_slots extra candidates added to watchlist (not must_examine)",
+    "AC5: blame_anchor_slots=0 disables anchoring entirely (no extra candidates)",
+    "AC6: Blame-anchored candidates get 'blame-anchored' in rationale string",
+    "AC7: pipeline.py narrow_candidates() passes blame_anchor_slots through to assign_tiers()",
+    "AC8: Phase 2 prompt contains 'MUST call get_commit_diff on EVERY must-examine commit' and 'Do NOT skip any'",
+    "AC9: Phase 2b prompt contains 'MUST call get_commit_diff on EVERY watchlist commit' and 'Do NOT skip any'",
+    "AC10: Both Phase 2 and Phase 2b prompts include comparative analysis step (compare evidence, timing, causal links)",
+    "AC11: Phase 2b budget is PHASE2B_MAX_TOOL_CALLS=10, PHASE2B_MAX_TURNS=5",
+    "AC12: All tests pass (349/349), zero linter errors"
   ],
   "edge_cases": [
-    "Candidate has localization_blame AND other high signals (e.g., IGNITE-6748 with 4 signals) — should not overflow or create score >1.0 issues",
-    "Candidate has only localization_blame (e.g., GROOVY-7014 with SC=1) — blame_bonus should still apply",
-    "No candidates have localization_blame (fix_hash=None mode) — zero behavior change"
+    "EC1: No blame candidates outside standard window → watchlist stays at 4 (no anchor fires)",
+    "EC2: Blame candidates already inside top 7 → no redundant anchoring",
+    "EC3: Shortlist smaller than standard window → no index error, blame anchor scan is safe",
+    "EC4: Multiple blame candidates outside window with blame_anchor_slots=1 → only first (highest-ranked) gets anchored"
   ],
-  "verification_method": "run_phase1_checkpoint.py gate + n=20 eval (Hit@5 >= 0.700, no regression on 13 existing hits)",
-  "verified": true,
-  "eval_result": "Hit@5=0.700 (14/20), MRR=0.416. Recall@15=20/20, TriageRecall=18/20. +3 new hits (SPARK-27907, GROOVY-5775, SPARK-23059), -2 stochastic. Gate PASSED."
+  "verification_method": "Read triage.py, pipeline.py, prompts.py, watchlist_expansion.py. Verify each AC by code inspection. Run grep for key strings in prompts. Run pytest to confirm 349/349. Check that blame anchor tier_rank continues sequence from standard watchlist.",
+  "rubrics": ["code-quality", "architecture"],
+  "rubric_mode": "warn",
+  "negotiation_rounds": 0,
+  "phase": "evaluating",
+  "verified": true
 }

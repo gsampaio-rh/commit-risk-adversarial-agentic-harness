@@ -115,8 +115,8 @@ def _assign_ranks(suspects: list[Suspect]) -> list[Suspect]:
     return suspects
 
 
-PHASE2B_MAX_TOOL_CALLS = 8
-PHASE2B_MAX_TURNS = 4
+PHASE2B_MAX_TOOL_CALLS = 10
+PHASE2B_MAX_TURNS = 5
 
 
 def run_phase2b(

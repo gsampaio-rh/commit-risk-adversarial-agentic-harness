@@ -9,6 +9,7 @@ import pytest
 from commit_investigator.extraction.problem_extractor import ProblemStatement
 from commit_investigator.models.candidates import CandidateCommit, CandidateSet
 from commit_investigator.narrowing import (
+    BLAME_ANCHOR_SLOTS,
     MUST_EXAMINE_SIZE,
     WATCHLIST_SIZE,
     ScoredCandidate,
@@ -333,6 +334,112 @@ class TestAssignTiers:
         result = assign_tiers(shortlist)
         assert result.shortlist_size == 15
         assert result.total_scored == 100
+
+
+# --- Triage: blame anchoring ---
+
+
+class TestBlameAnchoring:
+    """Blame anchor: surgical rescue of blame-sourced candidates just outside the standard triage window."""
+
+    def _make_shortlist_with_blame(
+        self,
+        blame_at_positions: list[int],
+        n: int = 15,
+    ) -> ScoredShortlist:
+        """Create shortlist where specified 0-based positions have localization_blame signal."""
+        candidates = [
+            ScoredCandidate(
+                commit_id=f"{i:040d}",
+                original_rank=i + 1,
+                pre_score=1.0 - i * 0.05,
+                file_overlap=0.5 if i < 3 else 0.0,
+                signal_count=2 if i in blame_at_positions else 1,
+                summary=f"Commit {i}",
+                retrieval_signal=(
+                    "localization_blame,file_log" if i in blame_at_positions
+                    else "file_log"
+                ),
+            )
+            for i in range(n)
+        ]
+        return ScoredShortlist(candidates=candidates, total_scored=100)
+
+    def test_blame_anchor_default_is_one(self) -> None:
+        assert BLAME_ANCHOR_SLOTS == 1
+
+    def test_blame_candidate_at_position_8_gets_anchored(self) -> None:
+        """GROOVY-7014 scenario: blame candidate at rank 8 (position 7, 0-based) rescued."""
+        shortlist = self._make_shortlist_with_blame(blame_at_positions=[7])
+        result = assign_tiers(shortlist)
+        assert len(result.must_examine) == 3
+        assert len(result.watchlist) == 5  # 4 standard + 1 blame anchor
+        anchored = result.watchlist[-1]
+        assert anchored.commit_id == f"{7:040d}"
+        assert "blame-anchored" in anchored.rationale
+
+    def test_no_blame_outside_window_no_anchor(self) -> None:
+        """No blame candidates outside top 7 → standard 4-slot watchlist."""
+        shortlist = self._make_shortlist_with_blame(blame_at_positions=[0, 1, 2])
+        result = assign_tiers(shortlist)
+        assert len(result.watchlist) == 4
+
+    def test_blame_already_in_window_no_extra_anchor(self) -> None:
+        """Blame candidates in top 7 don't trigger anchoring — they're already triaged."""
+        shortlist = self._make_shortlist_with_blame(blame_at_positions=[0, 3, 5])
+        result = assign_tiers(shortlist)
+        assert len(result.watchlist) == 4
+
+    def test_blame_anchor_limited_to_slots(self) -> None:
+        """Multiple blame candidates outside window: only BLAME_ANCHOR_SLOTS get anchored."""
+        shortlist = self._make_shortlist_with_blame(
+            blame_at_positions=[8, 9, 10], n=15,
+        )
+        result = assign_tiers(shortlist)
+        assert len(result.watchlist) == 5  # 4 + 1 (not 4 + 3)
+
+    def test_blame_anchor_picks_highest_ranked(self) -> None:
+        """Blame anchor takes the first (highest pre-score) blame candidate outside window."""
+        shortlist = self._make_shortlist_with_blame(
+            blame_at_positions=[9, 12], n=15,
+        )
+        result = assign_tiers(shortlist)
+        anchored = result.watchlist[-1]
+        assert anchored.commit_id == f"{9:040d}"  # position 9, not 12
+
+    def test_blame_anchor_disabled_when_zero_slots(self) -> None:
+        shortlist = self._make_shortlist_with_blame(blame_at_positions=[7, 8])
+        result = assign_tiers(shortlist, blame_anchor_slots=0)
+        assert len(result.watchlist) == 4
+
+    def test_blame_anchor_tier_rank_continues_sequence(self) -> None:
+        """Blame-anchored candidate gets tier_rank = 5 (continuing from watchlist 1-4)."""
+        shortlist = self._make_shortlist_with_blame(blame_at_positions=[7])
+        result = assign_tiers(shortlist)
+        assert result.watchlist[-1].tier_rank == 5
+
+    def test_blame_anchor_with_custom_sizes(self) -> None:
+        """Blame anchor works correctly with non-default must_examine/watchlist sizes."""
+        shortlist = self._make_shortlist_with_blame(
+            blame_at_positions=[6], n=15,
+        )
+        result = assign_tiers(
+            shortlist, must_examine_size=2, watchlist_size=3, blame_anchor_slots=1,
+        )
+        # Standard window = 5 (2+3). Position 6 is outside.
+        assert len(result.must_examine) == 2
+        assert len(result.watchlist) == 4  # 3 + 1 anchor
+        assert result.watchlist[-1].commit_id == f"{6:040d}"
+
+    def test_blame_anchor_multiple_slots(self) -> None:
+        """With blame_anchor_slots=2, two blame candidates get anchored."""
+        shortlist = self._make_shortlist_with_blame(
+            blame_at_positions=[7, 10], n=15,
+        )
+        result = assign_tiers(shortlist, blame_anchor_slots=2)
+        assert len(result.watchlist) == 6  # 4 + 2
+        anchored_ids = {result.watchlist[-2].commit_id, result.watchlist[-1].commit_id}
+        assert anchored_ids == {f"{7:040d}", f"{10:040d}"}
 
 
 # --- End-to-end: narrow_candidates ---

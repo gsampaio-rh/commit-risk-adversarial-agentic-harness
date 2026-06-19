@@ -1,0 +1,29 @@
+{
+  "task_id": "p30-p31-triage-investigation",
+  "verdict": "pass",
+  "acceptance_criteria": {
+    "AC1": { "status": "pass", "evidence": "triage.py:21 defines BLAME_ANCHOR_SLOTS=1, line 24-25 defines _has_blame_signal() helper" },
+    "AC2": { "status": "pass", "evidence": "triage.py:57 assign_tiers() accepts blame_anchor_slots parameter with default=BLAME_ANCHOR_SLOTS" },
+    "AC3": { "status": "pass", "evidence": "triage.py:97 scans shortlist.candidates[standard_window:] where standard_window = must_examine_size + watchlist_size" },
+    "AC4": { "status": "pass", "evidence": "triage.py:98 checks anchored >= blame_anchor_slots before adding. Line 103-105 appends to watchlist (not must_examine)" },
+    "AC5": { "status": "pass", "evidence": "triage.py:95 checks blame_anchor_slots > 0 before entering anchor scan. Test test_blame_anchor_disabled_when_zero_slots confirms" },
+    "AC6": { "status": "pass", "evidence": "triage.py:44-49 _build_blame_anchor_rationale returns string containing 'blame-anchored: localization_blame signal'. Test test_blame_candidate_at_position_8_gets_anchored asserts 'blame-anchored' in rationale" },
+    "AC7": { "status": "pass", "evidence": "pipeline.py:38 narrow_candidates() accepts blame_anchor_slots param, line 54 passes it to assign_tiers()" },
+    "AC8": { "status": "pass", "evidence": "prompts.py:98 Phase 2 prompt contains 'You MUST call get_commit_diff on EVERY must-examine commit' and line 99 'Do NOT skip any'" },
+    "AC9": { "status": "pass", "evidence": "prompts.py:148 Phase 2b prompt contains 'You MUST call get_commit_diff on EVERY watchlist commit' and line 149 'Do NOT skip any'" },
+    "AC10": { "status": "pass", "evidence": "prompts.py:103-106 Phase 2 and lines 153-156 Phase 2b both include 'After examining ALL candidates, compare the evidence' with timing, code path, and causal link sub-points" },
+    "AC11": { "status": "pass", "evidence": "watchlist_expansion.py:118-119 PHASE2B_MAX_TOOL_CALLS=10, PHASE2B_MAX_TURNS=5" },
+    "AC12": { "status": "pass", "evidence": "pytest: 349 passed in 18.61s. ReadLints: No linter errors found." }
+  },
+  "edge_cases": {
+    "EC1": { "status": "pass", "evidence": "Test test_no_blame_outside_window_no_anchor: blame only in positions [0,1,2] (all inside top 7) → watchlist len=4" },
+    "EC2": { "status": "pass", "evidence": "Test test_blame_already_in_window_no_extra_anchor: blame at positions [0,3,5] (all inside top 7) → watchlist len=4" },
+    "EC3": { "status": "pass", "evidence": "Existing tests test_small_shortlist_partial_fill and test_shortlist_smaller_than_must_examine pass — shortlist[standard_window:] is safe empty slice in Python" },
+    "EC4": { "status": "pass", "evidence": "Test test_blame_anchor_limited_to_slots: blame at positions [8,9,10] with default slots=1 → only 1 anchored (watchlist len=5). Test test_blame_anchor_picks_highest_ranked: positions [9,12] → position 9 picked" }
+  },
+  "warnings": [
+    "Phase 2b budget increase (8→10 tool calls, 4→5 turns) is reasonable for 5 watchlist candidates but adds ~25% more potential latency per case. Monitor in P32 eval."
+  ],
+  "test_results": "349/349 passed",
+  "recommendation": "proceed"
+}

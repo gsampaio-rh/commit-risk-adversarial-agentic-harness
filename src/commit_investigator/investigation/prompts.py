@@ -95,12 +95,16 @@ def build_phase2_system_prompt(
         "to find which one INTRODUCED the bug described below.\n\n"
         + _tools_section(registry)
         + "## Strategy\n"
-        f"You MUST examine each must-examine commit ({must_examine_shas}) "
-        "with `get_commit_diff` before concluding.\n"
-        "1. Call `get_commit_diff` on each must-examine SHA\n"
+        f"You MUST call `get_commit_diff` on EVERY must-examine commit "
+        f"({must_examine_shas}) before concluding. Do NOT skip any.\n"
+        "1. Call `get_commit_diff` on each must-examine SHA — ALL of them\n"
         "2. For each diff, assess whether the change could CAUSE the symptoms\n"
         "3. Use `get_blame` or `get_file_at_commit` for deeper analysis if needed\n"
-        "4. Conclude with a `suspects` block when you have evidence\n\n"
+        "4. After examining ALL candidates, compare the evidence:\n"
+        "   - Which commit changed the specific code path mentioned in the bug?\n"
+        "   - Which commit's timing aligns with when the bug was introduced?\n"
+        "   - Prefer commits with direct causal links over circumstantial matches\n"
+        "5. Conclude with a `suspects` block ranking by strength of causal evidence\n\n"
         + _output_format_section("Rank 3-5 suspects by confidence.")
         + _bug_report_section(problem)
         + f"## Must-Examine Candidates ({len(triage.must_examine)} commits)\n"
@@ -141,15 +145,20 @@ def build_phase2b_system_prompt(
         "the bug described below.\n\n"
         + _tools_section(registry)
         + "## Strategy\n"
-        f"Examine each watchlist commit ({watchlist_shas}) "
-        "with `get_commit_diff`.\n"
-        "1. Call `get_commit_diff` on each watchlist SHA\n"
+        f"You MUST call `get_commit_diff` on EVERY watchlist commit "
+        f"({watchlist_shas}) before concluding. Do NOT skip any.\n"
+        "1. Call `get_commit_diff` on EVERY watchlist SHA — examine ALL of them\n"
         "2. For each diff, assess whether the change could CAUSE the symptoms\n"
         "3. Use `get_blame` or `get_file_at_commit` for deeper analysis if needed\n"
-        "4. Conclude with a `suspects` block when you have evidence\n\n"
+        "4. After examining ALL candidates, compare the evidence:\n"
+        "   - Which commit changed the specific code path mentioned in the bug?\n"
+        "   - Which commit's timing aligns with when the bug was introduced?\n"
+        "   - Prefer commits with direct causal links over circumstantial matches\n"
+        "5. Conclude with a `suspects` block ranking by strength of causal evidence\n\n"
         + _output_format_section("Rank suspects by confidence.")
         + _bug_report_section(problem)
         + f"## Watchlist Candidates ({len(triage.watchlist)} commits)\n"
+        "You MUST examine ALL of these before concluding:\n"
         f"{watchlist}"
         + _reference_suspect_section(best_suspect)
     )

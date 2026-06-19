@@ -18,6 +18,11 @@ from commit_investigator.narrowing.models import (
 
 MUST_EXAMINE_SIZE = 3
 WATCHLIST_SIZE = 4
+BLAME_ANCHOR_SLOTS = 1
+
+
+def _has_blame_signal(candidate: ScoredCandidate) -> bool:
+    return "localization_blame" in candidate.retrieval_signal
 
 
 def _build_rationale(candidate: ScoredCandidate, tier: TriageTier, tier_rank: int) -> str:
@@ -36,18 +41,36 @@ def _build_rationale(candidate: ScoredCandidate, tier: TriageTier, tier_rank: in
     return "".join(parts)
 
 
+def _build_blame_anchor_rationale(candidate: ScoredCandidate, tier_rank: int) -> str:
+    """Rationale for blame-anchored watchlist candidates."""
+    return (
+        f"Pre-score rank #{tier_rank} in watchlist tier "
+        f"(blame-anchored: localization_blame signal)"
+    )
+
+
 def assign_tiers(
     shortlist: ScoredShortlist,
     *,
     must_examine_size: int = MUST_EXAMINE_SIZE,
     watchlist_size: int = WATCHLIST_SIZE,
+    blame_anchor_slots: int = BLAME_ANCHOR_SLOTS,
 ) -> TriageResult:
-    """Deterministic tier assignment: top-K by pre_score.
+    """Deterministic tier assignment: top-K by pre_score + blame anchoring.
+
+    Standard triage takes the top must_examine_size + watchlist_size candidates.
+    Blame anchoring then scans remaining positions for candidates sourced by
+    localization_blame that weren't already triaged, adding up to
+    blame_anchor_slots extra watchlist entries. This is surgical — unlike
+    blanket expansion (P24 regression), it only fires for high-precision
+    blame-sourced candidates.
 
     Args:
         shortlist: Sorted candidates from Phase 1a pre-scoring.
         must_examine_size: Number of must-examine slots (default: 3).
         watchlist_size: Number of watchlist slots (default: 4).
+        blame_anchor_slots: Max extra watchlist slots for blame-sourced
+            candidates outside the standard window (default: 1).
 
     Returns:
         TriageResult with must_examine and watchlist populated.
@@ -55,19 +78,32 @@ def assign_tiers(
     must_examine: list[TriagedCandidate] = []
     watchlist: list[TriagedCandidate] = []
 
+    standard_window = must_examine_size + watchlist_size
+
     for i, sc in enumerate(shortlist.candidates):
         if i < must_examine_size:
             tier = TriageTier.MUST_EXAMINE
             tier_rank = i + 1
             rationale = _build_rationale(sc, tier, tier_rank)
             must_examine.append(_scored_to_triaged(sc, tier, tier_rank, rationale))
-        elif i < must_examine_size + watchlist_size:
+        elif i < standard_window:
             tier = TriageTier.WATCHLIST
             tier_rank = i - must_examine_size + 1
             rationale = _build_rationale(sc, tier, tier_rank)
             watchlist.append(_scored_to_triaged(sc, tier, tier_rank, rationale))
-        else:
-            break
+
+    if blame_anchor_slots > 0:
+        anchored = 0
+        for sc in shortlist.candidates[standard_window:]:
+            if anchored >= blame_anchor_slots:
+                break
+            if _has_blame_signal(sc):
+                tier_rank = len(watchlist) + 1
+                rationale = _build_blame_anchor_rationale(sc, tier_rank)
+                watchlist.append(
+                    _scored_to_triaged(sc, TriageTier.WATCHLIST, tier_rank, rationale)
+                )
+                anchored += 1
 
     return TriageResult(
         must_examine=must_examine,

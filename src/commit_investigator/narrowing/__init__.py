@@ -19,12 +19,14 @@ from commit_investigator.narrowing.scoring import (
     get_signal_count,
 )
 from commit_investigator.narrowing.triage import (
+    BLAME_ANCHOR_SLOTS,
     MUST_EXAMINE_SIZE,
     WATCHLIST_SIZE,
     assign_tiers,
 )
 
 __all__ = [
+    "BLAME_ANCHOR_SLOTS",
     "DEFAULT_SHORTLIST_SIZE",
     "DEFAULT_WEIGHTS",
     "MUST_EXAMINE_SIZE",
