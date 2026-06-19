@@ -1,0 +1,77 @@
+{
+  "task_id": "phase0-bug-localization",
+  "feature": "Phase 0: fix-diff blame localization strategy",
+  "date": "2026-06-19",
+  "evaluator": "adversarial-harness",
+  "criteria": [
+    {
+      "id": "AC1",
+      "result": "pass",
+      "evidence": "blame_localizer.py exists with localize_via_fix_diff(repo_path, fix_hash, extensions) -> list[StrategyHit]. Verified: (a) _get_fix_changed_files uses git diff-tree --no-commit-id -r --name-only fix_hash; (b) _filter_source_files checks path.suffix.lower() against extensions set and excludes _EXCLUDED_FILENAMES; (c) _get_old_side_hunks parses @@ -start,count + hunk headers via _HUNK_RE regex; (d) _blame_lines called with f'{fix_hash}~1' ref; (e) returns StrategyHit with strategy=STRATEGY_NAME='localization_blame'."
+    },
+    {
+      "id": "AC2",
+      "result": "pass",
+      "evidence": "strategies.py line 11-13: VALID_STRATEGIES = frozenset({'file_log', 'keyword_grep', 'pickaxe', 'blame', 'localization_blame'}). 'localization_blame' present."
+    },
+    {
+      "id": "AC3",
+      "result": "pass",
+      "evidence": "prepare.py lines 109-119: when fix_hash provided and cfg.fix_hash not already set, creates new RetrievalConfig with fix_hash passed through. retriever.py lines 197-199: if cfg.fix_hash and 'localization_blame' in enabled, imports localize_via_fix_diff and extends hits. Hits merged via merge_hits() at line 201."
+    },
+    {
+      "id": "AC4",
+      "result": "pass",
+      "evidence": "retriever.py line 35: RetrievalConfig has field 'fix_hash: str | None = None'."
+    },
+    {
+      "id": "AC5",
+      "result": "pass",
+      "evidence": "prepare.py line 79: prepare_investigation() accepts 'fix_hash: str | None = None' keyword parameter. Lines 109-119 pass it into RetrievalConfig. Both overload signatures (lines 46-68) include fix_hash parameter."
+    },
+    {
+      "id": "AC6",
+      "result": "pass",
+      "evidence": "retriever.py line 197: 'if cfg.fix_hash and \"localization_blame\" in enabled:' — when fix_hash is None (falsy), the entire localization_blame block is skipped. All other retrieval strategies run unconditionally via _run_enabled_strategies(). Zero regression risk confirmed by 339/339 tests passing."
+    },
+    {
+      "id": "AC7",
+      "result": "pass",
+      "evidence": "blame_localizer.py lines 21-24: _SOURCE_EXTENSIONS includes .java, .groovy, .scala, .py, .sh (plus .kt, .rs, .go, .js, .ts, .tsx, .jsx, .c, .cpp, .h, .hpp). Lines 26-29: _EXCLUDED_FILENAMES includes CHANGES.txt, CHANGELOG.md, RELEASE_NOTES.md, pom.xml, build.gradle, build.sbt. Files with .md and .xml extensions are also excluded by not being in _SOURCE_EXTENSIONS."
+    },
+    {
+      "id": "AC8",
+      "result": "pass",
+      "evidence": "pytest run: 339 passed in 18.04s, exit code 0. Zero failures."
+    },
+    {
+      "id": "AC9",
+      "result": "pass",
+      "evidence": "tests/test_blame_localizer.py covers: (a) normal blame hit — TestLocalizeViaFixDiff.test_normal_hit verifies 2 hits returned with correct strategy and ranks; (b) no source files — test_no_source_files and test_no_files_in_diff both return []; (c) empty hunks — test_empty_hunks verifies [] returned and blame not called; (d) SHA dedup — test_sha_dedup_across_files verifies same SHA from two files yields one hit, TestBlameLines.test_deduplicates verifies dedup within blame output. Additional integration test (test_groovy_5003_real_repo) with real repo when available."
+    }
+  ],
+  "edge_cases": [
+    {
+      "id": "EC1",
+      "result": "pass",
+      "evidence": "blame_localizer.py lines 60-62: after _filter_source_files returns empty list for non-source files, function returns [] immediately. Tested by test_no_source_files (mocks return ['CHANGES.txt', 'README.md'] then filter returns [])."
+    },
+    {
+      "id": "EC2",
+      "result": "pass",
+      "evidence": "_run_git (lines 87-99) has default timeout=30 seconds (blame uses timeout=60). Catches subprocess.TimeoutExpired and FileNotFoundError, returns empty string. Non-zero return codes also return empty string. Bad fix_hash triggers non-zero exit from git commands, returning '' which propagates to empty results."
+    },
+    {
+      "id": "EC3",
+      "result": "pass",
+      "evidence": "_blame_lines (lines 138-158) uses --porcelain format where ^sha prefix does not appear. The _SHA_RE regex r'^([0-9a-f]{40})\\s' inherently rejects ^-prefixed lines since ^ is not in [0-9a-f]. Line 154 explicitly filters 0000000-prefixed SHAs. Test test_filters_zero_sha covers the zero-SHA case."
+    },
+    {
+      "id": "EC4",
+      "result": "pass",
+      "evidence": "EC2 covers this: _run_git returns '' on any git failure (non-zero exit code, timeout). _get_fix_changed_files returns [] when output is empty. localize_via_fix_diff returns [] when changed_files is empty (line 57-58). No exception raised."
+    }
+  ],
+  "overall": "pass",
+  "summary": "All 9 acceptance criteria and 4 edge cases pass. The blame_localizer module correctly implements reverse SZZ: diff-tree for changed files, source extension filtering with exclusion list, unified diff hunk parsing for old-side line ranges, porcelain blame at fix_hash~1, and StrategyHit assembly. Integration in retriever.py is additive (guarded by fix_hash truthiness). RetrievalConfig and prepare_investigation() accept optional fix_hash. 339/339 tests pass. Test coverage includes normal hits, empty scenarios, deduplication, boundary/zero-SHA filtering, and an optional real-repo integration test. Implementation is clean, well-structured, and follows project conventions."
+}

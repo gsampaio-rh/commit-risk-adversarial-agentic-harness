@@ -133,6 +133,7 @@ def run_single_phase1_case(case: EvalCase) -> dict[str, Any]:
             temporal_bound=case.temporal_bound,
             project=case.project,
             issue_key=case.issue_key,
+            fix_hash=case.fix_hash,
         )
     except Exception as e:
         print(f"ERR ({e})")

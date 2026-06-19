@@ -1,0 +1,127 @@
+{
+  "task_id": "pre-commit-review-p25-p26",
+  "type": "pre-commit-code-review",
+  "date": "2026-06-19",
+  "evaluator": "adversarial-harness",
+  "scope": "All uncommitted changes for P25 (spike) + P26 (Phase 0 blame localization) + planner update",
+  "files_reviewed": {
+    "new": [
+      "src/commit_investigator/localization/__init__.py",
+      "src/commit_investigator/localization/blame_localizer.py",
+      "tests/test_blame_localizer.py",
+      "scripts/spike_phase0_blame.py",
+      ".harness/evals/eval-phase0-bug-localization.json"
+    ],
+    "modified": [
+      ".harness/breadcrumbs.jsonl",
+      ".harness/contract.json",
+      ".harness/state.json",
+      "AGENTS.md",
+      "scripts/run_phase1_checkpoint.py",
+      "scripts/run_scoped_eval.py",
+      "src/commit_investigator/retrieval/prepare.py",
+      "src/commit_investigator/retrieval/retriever.py",
+      "src/commit_investigator/retrieval/strategies.py",
+      "tests/test_retrieval.py"
+    ]
+  },
+  "pass_items": [
+    {
+      "category": "security",
+      "detail": "subprocess.run uses list arguments (not shell=True). fix_hash is treated as a literal git argument. No injection vector exists even with malicious input."
+    },
+    {
+      "category": "architecture",
+      "detail": "Additive integration: localization_blame is gated on cfg.fix_hash truthiness. When fix_hash is None (production/non-eval), the strategy is completely skipped. Zero regression risk."
+    },
+    {
+      "category": "error_handling",
+      "detail": "_run_git wraps subprocess in try/except for TimeoutExpired and FileNotFoundError, returns empty string on failure. Non-zero exit codes also return ''. Graceful degradation throughout."
+    },
+    {
+      "category": "test_coverage",
+      "detail": "18 new tests across 5 test classes (FilterSourceFiles, GetOldSideHunks, BlameLines, LocalizeViaFixDiff, LocalizeIntegration). Covers happy path, empty inputs, dedup, zero-SHA filtering, and real-repo integration. 339/339 tests pass."
+    },
+    {
+      "category": "code_quality",
+      "detail": "blame_localizer.py is 159 lines, well under the 300-line limit. Single responsibility: each private function does one thing. Naming is clear and descriptive. Module docstring explains design choice (why subprocess instead of GitContextProvider)."
+    },
+    {
+      "category": "documentation",
+      "detail": "AGENTS.md accurately reflects new package layout, pipeline table, and P26 baseline numbers. state.json direction/remaining_misses are data-grounded and actionable."
+    },
+    {
+      "category": "integration",
+      "detail": "fix_hash propagation is clean: prepare_investigation() -> RetrievalConfig -> retrieve_candidates() -> localize_via_fix_diff(). Both eval scripts correctly pass fix_hash=case.fix_hash."
+    },
+    {
+      "category": "strategy",
+      "detail": "Lazy import in retriever.py (line 198) avoids circular import between localization/ and retrieval/ packages. Performance cost negligible (once per retrieval run)."
+    },
+    {
+      "category": "eval_results",
+      "detail": "Recall@100 lifted from 0.800 to 1.000 (structural fix). Hit@5 net +1 (0.600→0.650). The -2 regressions (IGNITE-6748, HIVE-4113) are correctly identified as LLM investigation variance, not structural."
+    }
+  ],
+  "issues": [
+    {
+      "severity": "major",
+      "category": "maintainability",
+      "file": "src/commit_investigator/retrieval/prepare.py",
+      "lines": "109-119 and 34-43",
+      "title": "Fragile RetrievalConfig reconstruction — misses future fields",
+      "detail": "Both _widen_config() and the fix_hash injection block manually enumerate every RetrievalConfig field when creating a new instance. If new fields are added to RetrievalConfig in the future, these reconstructions will silently use defaults, causing subtle bugs. Use dataclasses.replace() instead: `cfg = dataclasses.replace(cfg, fix_hash=fix_hash)` and `return dataclasses.replace(config, file_log_per_file=..., keyword_grep_per_kw=..., pickaxe_per_symbol=..., blame_per_file=...)`.",
+      "recommendation": "Replace manual field enumeration with dataclasses.replace() in both locations."
+    },
+    {
+      "severity": "minor",
+      "category": "typing",
+      "file": "src/commit_investigator/retrieval/retriever.py",
+      "lines": "81-99",
+      "title": "_run_enabled_strategies return type is bare `list`",
+      "detail": "The function signature declares `-> list` but should be `-> list[StrategyHit]` for type safety. The import of StrategyHit is already inside the function body.",
+      "recommendation": "Change to `-> list[StrategyHit]` or use the string literal form to avoid import issues."
+    },
+    {
+      "severity": "minor",
+      "category": "architecture",
+      "file": "src/commit_investigator/localization/blame_localizer.py",
+      "lines": "17",
+      "title": "Cross-package import creates soft circular dependency",
+      "detail": "localization/ imports StrategyHit from retrieval/strategies.py, while retrieval/retriever.py imports from localization/. Mitigated by lazy import in retriever.py, but architecturally StrategyHit is a shared data type that could live in models/.",
+      "recommendation": "Not a blocker. Consider migrating StrategyHit to models/ in a future refactoring pass if localization/ grows."
+    },
+    {
+      "severity": "minor",
+      "category": "test_coverage",
+      "file": "tests/test_blame_localizer.py",
+      "title": "No direct test for _run_git error paths",
+      "detail": "_run_git catches TimeoutExpired and FileNotFoundError — these paths are not directly tested. They are indirectly covered (empty output propagates to empty results), but explicit coverage would prevent regressions.",
+      "recommendation": "Add 1-2 tests that mock subprocess.run to raise TimeoutExpired / FileNotFoundError and verify _run_git returns ''."
+    }
+  ],
+  "suggestions": [
+    {
+      "category": "code_quality",
+      "detail": "The extensions parameter override in localize_via_fix_diff() is not directly tested. Consider adding a parametrized test that passes custom extensions and verifies filtering behavior."
+    },
+    {
+      "category": "commit_hygiene",
+      "detail": "scripts/spike_phase0_blame.py is a one-shot diagnostic. It's reasonable to commit for reproducibility (project convention keeps spike scripts in scripts/). However, consider adding a note in the script docstring that it was used for P25 feasibility validation and its logic was productionized in blame_localizer.py."
+    },
+    {
+      "category": "code_quality",
+      "detail": "The spike script (spike_phase0_blame.py) uses sys.path.insert for imports. This is acceptable for scripts/ but worth noting that it's the only pattern — all other scripts in the project do the same."
+    }
+  ],
+  "verdict": "PASS_WITH_FIXES",
+  "verdict_reasoning": "One major issue (fragile RetrievalConfig reconstruction) should be fixed before commit to prevent future maintenance bugs. The code is otherwise clean, well-tested, architecturally sound, and achieves its stated goals (Recall@100=1.000). Security posture is correct. The major issue is a 5-minute fix using dataclasses.replace(). Minor issues are non-blocking.",
+  "required_before_commit": [
+    "Fix prepare.py: replace manual RetrievalConfig reconstruction with dataclasses.replace() in both _widen_config() and the fix_hash injection block (lines 34-43, 109-119)"
+  ],
+  "optional_improvements": [
+    "Fix _run_enabled_strategies return type annotation",
+    "Add _run_git error path tests",
+    "Add extensions parameter test for localize_via_fix_diff"
+  ]
+}

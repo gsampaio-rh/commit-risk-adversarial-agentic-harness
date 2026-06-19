@@ -63,6 +63,7 @@ def run_single_case(case: EvalCase, llm: Any, writer: TraceWriter) -> dict:
             temporal_bound=case.temporal_bound,
             project=case.project,
             issue_key=case.issue_key,
+            fix_hash=case.fix_hash,
         )
     except Exception as e:
         return {**result, "status": "error", "reason": str(e)}

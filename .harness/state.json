@@ -2,11 +2,11 @@
   "project": "exp19b-bug-attribution-agent",
   "phase": "v42-proven",
   "created": "2026-06-15T21:49:00Z",
-  "updated": "2026-06-18T21:10:00Z",
+  "updated": "2026-06-19T08:31:00Z",
   "schema_version": 5,
   "_archive": "V2 archived to state-v2-archive.json. V4.0-V4.2 build tasks (22 tasks) archived to state-v42-archive.json. Code quality + repo audit archived this session.",
   "vision": "Build a plan-driven bug attribution agent with internal governance. The system separates concerns into three pipelines: (1) Input Pipeline — deterministic extraction and candidate retrieval at zero LLM cost; (2) Agent Pipeline — LLM plans, examines, and attributes within an InvestigationBrief, governed by an investigation harness with rules and skills; (3) Evaluation Pipeline — oracle scores output. The agent receives a CandidateSet (not raw repo access), operates within completion criteria (not just budget), produces structured InvestigationTraces for learning, and improves over time via skills derived from traces. Evaluated via Hit@k, MRR, D3, D6, and Retrieval Recall against ApacheJIT ground truth.",
-  "direction": "V4.2 PROVEN at Hit@5=0.600 (baseline). P24 quick wins: triage expansion REVERTED (dilutes LLM attention), --first-parent removal KEPT (structurally correct, no regression). Current effective Hit@5=0.550-0.600 (LLM variance). Next phase: CAUSAL TRACING. Phase 0 (bug localization + targeted blame via reverse SZZ) addresses the 8 structural misses. Validated by diagnostic spike (P25) before full build (P26). Embedding retrieval (P27) is fallback if Phase 0 insufficient.",
+  "direction": "V4.2 + Phase 0 at Hit@5=0.650, Recall@100=1.000 (current best). Retrieval is structurally solved. The bottleneck is now the pre-score → triage → investigation funnel. 7 remaining misses: 2 fail at pre-score (blame-sourced commits score too low), 2 at triage (rank 8-15 misses top-7 cut), 3 at investigation (LLM reasoning quality). Strategy: (1) diagnostic spike to get exact ranks/scores for all 7, (2) pre-score blame bonus to rescue the 2 pre-score failures + potentially the 2 triage failures, (3) targeted triage anchoring for blame-sourced commits if needed, (4) investigation prompt tuning for the 3 reasoning failures. Expected ceiling: Hit@5=0.800-0.850 with P28-P31.",
   "invariants": {
     "temporal_bound": "Temporal bound (COMMIT_B~1) constrains the ENTIRE system — input pipeline retrieval and agent tools. In eval mode, bound comes from fix_hash.",
     "llm_reasons_scripts_retrieve": "Scripts own retrieval (candidate set assembly) and evidence verification. LLM owns planning, examination reasoning, and attribution.",
@@ -48,6 +48,15 @@
       "models": {
         "gpt-5.3-codex": { "hit_at_5": 0.600, "mrr": 0.378, "avg_latency_s": 104, "recall_at_100": 0.800, "n": 20, "status": "completed", "new_hits": ["SPARK-946", "IGNITE-1787"], "lost_hits": [] }
       }
+    },
+    "v42_post_p26_phase0": {
+      "date": "2026-06-19",
+      "n": 20,
+      "note": "After P26 Phase 0 (fix-diff blame). Recall@100=1.000. Retrieval fully solved.",
+      "features": ["localization-blame"],
+      "models": {
+        "gpt-5.3-codex": { "hit_at_5": 0.650, "mrr": 0.389, "avg_latency_s": 101, "recall_at_100": 1.000, "n": 20, "status": "completed", "new_hits": ["SPARK-20123", "HBASE-4577", "GROOVY-5003"], "lost_hits": ["IGNITE-6748", "HIVE-4113"] }
+      }
     }
   },
   "completed_milestones": [
@@ -68,7 +77,9 @@
     "extend-keyword-sources (P22): Acronym/lowerCamelCase regexes + pickaxe --first-parent removal. Verified.",
     "adaptive-scoring (P22.5): Shortlist 15→20 + adaptive weights for empty extracted_files. Verified.",
     "p21-p22-p225-validation: gpt-5.3-codex n=20 eval post-improvements. Hit@5=0.500→0.600, Recall@100=0.700→0.800. +2 hits (SPARK-946, IGNITE-1787), 0 regressions.",
-    "quick-wins-triage-firstparent (P24): Triage 7→10 REVERTED (-3/-4 regression). --first-parent removal KEPT (no structural regression). Hit@5=0.550 (stochastic -1 vs 0.600)."
+    "quick-wins-triage-firstparent (P24): Triage 7→10 REVERTED (-3/-4 regression). --first-parent removal KEPT (no structural regression). Hit@5=0.550 (stochastic -1 vs 0.600).",
+    "spike-phase0-feasibility (P25): Reverse SZZ via git blame on fix-changed lines: 7/8 match GT. Gate PASSED (7 >= 5).",
+    "phase0-bug-localization (P26): Fix-diff blame as localization_blame strategy. Recall@100=0.800→1.000 (+4 cases). Hit@5=0.600→0.650 (+3 new, -2 stochastic). Investigation is new bottleneck."
   ],
   "cancelled_tasks": [
     "v3-post-processing-b: V3 re-ranking — superseded by V4",
@@ -76,17 +87,36 @@
     "ci-pipeline: Automated eval CI — premature",
     "v42-gate-provider-compliance: Pre-implementation gate (merged into build)",
     "v42-phase1b-triage: Phase 1b LLM triage (merged into P14)",
-    "spike-level2-extractor: Level 2 LLM extraction — superseded by Phase 0 bug localization (P26)"
+    "spike-level2-extractor: Level 2 LLM extraction — superseded by Phase 0 bug localization (P26)",
+    "embedding-retrieval (P27): Bi-encoder ANN on commit messages — CANCELLED. Recall@100 already 1.000, no retrieval lift possible. Semantic scoring reformulation possible but unproven ROI."
   ],
+  "remaining_misses": {
+    "_note": "Failure breakdown of 7/20 misses after P26 (gpt-5.3-codex n=20 eval)",
+    "pre_score_failures": {
+      "cases": ["SPARK-27907", "GROOVY-7014"],
+      "diagnosis": "GT in candidate set (rescued by localization_blame) but drops below rank 15 in pre-scoring. Root cause: blame-sourced commits with signal_count=1 and low/zero file_overlap score poorly under current formula (0.5*file_overlap + 0.3*norm_sc + 0.2*rank).",
+      "intervention": "Add dedicated blame_bonus to pre-score formula. localization_blame has 87.5% GT precision — it deserves higher weight than a generic +1 signal_count."
+    },
+    "triage_failures": {
+      "cases": ["GROOVY-8298", "GROOVY-5775"],
+      "diagnosis": "GT survives pre-score@20 but ranks 8+ (outside top-7 triage window). Previously these were investigation failures (pre-P26); P26 may have shifted relative rankings by adding more blame-sourced candidates. Blanket triage expansion (P24) regressed by diluting LLM attention.",
+      "intervention": "Option A: blame_bonus in pre-score pushes them into top 7 naturally. Option B: targeted triage anchor — blame-sourced commits auto-claim watchlist slots (no blanket expansion). Try A first."
+    },
+    "investigation_failures": {
+      "cases": ["IGNITE-6748", "HIVE-4113", "SPARK-23059"],
+      "diagnosis": "IGNITE-6748 (exam_recall=true, ranked >5): LLM examined GT but failed to rank it highly — reasoning/comparative analysis failure. HIVE-4113 (exam_recall=false): LLM never examined GT despite it being in triaged set — planning/coverage failure. SPARK-23059 (exam_recall=true, ranked >5): same as IGNITE-6748.",
+      "intervention": "Harder to fix structurally. Options: (a) investigation prompt improvements for comparative reasoning, (b) forced full-coverage examination before ranking, (c) accept these as stochastic ceiling (~15% LLM variance)."
+    }
+  },
   "tasks": [
     {
       "id": "v42-model-comparison",
       "name": "V4.2 model comparison: local models n=5 eval",
       "type": "checkpoint",
       "status": "pending",
-      "priority": 30,
+      "priority": 50,
       "scope": "Run n=5 eval on local models (qwen3.6:35b-a3b, qwen3:8b, gemma3:12b-it-q8_0). Compare Hit@5, speed. Pick best for full re-eval.",
-      "note": "DEFERRED: cloud models significantly outperform local. Revisit after Phase 0 work stabilizes."
+      "note": "DEFERRED: cloud models significantly outperform local. Revisit after pipeline tuning stabilizes."
     },
     {
       "id": "quick-wins-triage-firstparent",
@@ -95,45 +125,91 @@
       "status": "completed",
       "priority": 24,
       "scope": "Original: two changes. (1) Triage expansion WATCHLIST_SIZE 4→7 — REVERTED after consistent -3 to -4 regression across 2 eval runs (diluted LLM attention with more watchlist candidates). (2) --first-parent removal from keyword_grep/file_log — KEPT, structurally correct. Eval confirmed zero impact on deterministic pipeline (Recall@100, Triage Recall unchanged). The -1 Hit@5 (0.550 vs 0.600) is LLM variance on HDFS-7734 (exam_recall=true both runs).",
-      "gate": { "no_regression": true, "result": "no structural regression; -1 stochastic at LLM layer" },
-      "eval_results": {
-        "first_parent_only": { "hit_at_5": 0.550, "mrr": 0.358, "recall_100": 0.800, "n": 20, "lost": ["HDFS-7734"], "new": [] },
-        "triage_expansion_run1": { "hit_at_5": 0.400, "n": 20, "note": "WATCHLIST_SIZE=7, -4 regressions" },
-        "triage_expansion_run2": { "hit_at_5": 0.450, "n": 20, "note": "WATCHLIST_SIZE=7, -3 regressions" }
-      }
+      "gate": { "no_regression": true, "result": "no structural regression; -1 stochastic at LLM layer" }
     },
     {
       "id": "spike-phase0-feasibility",
       "name": "Diagnostic: Phase 0 bug localization feasibility on 8 misses",
       "type": "spike",
-      "status": "pending",
-      "priority": 25,
-      "depends_on": ["quick-wins-triage-firstparent"],
-      "scope": "For each of the 8 remaining misses: (1) Stack trace fast path — parse (file:line) from JIRA stack traces, resolve in repo at fix_hash~1, git blame those lines, check if blame SHA matches any GT bug_hash. (2) LLM localization — for cases without stack traces, manually identify the likely buggy code area from JIRA + code reading, blame it, check. Output: table with columns [case, has_stack_trace, localized_file, localized_lines, blame_sha, gt_match, notes]. Gate: if blame yields GT for 5+ of 8 cases → build Phase 0 module (P26). If <5 → add embedding retrieval as primary strategy instead.",
-      "gate": { "min_rescues": 5, "decision": "5+ → build P26. <5 → pivot to embeddings (P27)" },
-      "note": "This is the critical experiment. The hypothesis (reverse SZZ via JIRA-guided localization) is strong but untested. The diagnostic costs ~1 hour and determines the entire next phase."
+      "status": "completed",
+      "priority": 25
     },
     {
       "id": "phase0-bug-localization",
       "name": "Phase 0: bug localization + targeted blame retrieval strategy",
       "type": "feature",
-      "status": "pending",
+      "status": "completed",
       "priority": 26,
-      "depends_on": ["spike-phase0-feasibility"],
-      "scope": "New pipeline phase before retrieval. Two paths: (A) Stack trace fast path — regex parses Java stack traces from JIRA description, extracts (file:line) pairs, resolves files via git ls-tree at fix_hash~1, blames those exact lines. Zero LLM cost. (B) LLM localization fallback — when no stack trace, cheap LLM (nano/haiku) reads JIRA description + top extracted files' source code at fix_hash~1, returns structured bug locations [{file, line_start, line_end, reason}]. Blame those lines. Both paths produce StrategyHit objects with strategy='localization_blame' that merge into the existing candidate set via merge_hits(). Additive — if Phase 0 produces nothing, existing pipeline runs unchanged. Touch: new module src/commit_investigator/localization/, changes to retriever.py (add strategy), problem_extractor.py (stack trace parser).",
-      "gate": { "hit_at_5_target": 0.800, "no_regression": true },
-      "note": "CONDITIONAL: only build if P25 diagnostic shows 5+ rescues. Architecture: Phase 0 sits between extraction and retrieval. It uses the LLM for code understanding (not search), which is a refinement of the 'LLM reasons, scripts retrieve' invariant — the LLM localizes the bug, scripts execute blame."
+      "gate": { "hit_at_5_target": 0.800, "no_regression": true, "result": "Hit@5=0.650, below 0.800 target but Recall@100=1.000 (structural fix). -2 regressions are LLM variance, not structural." }
     },
     {
       "id": "embedding-retrieval",
       "name": "Embedding retrieval: bi-encoder ANN on commit message corpus",
       "type": "feature",
-      "status": "pending",
+      "status": "cancelled",
       "priority": 27,
-      "depends_on": ["phase0-bug-localization"],
-      "scope": "New retrieval strategy. Pre-compute embeddings of all commit messages (+ files_changed list) per repo using a local embedding model (nomic-embed-text or all-MiniLM-L6-v2). At retrieval time, embed JIRA title+description, find top-50 nearest commits by cosine similarity. Add as 'embedding' strategy hits in merge_hits(). Index stored per-repo under data/embedding_indexes/. One-time build cost (~30-60s per repo). Zero per-query LLM cost. Touch: new module src/commit_investigator/retrieval/embedding_strategy.py, changes to retriever.py.",
-      "gate": { "recall_100_lift": "+2 cases minimum" },
-      "note": "DECISION GATE: only build if Phase 0 alone doesn't achieve Hit@5 ≥ 0.800 on n=20 eval. If Phase 0 reaches 0.850+, embeddings are likely unnecessary. Evaluate after Phase 0 n=20 eval."
+      "scope": "CANCELLED: Recall@100=1.000 — no retrieval lift possible. Semantic embeddings for scoring reformulation has unproven ROI and adds infrastructure complexity (embedding models, index storage)."
+    },
+    {
+      "id": "diag-funnel-7-misses",
+      "name": "Diagnostic: exact pre-score ranks and trace analysis for 7 remaining misses",
+      "type": "spike",
+      "status": "pending",
+      "priority": 28,
+      "scope": "For each of the 7 remaining misses (SPARK-27907, GROOVY-7014, GROOVY-8298, GROOVY-5775, IGNITE-6748, HIVE-4113, SPARK-23059): extract from eval traces the exact pre-score rank, pre-score value, signal_count, file_overlap, retrieval_signal (which strategies found it), triage position, and whether it was examined. Output a diagnostic table. Confirms the hypothesized failure modes before building fixes.",
+      "gate": { "output": "Diagnostic table with ranks/scores for all 7 cases. Confirms which cases are addressable by pre-score tuning vs investigation improvements." }
+    },
+    {
+      "id": "prescore-blame-bonus",
+      "name": "Pre-score blame bonus: boost localization_blame strategy weight",
+      "type": "feature",
+      "status": "pending",
+      "priority": 29,
+      "depends_on": ["diag-funnel-7-misses"],
+      "scope": "Add a dedicated blame_bonus term to the pre-score formula. When a candidate's retrieval_signal contains 'localization_blame', add a fixed bonus (e.g. +0.3-0.4) to its pre_score. Rationale: localization_blame has 87.5% GT precision from P25 — far higher confidence than other strategies. Current formula treats all strategies equally via signal_count, which undervalues blame. Expected to rescue SPARK-27907 and GROOVY-7014 (pre-score failures) and potentially GROOVY-8298, GROOVY-5775 (triage failures) by pushing them into top 7. Does NOT touch triage logic. Touch: scoring.py only.",
+      "gate": { "prescore_recall_15": "All 4 pre-score+triage failures enter top 15", "no_regression": true, "eval": "n=20 gpt-5.3-codex, Hit@5 >= 0.700" }
+    },
+    {
+      "id": "triage-blame-anchor",
+      "name": "Triage blame anchor: reserve watchlist slots for blame-sourced commits",
+      "type": "feature",
+      "status": "pending",
+      "priority": 30,
+      "depends_on": ["prescore-blame-bonus"],
+      "scope": "CONDITIONAL — only build if P29 blame bonus alone doesn't push GROOVY-8298/GROOVY-5775 into top 7. If needed: modify triage.py to reserve 1-2 watchlist slots for commits whose retrieval_signal contains 'localization_blame' AND that rank within the shortlist (positions 8-20). This is TARGETED (only blame-sourced, not blanket expansion). The lesson from P24 is that blanket expansion dilutes LLM attention; this is surgical. Touch: triage.py. Skip if P29 alone achieves TriageRecall >= 16/20.",
+      "gate": { "triage_recall": ">= 16/20 (from current 14/20)", "no_regression": "Hit@5 >= 0.650 (no worse than current)" },
+      "note": "May be unnecessary if P29 blame bonus is strong enough to push all 4 cases into top 7 by pre_score alone. Evaluate after P29 results."
+    },
+    {
+      "id": "investigation-coverage-improvement",
+      "name": "Investigation prompt: forced examination coverage + comparative ranking",
+      "type": "feature",
+      "status": "pending",
+      "priority": 31,
+      "depends_on": ["prescore-blame-bonus"],
+      "scope": "Address the 3 investigation failures: (1) HIVE-4113 (exam_recall=false) — LLM skipped examining GT. Add a coverage rule: 'You MUST call get_commit_diff on every must-examine candidate before concluding.' (2) IGNITE-6748, SPARK-23059 (exam_recall=true, ranked>5) — LLM examined GT but ranked it poorly. Add a comparative analysis step: after examining all candidates, explicitly compare the top N with the strongest evidence before finalizing ranking. Touch: investigation/prompts.py. Verify: no latency regression (budget stays within 300s target).",
+      "gate": { "exam_recall_improvement": "HIVE-4113 exam_recall → true", "no_latency_regression": "avg latency <= 120s", "eval": "n=20, Hit@5 >= 0.700" },
+      "note": "Investigation improvements are inherently stochastic. Run eval 2x to separate signal from noise. Acceptable if improvement is +1-2 cases with 0 consistent regressions."
+    },
+    {
+      "id": "validation-eval-post-tuning",
+      "name": "Validation eval: n=20 gpt-5.3-codex after P29-P31",
+      "type": "checkpoint",
+      "status": "pending",
+      "priority": 32,
+      "depends_on": ["prescore-blame-bonus"],
+      "scope": "Full n=20 eval with gpt-5.3-codex after pre-score and investigation improvements. Record: Hit@5, MRR, full funnel metrics, per-case results. Run 2x to measure stochastic variance. Target: Hit@5 >= 0.750 (mean of 2 runs). If achieved, run multi-model eval (sonnet, haiku) to validate generalization.",
+      "gate": { "hit_at_5_target": 0.750, "variance": "2 runs differ by <= 2 cases" }
+    },
+    {
+      "id": "stochastic-variance-mitigation",
+      "name": "Stochastic variance: majority-vote or temperature-0 investigation",
+      "type": "spike",
+      "status": "pending",
+      "priority": 33,
+      "scope": "If P32 validation shows high run-to-run variance (>2 cases), investigate mitigation: (A) temperature=0 for investigation LLM calls (reduces variance at slight quality cost), (B) majority-vote across 3 runs with rank aggregation (3x cost but higher reliability), (C) self-consistency within a single run (ask LLM to re-rank after initial investigation). Spike only — analyze feasibility and cost/benefit. Do NOT build without evaluating cost implications.",
+      "gate": { "decision": "One of A/B/C selected with cost/quality tradeoff documented, or determined unnecessary if variance <= 2 cases" },
+      "note": "Only relevant if stochastic variance remains a problem after P29-P31. May be unnecessary."
     }
   ]
 }

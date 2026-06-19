@@ -8,7 +8,9 @@ from dataclasses import dataclass, field
 from commit_investigator.extraction.problem_extractor import ProblemStatement
 from commit_investigator.infra.git_context import FileHistoryEntry, GitContextProvider
 
-VALID_STRATEGIES = frozenset({"file_log", "keyword_grep", "pickaxe", "blame"})
+VALID_STRATEGIES = frozenset({
+    "file_log", "keyword_grep", "pickaxe", "blame", "localization_blame",
+})
 
 _BLAME_SHA_PATTERN = re.compile(r"^([0-9a-fA-F]{7,40})\s")
 

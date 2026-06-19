@@ -82,7 +82,7 @@ class TestRetrievalConfig:
     def test_defaults(self) -> None:
         cfg = RetrievalConfig()
         assert cfg.max_candidates == 100
-        assert cfg.strategies == ["file_log", "keyword_grep", "pickaxe", "blame"]
+        assert cfg.strategies == ["file_log", "keyword_grep", "pickaxe", "blame", "localization_blame"]
         assert cfg.fallback_recency_threshold == 10
         assert cfg.file_log_per_file == 50
         assert cfg.keyword_grep_per_kw == 30

@@ -7,7 +7,7 @@ the ProblemStatement + CandidateSet that the investigation harness consumes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, overload
 
@@ -31,10 +31,8 @@ class RetrievalResult:
 
 def _widen_config(config: RetrievalConfig) -> RetrievalConfig:
     """Double per-strategy limits for brief-validation retry."""
-    return RetrievalConfig(
-        max_candidates=config.max_candidates,
-        strategies=list(config.strategies),
-        fallback_recency_threshold=config.fallback_recency_threshold,
+    return replace(
+        config,
         file_log_per_file=config.file_log_per_file * _WIDENED_MULTIPLIER,
         keyword_grep_per_kw=config.keyword_grep_per_kw * _WIDENED_MULTIPLIER,
         pickaxe_per_symbol=config.pickaxe_per_symbol * _WIDENED_MULTIPLIER,
@@ -50,6 +48,7 @@ def prepare_investigation(
     project: str,
     *,
     config: RetrievalConfig | None = ...,
+    fix_hash: str | None = ...,
 ) -> RetrievalResult: ...
 
 
@@ -62,6 +61,7 @@ def prepare_investigation(
     *,
     config: RetrievalConfig | None = ...,
     issue_key: str = ...,
+    fix_hash: str | None = ...,
 ) -> RetrievalResult: ...
 
 
@@ -73,6 +73,7 @@ def prepare_investigation(
     *,
     config: RetrievalConfig | None = None,
     issue_key: str = "",
+    fix_hash: str | None = None,
 ) -> RetrievalResult:
     """Run Stage 0 (extraction) + Stage 1 (retrieval) for one investigation.
 
@@ -101,6 +102,9 @@ def prepare_investigation(
 
     git = GitContextProvider(repo_path=repo_path, temporal_bound=temporal_bound)
     cfg = config or RetrievalConfig()
+
+    if fix_hash and not cfg.fix_hash:
+        cfg = replace(cfg, fix_hash=fix_hash)
 
     candidate_set = retrieve_candidates(problem, git, cfg)
     retry_triggered = False

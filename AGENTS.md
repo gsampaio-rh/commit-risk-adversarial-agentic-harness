@@ -55,6 +55,7 @@ Before starting a new task: check if a contract exists, read the last 5 breadcru
 ```
 src/commit_investigator/
 ├── extraction/      # problem_extractor, jira_client
+├── localization/    # Phase 0: fix-diff blame localizer (reverse SZZ)
 ├── retrieval/       # retriever, prepare (input pipeline), strategies
 ├── narrowing/       # Phase 1: pre-score + deterministic triage (ScoredShortlist → TriageResult)
 ├── models/          # candidates (CandidateSet, CandidateCommit)
@@ -66,7 +67,7 @@ src/commit_investigator/
 ## Pipeline (V4.2 — Current)
 
 ```
-Input: Extraction → Retrieval → CandidateSet@100
+Input: Extraction → Retrieval (+ Phase 0 blame localization) → CandidateSet@100
 Phase 1a: Script pre-score → ScoredShortlist@15 (zero LLM)
 Phase 1b: Deterministic triage → 3 must-examine + 4 watchlist (zero LLM)
 Phase 2: Scoped investigation (multi-turn ReAct) → Ranked Suspects
@@ -77,6 +78,7 @@ Evaluation: 5-stage funnel (Recall@100→@15→@7→Exam→Hit@5)
 | Phase | Module | Owner |
 |-------|--------|-------|
 | Extraction | `extraction/problem_extractor.py` | Script |
+| Localization (Phase 0) | `localization/blame_localizer.py` | Script (fix-diff blame) |
 | Retrieval | `retrieval/prepare.py` → `retrieval/retriever.py` | Script |
 | Pre-score + Triage | `narrowing/pipeline.py` (scoring.py, triage.py) | Script |
 | Scoped investigation | `investigation/investigator.py` + `investigation/tools.py` | LLM + scoped tools |
@@ -131,3 +133,13 @@ P24 quick wins: triage expansion (WATCHLIST_SIZE 4→7) REVERTED after consisten
 | gpt-5.3-codex | 0.550 | 0.358 | 0.800 | 97s | 20 | HDFS-7734 | LLM variance (exam_recall=true) |
 
 Deterministic pipeline unchanged (Recall@100=0.800, Triage=12/20). The -1 is stochastic at investigation phase.
+
+### V4.2 Post-P26 Phase 0 (n=20, 2026-06-19)
+
+P26: fix-diff blame as `localization_blame` retrieval strategy. Reverse SZZ — blame lines changed by fix commit to find bug introducer.
+
+| Model | Hit@5 | MRR | Recall@100 | Lat/case | N | New hits | Regressions |
+|---|---|---|---|---|---|---|---|
+| gpt-5.3-codex | **0.650** | 0.389 | **1.000** | 101s | 20 | SPARK-20123, HBASE-4577, GROOVY-5003 | IGNITE-6748, HIVE-4113 |
+
+Recall@100 lifted from 0.800→1.000 (all 20 cases retrieved). The -2 regressions are LLM investigation variance (IGNITE-6748 has exam_recall=true). Retrieval is no longer the bottleneck — 7 remaining misses fail at pre-score (2), triage (2), or investigation (3).

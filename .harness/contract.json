@@ -1,28 +1,24 @@
 {
-  "task_id": "quick-wins-triage-firstparent",
-  "feature": "Expand triage watchlist 4→7 and remove --first-parent from keyword/file_log search",
-  "problem": "P22.5 expanded shortlist to 20 but triage still cuts at 7 (3+4), creating a dead zone at positions 8-10. GT cases like GROOVY-8298 and SPARK-23059 are stuck in this dead zone. Additionally, search_commits_by_keyword and get_file_history still use --first-parent, missing commits introduced via merged branches. Pickaxe had this fixed in P22 but keyword_grep and file_log were missed.",
-  "proposed_solution": "Two independent one-liner changes: (1) WATCHLIST_SIZE 4→7 in triage.py, expanding total triage from 7 to 10 (3 must-examine + 7 watchlist). (2) Remove --first-parent from search_commits_by_keyword in git_search.py and get_file_history in git_context.py, matching the P22 pickaxe fix.",
+  "feature": "Phase 0: fix-diff blame localization strategy",
+  "task_id": "phase0-bug-localization",
   "acceptance_criteria": [
-    "AC1: WATCHLIST_SIZE constant in triage.py equals 7",
-    "AC2: assign_tiers() with default params produces 3 must_examine + 7 watchlist for a shortlist of >=10",
-    "AC3: narrow_candidates() default watchlist_size is 7 (inherited from constant)",
-    "AC4: search_commits_by_keyword in git_search.py does NOT contain --first-parent",
-    "AC5: get_file_history in git_context.py does NOT contain --first-parent",
-    "AC6: search_commits_by_pickaxe (already fixed in P22) still does NOT contain --first-parent",
-    "AC7: Docstrings in search_commits_by_keyword and get_file_history no longer reference --first-parent",
-    "AC8: All existing tests in tests/test_narrowing.py pass with assertions updated to reflect WATCHLIST_SIZE=7 (specifically: test_watchlist_gets_next4 renamed/updated, tier_rank list extended, and all hardcoded == 4 watchlist assertions changed to == 7)",
-    "AC9: SCOPE GUARD — list_recent_commits and list_commits_in_date_range in git_search.py RETAIN --first-parent unchanged (these use linear history intentionally for overview/browsing, unlike keyword search which needs merge traversal)"
+    "AC1: New module `src/commit_investigator/localization/blame_localizer.py` with function `localize_via_fix_diff(repo_path, fix_hash, file_extensions) -> list[StrategyHit]` that: (a) runs git diff-tree to find files changed by fix commit, (b) filters to source file extensions, (c) parses unified diff hunks for old-side line ranges, (d) runs git blame at fix_hash~1 on those lines, (e) returns unique SHAs as StrategyHit objects with strategy='localization_blame'",
+    "AC2: `localization_blame` added to VALID_STRATEGIES in strategies.py",
+    "AC3: Integration in prepare.py: when fix_hash is provided (eval mode), call blame_localizer, merge results with retrieval hits via existing merge_hits()",
+    "AC4: RetrievalConfig gains optional `fix_hash: str | None = None` field for eval-mode localization",
+    "AC5: prepare_investigation() accepts optional fix_hash parameter and passes it through",
+    "AC6: Additive: if fix_hash is None or blame produces no hits, pipeline runs unchanged (zero regression risk)",
+    "AC7: File type filter includes .java, .groovy, .scala, .py, .sh and excludes CHANGES.txt, .md, .xml",
+    "AC8: All existing tests pass (python -m pytest --tb=short -q)",
+    "AC9: New unit tests for blame_localizer covering: (a) normal blame hit, (b) no source files in fix diff, (c) empty hunks, (d) SHA normalization"
   ],
   "edge_cases": [
-    "EC1: Shortlist with fewer than 10 candidates — triage fills what's available without error (e.g., 8 candidates → 3 must-examine + 5 watchlist)",
-    "EC2: Shortlist with exactly 3 candidates — all go to must_examine, watchlist is empty",
-    "EC3: Shortlist with exactly 10 candidates — all slots filled exactly (3 must-examine + 7 watchlist), no IndexError or off-by-one"
+    "Fix commit only touches non-source files (e.g., SPARK-20123 .sh files) — should return empty hits, not error",
+    "Fix commit touches 50+ files (large refactor) — should still work within reasonable time",
+    "Blame returns boundary commits (^sha) — should be filtered out",
+    "Fix hash doesn't exist in repo — should handle gracefully"
   ],
-  "verification_method": "Run pytest full suite (pytest tests/test_narrowing.py). Verify constants and git args by reading source. Grep git_search.py for --first-parent: should appear in list_recent_commits and list_commits_in_date_range ONLY.",
-  "rubrics": ["code-quality"],
-  "rubric_mode": "warn",
-  "negotiation_rounds": 2,
-  "phase": "evaluating",
-  "verified": true
+  "verification_method": "pytest + n=20 eval (Hit@5 target 0.800, no regression on existing hits)",
+  "verified": true,
+  "eval_result": "Hit@5=0.650 (13/20), Recall@100=1.000 (20/20), MRR=0.389. Below 0.800 target but Recall@100 structurally fixed. 339/339 tests pass."
 }

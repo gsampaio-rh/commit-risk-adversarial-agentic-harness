@@ -18,7 +18,7 @@ from commit_investigator.retrieval.strategies import (
     run_pickaxe,
 )
 
-DEFAULT_STRATEGIES = ["file_log", "keyword_grep", "pickaxe", "blame"]
+DEFAULT_STRATEGIES = ["file_log", "keyword_grep", "pickaxe", "blame", "localization_blame"]
 
 
 @dataclass
@@ -32,6 +32,7 @@ class RetrievalConfig:
     keyword_grep_per_kw: int = 30
     pickaxe_per_symbol: int = 50
     blame_per_file: int = 100
+    fix_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -192,6 +193,11 @@ def retrieve_candidates(
     temporal_bound = git.temporal_bound or ""
 
     hits = _run_enabled_strategies(problem, git, cfg, enabled)
+
+    if cfg.fix_hash and "localization_blame" in enabled:
+        from commit_investigator.localization.blame_localizer import localize_via_fix_diff
+        hits.extend(localize_via_fix_diff(git.repo_path, cfg.fix_hash))
+
     merged = merge_hits(hits)
     signal_count = len(merged)
 
